@@ -24,14 +24,14 @@ nonisolated enum MacBuildConfig {
     /// A separate product from the iOS app — separate project, separate bundle
     /// identifier — but the version line tracks the shared build history (the project file
     /// carries the real numbers; these are only the fallback if Info.plist is unreadable).
-    private static let fallbackVersion     = "4.32"
-    private static let fallbackBuildNumber = 92
+    private static let fallbackVersion     = "4.33"
+    private static let fallbackBuildNumber = 93
 
     /// When the shared model layer was last checked against the phone's copy. Models.swift
     /// and KitchenMetrics.swift are byte-for-byte identical to the iOS tree as of this
     /// check; re-run the diff and update this string whenever either side moves, so the
     /// provenance stays honest rather than decorative.
-    static let sharedModelLineage = "Shared models verified identical to iOS — Build 92, August 2026"
+    static let sharedModelLineage = "Shared models verified identical to iOS — Build 93, August 2026"
 
     static var buildNumber: Int {
         Int(bundleString("CFBundleVersion") ?? "") ?? fallbackBuildNumber
@@ -44,16 +44,20 @@ nonisolated enum MacBuildConfig {
 
     static let buildDate = "August 2026"
     static let buildName = """
-        Sources are now something you pick, not something you settle for. The Browse \
-        section's dropdown became a checklist \u{2014} search it, tick as many sites as you \
-        like across the American and Worldwide fifties, and browse or queue them all in \
-        one run that visits each site in turn. The list itself is yours to maintain: \
-        update it from a plain text file with one site per line (a name and a URL, or \
-        just the URL), or from a JSON export you edited by hand, and export the current \
-        hundred the same way. And the empty screen from the screenshot cannot happen \
-        again: an app that wakes up with no browsable sources now restores the built-in \
-        catalog by itself at launch, keeping anything custom you added, with a Restore \
-        button right where the error used to sit.
+        The crawler grew judgment, options, and manners you can adjust. Browsing now \
+        has three engines \u{2014} sitemaps, category pages, and feeds \u{2014} pickable per run, \
+        with a speed dial from Gentle to Maximum that scales delays, page budgets and \
+        candidate caps while robots.txt and daily limits stay sacred. Sitemap results \
+        are no longer taken at face value: hub pages like Birthdays and Holidays are \
+        recognized, opened, and mined for the actual recipes they link to instead of \
+        being queued as if they were dinner. Feeds bring in communities \u{2014} ten reddit \
+        cooking subreddits ship in the catalog \u{2014} where the outbound link, not the \
+        post, is the candidate, and every one still faces the full recipe check at \
+        import. A Stocked-standards checklist now sits in every draft's detail view \
+        and gates auto-approval: real title, three ingredients, two steps, an image \
+        on disk, a source URL, and honest attribution \u{2014} which is now guaranteed, \
+        because what Stocked shows as the source is the site's real name or the \
+        author, never "Sowens" or an internal handle, with the URL alongside.
         """
 
     // MARK: - Environment

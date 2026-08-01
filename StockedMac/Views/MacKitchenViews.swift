@@ -647,6 +647,42 @@ private struct HarvestDraftDetail: View {
                     }
                 }
 
+                // Stocked standards (Build 93): the checklist that gates auto-approval.
+                let standards = draft.standards
+                MacCard(
+                    title: "Stocked standards",
+                    systemImage: standards.requiredPassed ? "checkmark.seal" : "xmark.seal",
+                    footnote: standards.summary
+                ) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(standards.checks) { check in
+                            HStack(spacing: 6) {
+                                Image(systemName: check.passed ? "checkmark.circle.fill"
+                                      : (check.required ? "xmark.circle.fill" : "minus.circle"))
+                                    .font(.caption)
+                                    .foregroundStyle(check.passed ? MacTheme.green
+                                                     : (check.required ? .red : .secondary))
+                                Text(check.label).font(.caption)
+                                if let detail = check.detail?.nilIfBlank {
+                                    Text("\u{2014} \(detail)")
+                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                                if !check.required {
+                                    Text("recommended")
+                                        .font(.system(size: 9)).foregroundStyle(.tertiary)
+                                }
+                            }
+                        }
+                        if !standards.requiredPassed {
+                            Text("Fails \(standards.failedRequired.count) required check\(standards.failedRequired.count == 1 ? "" : "s") \u{2014} it will not auto-approve and cannot reach the kitchen until fixed.")
+                                .font(.caption).foregroundStyle(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.top, 2)
+                        }
+                    }
+                }
+
                 // Warnings
                 if !draft.warnings.isEmpty {
                     MacCard(title: "Warnings", systemImage: "exclamationmark.triangle") {

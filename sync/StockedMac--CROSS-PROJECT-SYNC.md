@@ -8,6 +8,18 @@
 
 ## Applied updates
 
+### Build 93 (4.33) — crawler engines & standards — 2026-08-01
+- Crawl method per run (Auto/Sitemaps/Category pages/Feeds) + aggressiveness dial
+  (Gentle→Maximum: delays, page budgets, candidate caps; robots/daily limits sacred).
+- Category/holiday/birthday hub URLs are opened and mined for recipe links, not queued.
+- Communities: 10 reddit cooking subreddits in the catalog (feedOnly); outbound links
+  are the candidates, verified at import, attributed to the hosting site.
+- Stocked-standards checklist (6 required + 3 recommended) shown per draft and gating
+  auto-approval; SourceAttribution guarantees the source shown is the real site or
+  author, never "Sowens"/internal handles — notes read "Source: <name> — <url>".
+- Worker impact: none. iOS impact: none required (attribution improvement flows
+  through household sync automatically).
+
 ### Build 92 (4.32) — source picker & list files — 2026-08-01
 - Browse sources dropdown is now a multi-select checklist (search, group All/None,
   health dots); "Browse N sources" visits each selected site in turn.

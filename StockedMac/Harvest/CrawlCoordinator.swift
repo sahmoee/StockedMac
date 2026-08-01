@@ -121,7 +121,11 @@ actor CrawlCoordinator {
                 canonicalURL: canonical,
                 host: host,
                 author: parsed.author,
-                attribution: source.name
+                // Build 93: never a generic or internal handle. The site's real name,
+                // the author, or the plain host — decided in one place.
+                attribution: SourceAttribution.displayName(
+                    host: host, sourceName: source.name, author: parsed.author
+                )
             ),
             image: image,
             ingredientSections: ingredientSections,

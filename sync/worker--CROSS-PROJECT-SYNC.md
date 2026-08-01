@@ -23,3 +23,8 @@
 ### 2026-08-01 — note: Mac Build 92
 - Mac app Build 92 (multi-select source browsing, source-list import/export, catalog
   self-heal) requires **no worker change**; the 2026-08-01.1 deploy remains current.
+
+### 2026-08-01 — note: Mac Build 93
+- Crawler engines/aggressiveness, community feeds, standards, attribution — all
+  client-side. **No worker change**; 2026-08-01.1 remains current. Harvest-cache
+  uploads now carry honest attribution in the `attribution` field.

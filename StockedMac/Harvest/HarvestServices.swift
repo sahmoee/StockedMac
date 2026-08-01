@@ -36,10 +36,11 @@ actor PolicyFetcher {
             }
         }
         
-        // Apply rate limiting, honouring the source's own requested delay
+        // Apply rate limiting, honouring the source's own requested delay scaled by
+        // the run's aggressiveness (politeness floor of 0.5 s lives in the limiter).
         await limiter.waitIfNeeded(
             for: url.host ?? "",
-            minimumDelay: Double(source.minimumDelaySeconds)
+            minimumDelay: Double(source.minimumDelaySeconds) * settings.crawlAggressiveness.delayMultiplier
         )
 
         // Fetch the page
@@ -77,7 +78,7 @@ actor PolicyFetcher {
         }
         await limiter.waitIfNeeded(
             for: url.host ?? "",
-            minimumDelay: Double(source.minimumDelaySeconds)
+            minimumDelay: Double(source.minimumDelaySeconds) * settings.crawlAggressiveness.delayMultiplier
         )
         var request = URLRequest(url: url)
         request.setValue(accept, forHTTPHeaderField: "Accept")
@@ -221,6 +222,22 @@ actor ImageStore {
 }
 
 // MARK: - Discovery Engine
+//
+// Build 93: three engines behind one door, plus a throttle.
+//
+//   • Sitemaps        — the Build 90 path, now budgeted and category-aware.
+//   • Category pages  — for sites with useless sitemaps: crawl listing pages and
+//                       follow the recipe links printed on them.
+//   • Feeds           — RSS/Atom, including reddit (r/<sub>/.rss): entry links are
+//                       candidates, and for aggregator hosts the OUTBOUND links in
+//                       entry bodies are too, since the recipe lives off-site.
+//
+// The old engine treated every sitemap URL as a recipe. Real sitemaps are full of
+// "Birthdays", "Holidays", "Our favorite 50…" hub pages; those now get CLASSIFIED —
+// recipe-shaped URLs go straight to the candidate list, listing-shaped URLs get
+// fetched (up to the aggressiveness budget) and mined for the recipe links they
+// contain. Either way the importer still verifies every page before anything is
+// saved, so a hub that slips through is refused there, not stored.
 
 actor DiscoveryEngine {
     private let fetcher: PolicyFetcher
@@ -237,69 +254,186 @@ actor DiscoveryEngine {
         progress: @Sendable @escaping (DiscoveryProgress) async -> Void
     ) async throws -> DiscoveryReport {
         let startedAt = Date()
-        var notes: [String] = []
-        var allURLs: [String] = []
+        let level = settings.crawlAggressiveness
+        let method = resolveMethod(settings.preferredCrawlMethod, source: source)
+        var notes: [String] = ["Engine: \(methodLabel(method)) · Speed: \(level.label)"]
+        var recipeURLs: [String] = []
+        var listingURLs: [String] = []
         var unverifiedURLs: [String] = []
-        var pagesFetched = 0
+        var workingSeed: String?
 
-        let sitemapList = source.sitemapURLs.isEmpty
-            ? [(source.baseURL.hasSuffix("/") ? source.baseURL : source.baseURL + "/") + "sitemap.xml"]
-            : source.sitemapURLs
+        await progress(DiscoveryProgress(phase: "Starting (\(methodLabel(method)))",
+                                         currentURL: nil, pagesFetched: 0,
+                                         queued: 0, confirmed: 0, rejected: 0))
 
-        await progress(DiscoveryProgress(phase: "Starting", currentURL: sitemapList.first,
-                                         pagesFetched: 0, queued: sitemapList.count,
-                                         confirmed: 0, rejected: 0))
+        switch method {
+        case .feed:
+            let result = try await crawlFeeds(source: source, settings: settings,
+                                              level: level, progress: progress)
+            recipeURLs = result.urls
+            notes.append(contentsOf: result.notes)
+            workingSeed = result.workingSeed
+            unverifiedURLs = result.unverified
 
-        for sitemapURLString in sitemapList {
-            if Task.isCancelled {
-                unverifiedURLs = Array(sitemapList.dropFirst(pagesFetched))
-                break
+        case .categories:
+            let result = try await crawlListings(source: source, settings: settings,
+                                                 level: level, progress: progress)
+            recipeURLs = result.urls
+            notes.append(contentsOf: result.notes)
+            workingSeed = result.workingSeed
+
+        case .sitemap:
+            let result = try await crawlSitemaps(source: source, settings: settings,
+                                                 level: level, progress: progress)
+            recipeURLs = result.recipeURLs
+            listingURLs = result.listingURLs
+            notes.append(contentsOf: result.notes)
+            workingSeed = result.workingSeed
+            unverifiedURLs = result.unverified
+        }
+
+        // Expand the listing/category pages the sitemap surfaced — "Birthdays",
+        // "Holiday favorites" and friends — into the recipe links they carry.
+        if !listingURLs.isEmpty {
+            let budget = min(listingURLs.count, level.expansionCap)
+            notes.append("\(listingURLs.count) category pages found; expanding \(budget).")
+            var expanded = 0
+            for listing in listingURLs.prefix(budget) {
+                if Task.isCancelled { break }
+                await progress(DiscoveryProgress(phase: "Opening category pages",
+                                                 currentURL: listing,
+                                                 pagesFetched: expanded,
+                                                 queued: budget - expanded,
+                                                 confirmed: recipeURLs.count, rejected: 0))
+                guard let url = URL(string: listing) else { continue }
+                do {
+                    let page = try await fetcher.fetch(
+                        url, source: source, settings: settings,
+                        accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
+                    )
+                    let links = Self.extractLinks(from: page.text, base: page.finalURL)
+                        .filter { Self.classify($0, source: source) == .recipe }
+                    recipeURLs.append(contentsOf: links)
+                    expanded += 1
+                } catch is CancellationError {
+                    break
+                } catch {
+                    notes.append("Category page failed: \(listing)")
+                }
             }
-            guard let sitemapURL = URL(string: sitemapURLString) else { continue }
-
-            await progress(DiscoveryProgress(phase: "Crawling sitemap",
-                                             currentURL: sitemapURLString,
-                                             pagesFetched: pagesFetched,
-                                             queued: sitemapList.count - pagesFetched,
-                                             confirmed: allURLs.count, rejected: 0))
-            do {
-                let (urls, sitemapNotes) = try await crawlSitemap(
-                    url: sitemapURL, source: source, settings: settings, depth: 0
-                )
-                allURLs.append(contentsOf: urls)
-                notes.append(contentsOf: sitemapNotes)
-                notes.append("\(sitemapURLString): \(urls.count) recipe URLs")
-                pagesFetched += 1
-            } catch is CancellationError {
-                notes.append("Cancelled at \(sitemapURLString)")
-                unverifiedURLs = Array(sitemapList.dropFirst(pagesFetched))
-                break
-            } catch {
-                notes.append("Sitemap failed: \(sitemapURLString) — \(error.localizedDescription)")
-                pagesFetched += 1
+            if listingURLs.count > budget {
+                notes.append("\(listingURLs.count - budget) category pages left for the next run (raise the speed to expand more).")
             }
         }
 
+        // Dedupe, drop what's already imported, cap to the run budget — loudly.
         var seen = Set<String>()
-        let deduplicated = allURLs.filter { seen.insert($0).inserted }
-        let filtered = settings.skipAlreadyImported
-            ? deduplicated.filter { !knownSourceURLs.contains($0) }
-            : deduplicated
+        var deduplicated = recipeURLs.filter { seen.insert($0).inserted }
+        if settings.skipAlreadyImported {
+            deduplicated = deduplicated.filter { !knownSourceURLs.contains($0) }
+        }
+        if deduplicated.count > level.candidateCap {
+            notes.append("Capped at \(level.candidateCap) of \(deduplicated.count) candidates (\(level.label) speed).")
+            deduplicated = Array(deduplicated.prefix(level.candidateCap))
+        }
 
-        let confirmed = filtered.map { DiscoveredLink(url: $0, title: nil, imageURL: nil) }
+        let confirmed = deduplicated.map { DiscoveredLink(url: $0, title: nil, imageURL: nil) }
 
         return DiscoveryReport(
             sourceID: source.id,
             sourceName: source.name,
             startedAt: startedAt,
             finishedAt: Date(),
-            workingSeed: source.sitemapURLs.first,
+            workingSeed: workingSeed ?? source.sitemapURLs.first,
             candidates: confirmed,
             confirmed: confirmed,
             rejected: [],
             unverified: unverifiedURLs,
             notes: notes
         )
+    }
+
+    // MARK: Method resolution
+
+    private nonisolated func resolveMethod(_ preferred: CrawlMethod, source: SourceProfile) -> CrawlMethod {
+        switch preferred {
+        case .auto:
+            switch source.discoveryMode {
+            case .feedOnly:    return .feed
+            case .htmlListing: return .categories
+            default:           return .sitemap
+            }
+        default:
+            return preferred
+        }
+    }
+
+    private nonisolated func methodLabel(_ method: CrawlMethod) -> String {
+        method == .auto ? "Auto" : method.label
+    }
+
+    // MARK: Sitemap engine
+
+    private struct SitemapResult {
+        var recipeURLs: [String] = []
+        var listingURLs: [String] = []
+        var notes: [String] = []
+        var unverified: [String] = []
+        var workingSeed: String?
+    }
+
+    private func crawlSitemaps(
+        source: SourceProfile,
+        settings: AppSettings,
+        level: CrawlAggressiveness,
+        progress: @Sendable @escaping (DiscoveryProgress) async -> Void
+    ) async throws -> SitemapResult {
+        var result = SitemapResult()
+        let sitemapList = source.sitemapURLs.isEmpty
+            ? [(source.baseURL.hasSuffix("/") ? source.baseURL : source.baseURL + "/") + "sitemap.xml"]
+            : source.sitemapURLs
+        let seeds = Array(sitemapList.prefix(level.seedPageCap))
+        var pagesFetched = 0
+
+        for sitemapURLString in seeds {
+            if Task.isCancelled {
+                result.unverified = Array(seeds.dropFirst(pagesFetched))
+                break
+            }
+            guard let sitemapURL = URL(string: sitemapURLString) else { continue }
+            await progress(DiscoveryProgress(phase: "Reading sitemaps",
+                                             currentURL: sitemapURLString,
+                                             pagesFetched: pagesFetched,
+                                             queued: seeds.count - pagesFetched,
+                                             confirmed: result.recipeURLs.count, rejected: 0))
+            do {
+                let (urls, sitemapNotes) = try await crawlSitemap(
+                    url: sitemapURL, source: source, settings: settings, depth: 0
+                )
+                for urlString in urls {
+                    switch Self.classify(urlString, source: source) {
+                    case .recipe:  result.recipeURLs.append(urlString)
+                    case .listing: result.listingURLs.append(urlString)
+                    case .skip:    break
+                    }
+                }
+                result.notes.append(contentsOf: sitemapNotes)
+                result.notes.append("\(sitemapURLString): \(urls.count) URLs")
+                if result.workingSeed == nil, !urls.isEmpty { result.workingSeed = sitemapURLString }
+                pagesFetched += 1
+            } catch is CancellationError {
+                result.notes.append("Cancelled at \(sitemapURLString)")
+                result.unverified = Array(seeds.dropFirst(pagesFetched))
+                break
+            } catch {
+                result.notes.append("Sitemap failed: \(sitemapURLString) — \(error.localizedDescription)")
+                pagesFetched += 1
+            }
+        }
+        if sitemapList.count > seeds.count {
+            result.notes.append("\(sitemapList.count - seeds.count) sitemap files skipped at \(level.label) speed.")
+        }
+        return result
     }
 
     private func crawlSitemap(
@@ -334,7 +468,7 @@ actor DiscoveryEngine {
             }
             return (allURLs, allNotes)
         } else {
-            let filtered = locs.filter { matchesSource($0, source: source) }
+            let filtered = locs.filter { Self.matchesDomain($0, source: source) }
             return (filtered, [])
         }
     }
@@ -344,11 +478,291 @@ actor DiscoveryEngine {
             ?? String(data: data, encoding: .isoLatin1)
             ?? ""
         let isSitemapIndex = text.range(of: "<sitemapindex", options: .caseInsensitive) != nil
-        let locs = extractXMLTagContents(named: "loc", from: text)
+        let locs = Self.extractXMLTagContents(named: "loc", from: text)
         return (isSitemapIndex, locs)
     }
 
-    private func extractXMLTagContents(named tag: String, from xml: String) -> [String] {
+    // MARK: Category-page engine
+
+    private struct LinkCrawlResult {
+        var urls: [String] = []
+        var notes: [String] = []
+        var workingSeed: String?
+    }
+
+    /// Crawls listing pages: the base URL plus any configured seeds, breadth-first one
+    /// level deep, collecting recipe-shaped links and following listing-shaped ones.
+    private func crawlListings(
+        source: SourceProfile,
+        settings: AppSettings,
+        level: CrawlAggressiveness,
+        progress: @Sendable @escaping (DiscoveryProgress) async -> Void
+    ) async throws -> LinkCrawlResult {
+        var result = LinkCrawlResult()
+        var frontier: [String] = [source.baseURL]
+        // Non-feed seeds double as starting listing pages when the mode is category crawl.
+        frontier.append(contentsOf: source.sitemapURLs.filter { !$0.lowercased().contains("sitemap") })
+        var visited = Set<String>()
+        var fetched = 0
+        let pageBudget = level.seedPageCap + level.expansionCap
+
+        while !frontier.isEmpty, fetched < pageBudget {
+            if Task.isCancelled { break }
+            let pageURLString = frontier.removeFirst()
+            guard visited.insert(pageURLString).inserted,
+                  let pageURL = URL(string: pageURLString) else { continue }
+            await progress(DiscoveryProgress(phase: "Crawling category pages",
+                                             currentURL: pageURLString,
+                                             pagesFetched: fetched,
+                                             queued: frontier.count,
+                                             confirmed: result.urls.count, rejected: 0))
+            do {
+                let page = try await fetcher.fetch(
+                    pageURL, source: source, settings: settings,
+                    accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
+                )
+                if result.workingSeed == nil { result.workingSeed = pageURLString }
+                let links = Self.extractLinks(from: page.text, base: page.finalURL)
+                for link in links {
+                    switch Self.classify(link, source: source) {
+                    case .recipe:
+                        result.urls.append(link)
+                    case .listing:
+                        if !visited.contains(link), frontier.count < pageBudget * 3 {
+                            frontier.append(link)
+                        }
+                    case .skip:
+                        break
+                    }
+                }
+                fetched += 1
+            } catch is CancellationError {
+                break
+            } catch {
+                result.notes.append("Page failed: \(pageURLString) — \(error.localizedDescription)")
+                fetched += 1
+            }
+        }
+        result.notes.append("Crawled \(fetched) pages, found \(result.urls.count) recipe links.")
+        if !frontier.isEmpty {
+            result.notes.append("\(frontier.count) more listing pages available at a higher speed.")
+        }
+        return result
+    }
+
+    // MARK: Feed engine (RSS / Atom / reddit)
+
+    private struct FeedResult {
+        var urls: [String] = []
+        var notes: [String] = []
+        var unverified: [String] = []
+        var workingSeed: String?
+    }
+
+    private func crawlFeeds(
+        source: SourceProfile,
+        settings: AppSettings,
+        level: CrawlAggressiveness,
+        progress: @Sendable @escaping (DiscoveryProgress) async -> Void
+    ) async throws -> FeedResult {
+        var result = FeedResult()
+        var seeds = source.sitemapURLs.filter {
+            let lower = $0.lowercased()
+            return lower.contains("feed") || lower.contains("rss") || lower.contains(".json") || lower.contains(".rss")
+        }
+        if seeds.isEmpty {
+            let base = source.baseURL.hasSuffix("/") ? String(source.baseURL.dropLast()) : source.baseURL
+            if base.lowercased().contains("reddit.com") {
+                seeds = [base + "/.rss", base + "/top/.rss"]
+            } else {
+                seeds = [base + "/feed", base + "/rss", base + "/feed.xml", base + "/atom.xml"]
+            }
+        }
+        let isAggregator = Self.isAggregatorHost(source)
+        var fetched = 0
+
+        for seed in seeds.prefix(level.seedPageCap) {
+            if Task.isCancelled {
+                result.unverified = Array(seeds.dropFirst(fetched))
+                break
+            }
+            guard let url = URL(string: seed) else { continue }
+            await progress(DiscoveryProgress(phase: "Reading feed",
+                                             currentURL: seed,
+                                             pagesFetched: fetched,
+                                             queued: seeds.count - fetched,
+                                             confirmed: result.urls.count, rejected: 0))
+            do {
+                let data = try await fetcher.fetchData(
+                    url, source: source, settings: settings,
+                    accept: "application/rss+xml,application/atom+xml,application/xml,text/xml,application/json,*/*"
+                )
+                let text = String(data: data, encoding: .utf8) ?? ""
+                guard !text.isEmpty else { continue }
+                let links = Self.extractFeedLinks(from: text)
+                var kept = 0
+                for link in links {
+                    guard let linkURL = URL(string: link), let host = linkURL.host?.lowercased() else { continue }
+                    if isAggregator {
+                        // Aggregator feeds (reddit): the recipe is the OUTBOUND link in
+                        // the entry, not the entry itself. Keep off-site article links,
+                        // drop media hosts and the aggregator's own pages.
+                        guard !Self.matchesDomain(link, source: source),
+                              !Self.isMediaOrJunkHost(host),
+                              !Self.looksLikeMediaFile(link) else { continue }
+                    } else {
+                        // A site's own feed: entries are the recipe pages.
+                        guard Self.matchesDomain(link, source: source),
+                              Self.classify(link, source: source) == .recipe else { continue }
+                    }
+                    result.urls.append(link)
+                    kept += 1
+                }
+                result.notes.append("\(seed): \(kept) links")
+                if result.workingSeed == nil, kept > 0 { result.workingSeed = seed }
+                fetched += 1
+                // One good feed is usually the whole story; stop early unless pushing.
+                if kept > 0, level == .gentle { break }
+            } catch is CancellationError {
+                result.unverified = Array(seeds.dropFirst(fetched))
+                break
+            } catch {
+                result.notes.append("Feed failed: \(seed) — \(error.localizedDescription)")
+                fetched += 1
+            }
+        }
+        if isAggregator {
+            result.notes.append("Aggregator feed: every link gets the full recipe check at import.")
+        }
+        return result
+    }
+
+    // MARK: URL classification
+
+    enum URLClass { case recipe, listing, skip }
+
+    /// Decides what a URL is likely to be — a recipe page, a listing/category page
+    /// worth mining for links, or noise. The importer's page detector remains the
+    /// final judge; this only routes the crawl.
+    nonisolated static func classify(_ urlString: String, source: SourceProfile) -> URLClass {
+        guard matchesDomain(urlString, source: source) else { return .skip }
+        for pattern in source.excludedURLPatterns where urlString.contains(pattern) { return .skip }
+        guard let url = URL(string: urlString) else { return .skip }
+        let path = url.path.lowercased()
+        if looksLikeMediaFile(urlString) { return .skip }
+
+        // Listing tells: category-style path segments, seasonal/occasion hubs,
+        // roundups, pagination, or a bare section index like …/recipes/.
+        let listingMarkers = [
+            "/category/", "/categories/", "/collection", "/collections/", "/tag/",
+            "/tags/", "/topics/", "/topic/", "/holiday", "/holidays", "/occasion",
+            "/birthday", "/christmas", "/thanksgiving", "/easter", "/halloween",
+            "/roundup", "/round-up", "/best-", "/menus/", "/menu/", "/gallery/",
+            "/hub/", "/index/", "/page/", "/archive",
+        ]
+        if listingMarkers.contains(where: { path.contains($0) }) { return .listing }
+        let trimmed = path.hasSuffix("/") ? String(path.dropLast()) : path
+        if trimmed.isEmpty { return .listing }
+        let segments = trimmed.split(separator: "/")
+        if let last = segments.last,
+           ["recipes", "recipe", "food", "cooking", "dishes"].contains(String(last)),
+           segments.count <= 2 {
+            return .listing
+        }
+
+        // Recipe tells: the source's own patterns, else a slug-shaped final segment.
+        if !source.recipeURLPatterns.isEmpty {
+            return source.recipeURLPatterns.contains { urlString.contains($0) } ? .recipe : .listing
+        }
+        if let last = segments.last, last.contains("-"), last.count >= 8 { return .recipe }
+        return segments.count >= 2 ? .recipe : .listing
+    }
+
+    nonisolated static func matchesDomain(_ urlString: String, source: SourceProfile) -> Bool {
+        guard let url = URL(string: urlString), let host = url.host?.lowercased() else { return false }
+        return source.domains.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
+    /// Communities whose feed entries point at recipes hosted elsewhere.
+    nonisolated static func isAggregatorHost(_ source: SourceProfile) -> Bool {
+        source.domains.contains { $0.contains("reddit.com") }
+            || source.tags.contains("Community") && source.discoveryMode == .feedOnly
+    }
+
+    nonisolated static func isMediaOrJunkHost(_ host: String) -> Bool {
+        let junk = ["imgur.com", "i.redd.it", "v.redd.it", "redd.it", "youtube.com",
+                    "youtu.be", "gfycat.com", "giphy.com", "streamable.com",
+                    "instagram.com", "tiktok.com", "twitter.com", "x.com",
+                    "facebook.com", "pinterest.com", "amazon.com", "flickr.com",
+                    "reddit.com", "redditstatic.com", "redditmedia.com"]
+        return junk.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
+    nonisolated static func looksLikeMediaFile(_ urlString: String) -> Bool {
+        let lower = urlString.lowercased()
+        return [".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".webm", ".pdf",
+                ".zip", ".xml", ".css", ".js"].contains { lower.hasSuffix($0) || lower.contains($0 + "?") }
+    }
+
+    // MARK: Extraction helpers
+
+    /// Every same-scheme absolute link on a page, resolved against the page URL.
+    nonisolated static func extractLinks(from html: String, base: URL) -> [String] {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"href\s*=\s*["']([^"'#\s]+)["']"#,
+            options: .caseInsensitive
+        ) else { return [] }
+        let nsHTML = html as NSString
+        let range = NSRange(location: 0, length: nsHTML.length)
+        var out: [String] = []
+        var seen = Set<String>()
+        for match in regex.matches(in: html, range: range) {
+            guard match.numberOfRanges > 1 else { continue }
+            let raw = nsHTML.substring(with: match.range(at: 1))
+            guard !raw.hasPrefix("javascript:"), !raw.hasPrefix("mailto:") else { continue }
+            guard let resolved = URL(string: raw, relativeTo: base)?.absoluteURL,
+                  let scheme = resolved.scheme, scheme.hasPrefix("http") else { continue }
+            let normalized = URLSafety.normalized(resolved).absoluteString
+            if seen.insert(normalized).inserted { out.append(normalized) }
+        }
+        return out
+    }
+
+    /// Links out of an RSS/Atom document: <link>text</link>, <link href="…"/>, and any
+    /// absolute URL inside entry bodies (how reddit carries the outbound article link).
+    nonisolated static func extractFeedLinks(from xml: String) -> [String] {
+        var out: [String] = []
+        var seen = Set<String>()
+        func add(_ raw: String) {
+            let cleaned = raw
+                .replacingOccurrences(of: "&amp;", with: "&")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard cleaned.hasPrefix("http"), seen.insert(cleaned).inserted else { return }
+            out.append(cleaned)
+        }
+        for value in extractXMLTagContents(named: "link", from: xml) { add(value) }
+        if let hrefRegex = try? NSRegularExpression(
+            pattern: #"<link[^>]+href\s*=\s*["']([^"']+)["']"#, options: .caseInsensitive
+        ) {
+            let ns = xml as NSString
+            for match in hrefRegex.matches(in: xml, range: NSRange(location: 0, length: ns.length))
+            where match.numberOfRanges > 1 {
+                add(ns.substring(with: match.range(at: 1)))
+            }
+        }
+        // Absolute URLs inside encoded entry bodies (href=&quot;…&quot; and plain).
+        if let urlRegex = try? NSRegularExpression(
+            pattern: #"https?://[^\s"'<>&\\)\]]+"#, options: []
+        ) {
+            let ns = xml as NSString
+            for match in urlRegex.matches(in: xml, range: NSRange(location: 0, length: ns.length)) {
+                add(ns.substring(with: match.range))
+            }
+        }
+        return out
+    }
+
+    nonisolated static func extractXMLTagContents(named tag: String, from xml: String) -> [String] {
         var results: [String] = []
         let open = "<\(tag)>"
         let close = "</\(tag)>"
@@ -361,15 +775,6 @@ actor DiscoveryEngine {
             pos = closeRange.upperBound
         }
         return results
-    }
-
-    private func matchesSource(_ urlString: String, source: SourceProfile) -> Bool {
-        guard let url = URL(string: urlString), let host = url.host?.lowercased() else { return false }
-        let onDomain = source.domains.contains { host == $0 || host.hasSuffix("." + $0) }
-        guard onDomain else { return false }
-        for pattern in source.excludedURLPatterns where urlString.contains(pattern) { return false }
-        if source.recipeURLPatterns.isEmpty { return true }
-        return source.recipeURLPatterns.contains { urlString.contains($0) }
     }
 }
 

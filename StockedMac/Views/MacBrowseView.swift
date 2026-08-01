@@ -36,16 +36,28 @@ struct MacBrowseView: View {
         }
     }
 
+    private func isCustom(_ s: SourceProfile) -> Bool {
+        s.id.hasPrefix("custom-") || s.id.hasPrefix("imported-")
+    }
+
+    private func isFeed(_ s: SourceProfile) -> Bool {
+        s.discoveryMode == .feedOnly || s.tags.contains("Community")
+    }
+
     private var americanSources: [SourceProfile] {
-        filteredSources.filter { $0.tags.contains("American") && !$0.id.hasPrefix("custom-") }
+        filteredSources.filter { $0.tags.contains("American") && !isCustom($0) && !isFeed($0) }
     }
 
     private var worldwideSources: [SourceProfile] {
-        filteredSources.filter { !$0.tags.contains("American") && !$0.id.hasPrefix("custom-") }
+        filteredSources.filter { !$0.tags.contains("American") && !isCustom($0) && !isFeed($0) }
+    }
+
+    private var feedSources: [SourceProfile] {
+        filteredSources.filter { isFeed($0) && !isCustom($0) }
     }
 
     private var customSources: [SourceProfile] {
-        filteredSources.filter { $0.id.hasPrefix("custom-") }
+        filteredSources.filter { isCustom($0) }
     }
 
     private var selectedSources: [SourceProfile] {
@@ -160,6 +172,7 @@ struct MacBrowseView: View {
                     selected: $selectedSourceIDs,
                     american: americanSources,
                     worldwide: worldwideSources,
+                    feeds: feedSources,
                     custom: customSources,
                     recent: harvest.recentSources
                 )
@@ -243,6 +256,43 @@ struct MacBrowseView: View {
                 harvest.scheduleSettingsSave()
             }
 
+            // ── Crawler: how it browses, and how hard ────────────────────
+            HStack(spacing: 6) {
+                Text("Method").font(.caption).foregroundStyle(.secondary)
+                Picker("", selection: $harvest.settings.preferredCrawlMethod) {
+                    ForEach(CrawlMethod.allCases) { method in
+                        Text(method.label).tag(method)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 160)
+                Spacer(minLength: 0)
+            }
+            .onChange(of: harvest.settings.preferredCrawlMethod) {
+                harvest.scheduleSettingsSave()
+            }
+            Text(harvest.settings.preferredCrawlMethod.explanation)
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 6) {
+                Text("Speed").font(.caption).foregroundStyle(.secondary)
+                Picker("", selection: $harvest.settings.crawlAggressiveness) {
+                    ForEach(CrawlAggressiveness.allCases) { level in
+                        Text(level.label).tag(level)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 240)
+                Spacer(minLength: 0)
+            }
+            .onChange(of: harvest.settings.crawlAggressiveness) {
+                harvest.scheduleSettingsSave()
+            }
+            Text(harvest.settings.crawlAggressiveness.explanation)
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             if harvest.isDiscovering {
                 Text(harvest.discoveryProgress.phase)
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
@@ -299,6 +349,9 @@ struct MacBrowseView: View {
 
             Toggle("Verify queued URLs before importing", isOn: $harvest.settings.verifyBeforeImport)
                 .toggleStyle(.checkbox).font(.caption)
+            Toggle("Only auto-approve recipes that meet Stocked standards", isOn: $harvest.settings.requireStandardsForAutoApprove)
+                .toggleStyle(.checkbox).font(.caption)
+                .help("Title, 3+ ingredients, 2+ steps, image on disk, source URL, honest attribution")
 
             HStack(spacing: 6) {
                 if harvest.isBulkVerifying {
@@ -321,6 +374,7 @@ struct MacBrowseView: View {
         .onChange(of: harvest.settings.autoImportVerified) { harvest.scheduleSettingsSave() }
         .onChange(of: harvest.settings.autoApproveConfidence) { harvest.scheduleSettingsSave() }
         .onChange(of: harvest.settings.verifyBeforeImport) { harvest.scheduleSettingsSave() }
+        .onChange(of: harvest.settings.requireStandardsForAutoApprove) { harvest.scheduleSettingsSave() }
     }
 
     // MARK: - Queue
@@ -598,11 +652,12 @@ private struct SourceMultiPicker: View {
     @Binding var selected: Set<String>
     let american: [SourceProfile]
     let worldwide: [SourceProfile]
+    let feeds: [SourceProfile]
     let custom: [SourceProfile]
     let recent: [SourceProfile]
 
     private var visibleIDs: [String] {
-        (american + worldwide + custom).map(\.id)
+        (american + worldwide + feeds + custom).map(\.id)
     }
 
     var body: some View {
@@ -629,6 +684,9 @@ private struct SourceMultiPicker: View {
                     }
                     group("American \u{2014} Top 50", american)
                     group("Worldwide \u{2014} Top 50", worldwide)
+                    if !feeds.isEmpty {
+                        group("Communities & feeds", feeds)
+                    }
                     if !custom.isEmpty {
                         group("Custom & imported", custom)
                     }

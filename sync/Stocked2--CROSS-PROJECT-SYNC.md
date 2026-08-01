@@ -23,3 +23,8 @@
 ### 2026-08-01 — note: Mac Build 92
 - Mac-only UI/catalog work (multi-select sources, list import/export, self-heal).
   **No iOS change required**; nothing about sync or the worker contract moved.
+
+### 2026-08-01 — note: Mac Build 93
+- **No iOS change required.** Recipes arriving from the Mac now always carry honest
+  attribution in their notes ("Source: <site or author> — <url>"), never "Sowens" or
+  an internal handle. Reddit-found recipes are attributed to the hosting site.

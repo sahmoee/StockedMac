@@ -239,6 +239,14 @@ nonisolated struct AppSettings: Codable, Sendable {
     var cloudSyncEnabled: Bool
     /// How many sources "Auto-rotate" walks through in one sitting.
     var autoRotateSourceCount: Int
+    // ── Build 93 (Crawler) ───────────────────────────────────────────────
+    /// How Browse finds candidate URLs: follow the source's own mode, or force one.
+    var preferredCrawlMethod: CrawlMethod
+    /// How hard a browse run pushes: delays, page budgets, candidate caps.
+    var crawlAggressiveness: CrawlAggressiveness
+    /// Auto-approval additionally requires the recipe to pass the Stocked standards
+    /// checklist (title, ingredients, steps, image, honest attribution, …).
+    var requireStandardsForAutoApprove: Bool
 
     static var defaults: AppSettings {
         AppSettings(
@@ -262,7 +270,10 @@ nonisolated struct AppSettings: Codable, Sendable {
             autoFetchMissingImages: true,
             verifyBeforeImport: false,
             cloudSyncEnabled: false,
-            autoRotateSourceCount: 3
+            autoRotateSourceCount: 3,
+            preferredCrawlMethod: .auto,
+            crawlAggressiveness: .balanced,
+            requireStandardsForAutoApprove: true
         )
     }
 }
@@ -279,6 +290,7 @@ nonisolated extension AppSettings {
         case rememberBrowsedSources, lastBrowsedSourceID, recentSourceIDs
         case requireImageForImport, autoFetchMissingImages, verifyBeforeImport
         case cloudSyncEnabled, autoRotateSourceCount
+        case preferredCrawlMethod, crawlAggressiveness, requireStandardsForAutoApprove
     }
 
     init(from decoder: Decoder) throws {
@@ -305,6 +317,9 @@ nonisolated extension AppSettings {
         verifyBeforeImport      = (try? c.decodeIfPresent(Bool.self, forKey: .verifyBeforeImport)) ?? d.verifyBeforeImport
         cloudSyncEnabled        = (try? c.decodeIfPresent(Bool.self, forKey: .cloudSyncEnabled)) ?? d.cloudSyncEnabled
         autoRotateSourceCount   = (try? c.decodeIfPresent(Int.self, forKey: .autoRotateSourceCount)) ?? d.autoRotateSourceCount
+        preferredCrawlMethod    = (try? c.decodeIfPresent(CrawlMethod.self, forKey: .preferredCrawlMethod)) ?? d.preferredCrawlMethod
+        crawlAggressiveness     = (try? c.decodeIfPresent(CrawlAggressiveness.self, forKey: .crawlAggressiveness)) ?? d.crawlAggressiveness
+        requireStandardsForAutoApprove = (try? c.decodeIfPresent(Bool.self, forKey: .requireStandardsForAutoApprove)) ?? d.requireStandardsForAutoApprove
     }
 }
 
@@ -403,7 +418,12 @@ nonisolated enum DiscoveryMode: String, Codable, Sendable {
     case directOnly
     case sitemapOnly
     case bothDirectAndSitemap
-    
+    /// Build 93: the source is an RSS/Atom/reddit feed; entries (and their outbound
+    /// links, for aggregator communities like reddit) are the candidates.
+    case feedOnly
+    /// Build 93: no useful sitemap — crawl the site's listing/category pages instead.
+    case htmlListing
+
     var supportsDiscovery: Bool {
         self != .directOnly
     }
@@ -413,6 +433,8 @@ nonisolated enum DiscoveryMode: String, Codable, Sendable {
         case .directOnly: return "Direct links only"
         case .sitemapOnly: return "Sitemaps"
         case .bothDirectAndSitemap: return "Direct links and sitemaps"
+        case .feedOnly: return "Feed (RSS/Atom/reddit)"
+        case .htmlListing: return "Category pages"
         }
     }
 }
@@ -647,5 +669,236 @@ nonisolated extension RecipeImage {
     var hasLocalFile: Bool {
         guard let path = localPath, !path.isEmpty else { return false }
         return FileManager.default.fileExists(atPath: path)
+    }
+}
+
+// MARK: - Crawl method & aggressiveness (Build 93)
+
+/// How a browse run hunts for candidate URLs. `.auto` follows each source's own
+/// `discoveryMode`; the rest force one engine for this run.
+nonisolated enum CrawlMethod: String, Codable, Sendable, CaseIterable, Identifiable {
+    case auto
+    case sitemap
+    case categories
+    case feed
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .auto:       return "Auto (per source)"
+        case .sitemap:    return "Sitemaps"
+        case .categories: return "Category pages"
+        case .feed:       return "Feeds"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .auto:       return "Each source uses the engine it is configured for."
+        case .sitemap:    return "Reads the site's sitemap.xml for recipe URLs."
+        case .categories: return "Crawls listing and category pages and follows the recipe links on them."
+        case .feed:       return "Reads RSS/Atom feeds — including reddit — and follows entry links."
+        }
+    }
+}
+
+/// One knob for how hard a run pushes: request spacing, how many index pages are
+/// fetched, how many category pages get expanded, and how many candidates a single
+/// run may return. Politeness floors still apply — robots.txt and per-source daily
+/// limits are never overridden.
+nonisolated enum CrawlAggressiveness: String, Codable, Sendable, CaseIterable, Identifiable {
+    case gentle
+    case balanced
+    case aggressive
+    case maximum
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .gentle:     return "Gentle"
+        case .balanced:   return "Balanced"
+        case .aggressive: return "Aggressive"
+        case .maximum:    return "Maximum"
+        }
+    }
+
+    /// Multiplies each source's own minimum delay between requests.
+    var delayMultiplier: Double {
+        switch self {
+        case .gentle:     return 2.0
+        case .balanced:   return 1.0
+        case .aggressive: return 0.5
+        case .maximum:    return 0.25
+        }
+    }
+
+    /// Sitemap files / feed URLs / seed listing pages fetched per run.
+    var seedPageCap: Int {
+        switch self {
+        case .gentle:     return 3
+        case .balanced:   return 6
+        case .aggressive: return 12
+        case .maximum:    return 24
+        }
+    }
+
+    /// Category/listing pages expanded (fetched for their recipe links) per run.
+    var expansionCap: Int {
+        switch self {
+        case .gentle:     return 4
+        case .balanced:   return 10
+        case .aggressive: return 20
+        case .maximum:    return 40
+        }
+    }
+
+    /// Candidate URLs a single run may hand back.
+    var candidateCap: Int {
+        switch self {
+        case .gentle:     return 150
+        case .balanced:   return 400
+        case .aggressive: return 1000
+        case .maximum:    return 2500
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .gentle:     return "Half speed, small budgets. Kind to small blogs."
+        case .balanced:   return "The default. Respects each site's own pace."
+        case .aggressive: return "Faster requests, bigger budgets. For large sites."
+        case .maximum:    return "Everything at once. Robots.txt and daily limits still apply."
+        }
+    }
+}
+
+// MARK: - Stocked standards (Build 93)
+
+/// One item on the standards checklist.
+nonisolated struct StandardsCheck: Identifiable, Sendable {
+    var id: String { label }
+    let label: String
+    let passed: Bool
+    let required: Bool
+    let detail: String?
+}
+
+/// Whether a draft meets Stocked's bar for entering the kitchen. Required checks gate
+/// auto-approval (when the setting is on); recommended ones only inform the reviewer.
+nonisolated struct StandardsReport: Sendable {
+    let checks: [StandardsCheck]
+
+    var requiredPassed: Bool { checks.filter(\.required).allSatisfy(\.passed) }
+    var passedCount: Int { checks.filter(\.passed).count }
+    var summary: String { "\(passedCount) of \(checks.count) checks" }
+    var failedRequired: [StandardsCheck] { checks.filter { $0.required && !$0.passed } }
+}
+
+nonisolated extension RecipeDraft {
+    /// The Stocked standards checklist for this draft.
+    var standards: StandardsReport {
+        let title = self.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ingredientCount = ingredientSections.flatMap(\.items).count
+        let stepCount = instructionSections.flatMap(\.steps).filter { !$0.isEmpty }.count
+        let attribution = SourceAttribution.displayName(
+            host: source.host, sourceName: source.attribution, author: source.author
+        )
+        let times = self.times.normalized()
+
+        return StandardsReport(checks: [
+            StandardsCheck(
+                label: "Titled like a recipe",
+                passed: title.count >= 3 && title.count <= 120,
+                required: true,
+                detail: title.isEmpty ? "No title" : nil
+            ),
+            StandardsCheck(
+                label: "At least 3 ingredients",
+                passed: ingredientCount >= 3,
+                required: true,
+                detail: "\(ingredientCount) found"
+            ),
+            StandardsCheck(
+                label: "At least 2 method steps",
+                passed: stepCount >= 2,
+                required: true,
+                detail: "\(stepCount) found"
+            ),
+            StandardsCheck(
+                label: "Image saved to disk",
+                passed: image?.hasLocalFile ?? false,
+                required: true,
+                detail: image == nil ? "No image at all" : (image?.hasLocalFile == true ? nil : "URL known, bytes missing")
+            ),
+            StandardsCheck(
+                label: "Real source URL",
+                passed: !source.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                required: true,
+                detail: nil
+            ),
+            StandardsCheck(
+                label: "Honest attribution",
+                passed: !SourceAttribution.isGeneric(attribution),
+                required: true,
+                detail: attribution
+            ),
+            StandardsCheck(
+                label: "Servings known",
+                passed: (servings ?? 0) > 0,
+                required: false,
+                detail: nil
+            ),
+            StandardsCheck(
+                label: "A cooking time known",
+                passed: times.prepMinutes != nil || times.cookMinutes != nil || times.totalMinutes != nil,
+                required: false,
+                detail: nil
+            ),
+            StandardsCheck(
+                label: "Has a description",
+                passed: summary?.nilIfBlank != nil,
+                required: false,
+                detail: nil
+            ),
+        ])
+    }
+}
+
+// MARK: - Source attribution (Build 93)
+//
+// The one place that decides what "Source:" says in Stocked. Internal handles
+// ("Sowens", "Stocked Companion", "custom-3f9a…", "New source") never qualify — the
+// answer is the site's real name, the author, or the plain host, in that order.
+
+nonisolated enum SourceAttribution {
+
+    static func displayName(host: String, sourceName: String?, author: String? = nil) -> String {
+        if let name = sourceName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank,
+           !isGeneric(name) {
+            return name
+        }
+        if let author = author?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank,
+           !isGeneric(author) {
+            return author
+        }
+        return prettyHost(host)
+    }
+
+    static func isGeneric(_ value: String) -> Bool {
+        let lower = value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if lower.isEmpty { return true }
+        let generic = ["sowens", "stocked", "companion", "unknown", "new source",
+                       "custom-", "imported-", "example.com"]
+        return generic.contains { lower.contains($0) }
+    }
+
+    /// "www.simplyrecipes.com" → "simplyrecipes.com"; a reddit host keeps its subreddit
+    /// elsewhere (the URL is always shown alongside), so the plain domain is enough here.
+    static func prettyHost(_ host: String) -> String {
+        var clean = host.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.hasPrefix("www.") { clean = String(clean.dropFirst(4)) }
+        return clean.isEmpty ? "the web" : clean
     }
 }

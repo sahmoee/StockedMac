@@ -141,7 +141,11 @@ enum HarvestCloudSync {
             },
             "instructions": draft.instructionSections.flatMap(\.steps).filter { !$0.isEmpty },
             "sourceURL": draft.source.url,
-            "attribution": draft.source.attribution,
+            "attribution": SourceAttribution.displayName(
+                host: draft.source.host,
+                sourceName: draft.source.attribution,
+                author: draft.source.author
+            ),
             "confidence": draft.confidence,
             "image": "/harvest/img/\(draft.id.uuidString).jpg",
         ]

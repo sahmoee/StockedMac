@@ -139,16 +139,19 @@ enum MacHarvestBridge {
 
     private static func notes(for draft: RecipeDraft) -> String {
         var lines: [String] = []
-        // Prefer a human-readable attribution; discard the internal company handle
-        // ("sowens") so it never leaks into user-visible notes.
-        let rawAttr = draft.source.attribution.nilIfBlank ?? draft.source.host.nilIfBlank
-        let isSowens = rawAttr?.lowercased().contains("sowens") == true
-        let attribution = isSowens ? nil : rawAttr
+        // Build 93: the attribution the kitchen (and therefore the phone) shows is
+        // decided by SourceAttribution — the site's real name, else the author, else
+        // the plain host. "Sowens", "Stocked Companion", "custom-…" and other internal
+        // handles never qualify, and the URL always travels alongside the name.
+        let attribution = SourceAttribution.displayName(
+            host: draft.source.host,
+            sourceName: draft.source.attribution,
+            author: draft.source.author
+        )
         if let url = draft.source.url.nilIfBlank {
-            let label = attribution ?? url
-            lines.append("Source: \(label)")
-        } else if let attr = attribution {
-            lines.append("Source: \(attr)")
+            lines.append("Source: \(attribution) \u{2014} \(url)")
+        } else {
+            lines.append("Source: \(attribution)")
         }
         if let note = draft.discoveryNote?.nilIfBlank { lines.append(note) }
         if let yield = draft.yield?.nilIfBlank { lines.append("Yield: \(yield)") }

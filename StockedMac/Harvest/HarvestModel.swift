@@ -375,7 +375,11 @@ final class HarvestModel {
                detail.duplicateTitles.isEmpty,
                // The image gate: nothing without a picture on disk auto-approves,
                // because the bridge would drop it and the phone shows placeholders.
-               !settings.requireImageForImport || detail.recipe.image?.hasLocalFile == true {
+               !settings.requireImageForImport || detail.recipe.image?.hasLocalFile == true,
+               // The standards gate (Build 93): auto-approval also requires the
+               // Stocked checklist to pass — real title, 3+ ingredients, 2+ steps,
+               // image on disk, source URL, honest attribution.
+               !settings.requireStandardsForAutoApprove || detail.recipe.standards.requiredPassed {
                 pendingAutoApproval.insert(detail.recipe.id)
                 message += " • auto-approved"
             }
