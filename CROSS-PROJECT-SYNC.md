@@ -8,6 +8,15 @@
 
 ## Applied updates
 
+### Build 92 (4.32) — source picker & list files — 2026-08-01
+- Browse sources dropdown is now a multi-select checklist (search, group All/None,
+  health dots); "Browse N sources" visits each selected site in turn.
+- Source list maintainable from files: import .txt/.csv (one site per line, "Name | url")
+  or .json (full profiles, updates by id); export current catalog as JSON.
+- Self-heal: an app that launches with zero enabled+browsable sources restores the
+  built-in catalog automatically (custom/imported sources kept); Restore button inline.
+- Worker impact: none (Build 91 worker deploy still current). iOS impact: none.
+
 ### Build 91 (4.31) — Browse section — 2026-08-01
 - New sidebar section **Browse** (under Household, ⌘B): source dropdown grouped
   American Top 50 / Worldwide Top 50 / Custom / Recent, pause-resume for all network

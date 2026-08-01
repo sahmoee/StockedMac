@@ -19,3 +19,7 @@
 - Caller: Mac app Build 91 Browse section (`HarvestCloudSync.swift`). Recipes are
   guaranteed to carry an image. cPanel remains retired; this cache is its successor.
 - iOS impact: none required; the two GET routes are available for the app to adopt.
+
+### 2026-08-01 — note: Mac Build 92
+- Mac app Build 92 (multi-select source browsing, source-list import/export, catalog
+  self-heal) requires **no worker change**; the 2026-08-01.1 deploy remains current.

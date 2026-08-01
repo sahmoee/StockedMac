@@ -24,14 +24,14 @@ nonisolated enum MacBuildConfig {
     /// A separate product from the iOS app — separate project, separate bundle
     /// identifier — but the version line tracks the shared build history (the project file
     /// carries the real numbers; these are only the fallback if Info.plist is unreadable).
-    private static let fallbackVersion     = "4.31"
-    private static let fallbackBuildNumber = 91
+    private static let fallbackVersion     = "4.32"
+    private static let fallbackBuildNumber = 92
 
     /// When the shared model layer was last checked against the phone's copy. Models.swift
     /// and KitchenMetrics.swift are byte-for-byte identical to the iOS tree as of this
     /// check; re-run the diff and update this string whenever either side moves, so the
     /// provenance stays honest rather than decorative.
-    static let sharedModelLineage = "Shared models verified identical to iOS — Build 91, August 2026"
+    static let sharedModelLineage = "Shared models verified identical to iOS — Build 92, August 2026"
 
     static var buildNumber: Int {
         Int(bundleString("CFBundleVersion") ?? "") ?? fallbackBuildNumber
@@ -44,18 +44,16 @@ nonisolated enum MacBuildConfig {
 
     static let buildDate = "August 2026"
     static let buildName = """
-        Browsing has its own room now. A new Browse section sits under Household with \
-        the full import pipeline in one place: a dropdown of a hundred recipe sites \u{2014} \
-        the top fifty American and the top fifty worldwide \u{2014} grouped, searchable, and \
-        guaranteed to load because the catalog now ships inside the app as well as \
-        beside it. One Pause button parks everything mid-flight and Resume picks the \
-        run back up; the queue can be bulk-verified so category pages never become \
-        half-parsed drafts; images are validated, retried, and required before a \
-        recipe may reach the kitchen, so the phone never shows a grey square. Approved \
-        recipes and their pictures can sync to the Stocked Worker's new harvest cache, \
-        past browse sessions can be restored with one click, and Auto-rotate walks as \
-        many sources as you ask it to. Harvest keeps the reviewing \u{2014} with thumbnails, \
-        bulk approve, and a filter for anything still missing its photo.
+        Sources are now something you pick, not something you settle for. The Browse \
+        section's dropdown became a checklist \u{2014} search it, tick as many sites as you \
+        like across the American and Worldwide fifties, and browse or queue them all in \
+        one run that visits each site in turn. The list itself is yours to maintain: \
+        update it from a plain text file with one site per line (a name and a URL, or \
+        just the URL), or from a JSON export you edited by hand, and export the current \
+        hundred the same way. And the empty screen from the screenshot cannot happen \
+        again: an app that wakes up with no browsable sources now restores the built-in \
+        catalog by itself at launch, keeping anything custom you added, with a Restore \
+        button right where the error used to sit.
         """
 
     // MARK: - Environment

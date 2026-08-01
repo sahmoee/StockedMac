@@ -16,7 +16,8 @@ struct MacBrowseView: View {
     @Environment(MacNavigation.self) private var navigation
 
     @State private var sourceSearch = ""
-    @State private var pickedSourceID: String? = nil
+    @State private var selectedSourceIDs: Set<String> = []
+    @State private var showSourcePicker = false
     @State private var showURLEditor = false
 
     // MARK: - Source grouping
@@ -47,8 +48,8 @@ struct MacBrowseView: View {
         filteredSources.filter { $0.id.hasPrefix("custom-") }
     }
 
-    private var pickedSource: SourceProfile? {
-        pickedSourceID.flatMap { id in browsableSources.first { $0.id == id } }
+    private var selectedSources: [SourceProfile] {
+        browsableSources.filter { selectedSourceIDs.contains($0.id) }
     }
 
     var body: some View {
@@ -105,94 +106,100 @@ struct MacBrowseView: View {
     private var sourcePanel: some View {
         @Bindable var harvest = harvest
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
-                Text("Source").font(.caption.weight(.medium))
+            HStack(spacing: 8) {
+                Text("Sources").font(.caption.weight(.medium))
                 Spacer(minLength: 0)
                 Text("\(browsableSources.count) sites")
                     .font(.caption2).foregroundStyle(.secondary)
-            }
-
-            // Search
-            HStack(spacing: 5) {
-                Image(systemName: "magnifyingglass").font(.caption2).foregroundStyle(.secondary)
-                TextField("Filter by name, tag or domain…", text: $sourceSearch)
-                    .textFieldStyle(.plain).font(.callout)
-                if !sourceSearch.isEmpty {
-                    Button { sourceSearch = "" } label: {
-                        Image(systemName: "xmark.circle.fill").font(.caption2)
-                    }
-                    .buttonStyle(.borderless).foregroundStyle(.secondary)
+                Button {
+                    harvest.importSourcesFromFile()
+                } label: {
+                    Image(systemName: "square.and.arrow.down").font(.caption)
                 }
-            }
-
-            // The dropdown, grouped: recents first, then the two halves of the catalog.
-            if browsableSources.isEmpty {
-                Text("No sources loaded — Tools ▸ Restore catalog, or restart the app.")
-                    .font(.caption).foregroundStyle(.red)
-            } else {
-                Picker("", selection: $pickedSourceID) {
-                    Text("Select a site…").tag(String?.none)
-                    if !harvest.recentSources.isEmpty && sourceSearch.isEmpty {
-                        Section("Recent") {
-                            ForEach(harvest.recentSources) { s in
-                                Text(sourceLabel(s)).tag(String?.some(s.id))
-                            }
-                        }
-                    }
-                    Section("American — Top 50") {
-                        ForEach(americanSources) { s in
-                            Text(sourceLabel(s)).tag(String?.some(s.id))
-                        }
-                    }
-                    Section("Worldwide — Top 50") {
-                        ForEach(worldwideSources) { s in
-                            Text(sourceLabel(s)).tag(String?.some(s.id))
-                        }
-                    }
-                    if !customSources.isEmpty {
-                        Section("Custom") {
-                            ForEach(customSources) { s in
-                                Text(sourceLabel(s)).tag(String?.some(s.id))
-                            }
-                        }
-                    }
+                .buttonStyle(.borderless)
+                .help("Update the source list from a file — JSON, or one URL/domain per line (\"Name | url\" works too)")
+                Button {
+                    harvest.exportSourcesToFile()
+                } label: {
+                    Image(systemName: "square.and.arrow.up").font(.caption)
                 }
-                .labelsHidden()
-                .disabled(harvest.isDiscovering)
+                .buttonStyle(.borderless)
+                .help("Export the source list as JSON for editing")
+                Button {
+                    harvest.repairSources()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise").font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .help("Restore the built-in catalog (keeps custom and imported sources)")
             }
 
-            if let source = pickedSource {
-                HStack(spacing: 5) {
-                    healthDot(source.health)
-                    Text(source.domains.first ?? source.baseURL)
-                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            // The dropdown: a checklist popover, so several sites can be picked at once.
+            Button {
+                showSourcePicker.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "globe").font(.caption).foregroundStyle(.secondary)
+                    Text(selectionLabel)
+                        .font(.callout)
+                        .foregroundStyle(browsableSources.isEmpty ? .secondary : .primary)
+                        .lineLimit(1)
                     Spacer(minLength: 0)
-                    ForEach(source.tags.prefix(3), id: \.self) { tag in
-                        Text(tag)
-                            .font(.system(size: 9))
-                            .padding(.horizontal, 4).padding(.vertical, 1)
-                            .background(Color.secondary.opacity(0.1),
-                                        in: RoundedRectangle(cornerRadius: 3))
-                    }
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .disabled(browsableSources.isEmpty)
+            .popover(isPresented: $showSourcePicker, arrowEdge: .bottom) {
+                SourceMultiPicker(
+                    search: $sourceSearch,
+                    selected: $selectedSourceIDs,
+                    american: americanSources,
+                    worldwide: worldwideSources,
+                    custom: customSources,
+                    recent: harvest.recentSources
+                )
+            }
+
+            if browsableSources.isEmpty {
+                HStack(spacing: 6) {
+                    Text("No sources loaded.").font(.caption).foregroundStyle(.red)
+                    Button("Restore built-in catalog") { harvest.repairSources() }
+                        .font(.caption)
+                    Spacer(minLength: 0)
                 }
             }
 
-            // Actions
+            // Actions follow the selection: one source, several, or none.
             HStack(spacing: 6) {
-                if let source = pickedSource {
+                if selectedSources.count == 1, let source = selectedSources.first {
                     Button("Browse & Import") { harvest.discover(source) }
                         .buttonStyle(.borderedProminent)
                         .disabled(harvest.isDiscovering)
                     Button("Queue only") { harvest.discoverToQueue(source) }
                         .disabled(harvest.isDiscovering)
+                } else if selectedSources.count > 1 {
+                    Button("Browse \(selectedSources.count) sources") {
+                        harvest.browseSources(withIDs: selectedSources.map(\.id))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(harvest.isDiscovering)
+                    Button("Queue from \(selectedSources.count)") {
+                        harvest.browseSources(withIDs: selectedSources.map(\.id), queueOnly: true)
+                    }
+                    .disabled(harvest.isDiscovering)
                 } else {
                     Button("Next in rotation") { harvest.browseNextSource() }
                         .buttonStyle(.borderedProminent)
-                        .disabled(harvest.isDiscovering)
+                        .disabled(harvest.isDiscovering || browsableSources.isEmpty)
                     Button("Auto-rotate \(max(1, harvest.settings.autoRotateSourceCount))") {
                         harvest.autoRotate()
                     }
-                    .disabled(harvest.isDiscovering)
+                    .disabled(harvest.isDiscovering || browsableSources.isEmpty)
                     .help("Browse several sources back to back; set the count below")
                 }
                 Spacer(minLength: 0)
@@ -203,6 +210,18 @@ struct MacBrowseView: View {
                 }
             }
             .font(.callout)
+
+            if !harvest.sourceRotationQueue.isEmpty {
+                HStack(spacing: 5) {
+                    Image(systemName: "list.number")
+                        .font(.caption2).foregroundStyle(MacTheme.gold)
+                    Text("\(harvest.sourceRotationQueue.count) selected source\(harvest.sourceRotationQueue.count == 1 ? "" : "s") still to visit")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Button("Stop after this") { harvest.cancelAutoRotate() }
+                        .buttonStyle(.borderless).font(.caption)
+                }
+            }
 
             if harvest.autoRotateRemaining > 0 {
                 HStack(spacing: 5) {
@@ -237,13 +256,24 @@ struct MacBrowseView: View {
                     Spacer(minLength: 0)
                     Button("Retry") { harvest.clearPauseAndRetry() }
                         .buttonStyle(.borderless).font(.caption)
-                    Button("✕") { harvest.discoveryFailure = nil }
+                    Button("\u{2715}") { harvest.discoveryFailure = nil }
                         .buttonStyle(.borderless).font(.caption)
                 }
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    private var selectionLabel: String {
+        if browsableSources.isEmpty { return "No sources loaded" }
+        let picked = selectedSources
+        switch picked.count {
+        case 0:  return "Choose sources\u{2026}"
+        case 1:  return picked[0].name
+        case 2:  return "\(picked[0].name) + 1 more"
+        default: return "\(picked[0].name) + \(picked.count - 1) more"
+        }
     }
 
     // MARK: - Verification
@@ -536,15 +566,6 @@ struct MacBrowseView: View {
 
     // MARK: - Helpers
 
-    private func sourceLabel(_ source: SourceProfile) -> String {
-        switch source.health {
-        case .healthy: return "● \(source.name)"
-        case .blocked: return "✕ \(source.name)"
-        case .paused:  return "⏸ \(source.name)"
-        default:       return source.name
-        }
-    }
-
     private func healthDot(_ health: SourceHealth) -> some View {
         let color: Color
         switch health {
@@ -564,5 +585,134 @@ struct MacBrowseView: View {
         case .warning: return .orange
         case .error:   return .red
         }
+    }
+}
+
+// MARK: - Multi-select source picker (Build 92)
+
+/// The checklist behind the sources dropdown: search, group headers with select-all,
+/// health dots, and a running count. Selection lives in the parent so the action
+/// buttons can follow it.
+private struct SourceMultiPicker: View {
+    @Binding var search: String
+    @Binding var selected: Set<String>
+    let american: [SourceProfile]
+    let worldwide: [SourceProfile]
+    let custom: [SourceProfile]
+    let recent: [SourceProfile]
+
+    private var visibleIDs: [String] {
+        (american + worldwide + custom).map(\.id)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 5) {
+                Image(systemName: "magnifyingglass").font(.caption2).foregroundStyle(.secondary)
+                TextField("Filter by name, tag or domain\u{2026}", text: $search)
+                    .textFieldStyle(.plain).font(.callout)
+                if !search.isEmpty {
+                    Button { search = "" } label: {
+                        Image(systemName: "xmark.circle.fill").font(.caption2)
+                    }
+                    .buttonStyle(.borderless).foregroundStyle(.secondary)
+                }
+            }
+            .padding(10)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    if !recent.isEmpty && search.isEmpty {
+                        group("Recent", recent)
+                    }
+                    group("American \u{2014} Top 50", american)
+                    group("Worldwide \u{2014} Top 50", worldwide)
+                    if !custom.isEmpty {
+                        group("Custom & imported", custom)
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+            .frame(width: 320, height: 360)
+
+            Divider()
+
+            HStack(spacing: 8) {
+                Text("\(selected.count) selected")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button("All shown") { selected.formUnion(visibleIDs) }
+                    .font(.caption)
+                Button("None") { selected.removeAll() }
+                    .font(.caption)
+                    .disabled(selected.isEmpty)
+            }
+            .buttonStyle(.borderless)
+            .padding(10)
+        }
+    }
+
+    @ViewBuilder
+    private func group(_ title: String, _ sources: [SourceProfile]) -> some View {
+        if !sources.isEmpty {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button(sources.allSatisfy { selected.contains($0.id) } ? "None" : "All") {
+                    let ids = sources.map(\.id)
+                    if sources.allSatisfy({ selected.contains($0.id) }) {
+                        selected.subtract(ids)
+                    } else {
+                        selected.formUnion(ids)
+                    }
+                }
+                .buttonStyle(.borderless)
+                .font(.caption2)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+
+            ForEach(sources) { source in
+                Button {
+                    if selected.contains(source.id) {
+                        selected.remove(source.id)
+                    } else {
+                        selected.insert(source.id)
+                    }
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: selected.contains(source.id)
+                              ? "checkmark.square.fill" : "square")
+                            .font(.callout)
+                            .foregroundStyle(selected.contains(source.id) ? MacTheme.gold : .secondary)
+                        healthDot(source.health)
+                        Text(source.name).font(.callout).lineLimit(1)
+                        Spacer(minLength: 0)
+                        Text(source.domains.first ?? "")
+                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private func healthDot(_ health: SourceHealth) -> some View {
+        let color: Color
+        switch health {
+        case .healthy: color = MacTheme.green
+        case .limited, .paused: color = .orange
+        case .blocked: color = .red
+        case .unknown: color = .secondary
+        }
+        return Circle().fill(color).frame(width: 6, height: 6)
     }
 }

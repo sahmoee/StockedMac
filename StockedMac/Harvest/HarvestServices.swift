@@ -501,6 +501,21 @@ actor SourceRegistry {
         return additions.count + updatedCount
     }
     
+    /// Puts the full built-in catalog back while KEEPING every source that is not part
+    /// of it (custom and file-imported entries survive). This is the self-heal for a
+    /// sources.json that decoded to something empty, disabled, or unbrowsable.
+    func repairCatalog() async throws -> [SourceProfile] {
+        let builtin = builtInSources()
+        guard !builtin.isEmpty else {
+            throw CompanionError.parseFailed("The built-in catalog is unavailable")
+        }
+        let builtinIDs = Set(builtin.map(\.id))
+        let custom = sources.filter { !builtinIDs.contains($0.id) }
+        sources = builtin + custom
+        try await persist()
+        return sources
+    }
+
     func recordHealth(_ health: SourceHealth, message: String?, for id: String) async throws {
         guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
         sources[index].health = health

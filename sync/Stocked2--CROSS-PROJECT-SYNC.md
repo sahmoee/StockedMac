@@ -19,3 +19,7 @@
 - Shared model lineage: Mac's `Models.swift` / `KitchenMetrics.swift` remain
   byte-identical to iOS as of Mac Build 91; if iOS models move, re-run the diff and
   update `MacBuildConfig.sharedModelLineage`.
+
+### 2026-08-01 — note: Mac Build 92
+- Mac-only UI/catalog work (multi-select sources, list import/export, self-heal).
+  **No iOS change required**; nothing about sync or the worker contract moved.

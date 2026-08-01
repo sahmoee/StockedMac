@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import UniformTypeIdentifiers
 
 private nonisolated struct ImportOutcome: Sendable {
     var url: String
@@ -39,6 +40,9 @@ final class HarvestModel {
     var sessionHistory: [DiscoveryReport] = []
     /// Sources still to visit in the current auto-rotate run.
     var autoRotateRemaining = 0
+    /// Explicitly selected sources still waiting their turn (multi-select browsing).
+    var sourceRotationQueue: [String] = []
+    @ObservationIgnored private var rotationQueueOnly = false
     var selectedRecipeID: UUID?
     var selectedRecipeIDs: Set<UUID> = []
     var selectedSourceID: String?
@@ -157,6 +161,16 @@ final class HarvestModel {
             if let added = try? await sourceRegistry.mergeBuiltInAdditions(), added > 0 {
                 log(.info, "Added \(added) new built-in source\(added == 1 ? "" : "s").")
                 await reload()
+            }
+            // Build 92 self-heal: a catalog that is empty — or non-empty but with nothing
+            // enabled and browsable — is useless, and the screen it produces ("No sources
+            // loaded", "No enabled source supports browsing") gives the user nothing to
+            // click. Restore the built-in hundred, keeping any custom entries.
+            if sources.filter({ $0.enabled && $0.discoveryMode.supportsDiscovery }).isEmpty {
+                if let repaired = try? await sourceRegistry.repairCatalog() {
+                    log(.warning, "The source catalog was empty or unbrowsable; restored the built-in catalog (\(repaired.count) sources).")
+                    await reload()
+                }
             }
             await pruneCaches(quiet: true)
             log(.info, "Stocked Companion is ready.")
@@ -426,7 +440,10 @@ final class HarvestModel {
         // Push freshly approved work to the Worker cache when the user asked for that.
         if settings.cloudSyncEnabled { syncApprovedToCloud() }
 
-        // Auto-rotate: move on to the next source until the run is used up.
+        // Selected sources first, then auto-rotate, until both runs are used up.
+        if !isDiscovering, advanceSourceRotation() {
+            return
+        }
         if autoRotateRemaining > 0, !isDiscovering {
             autoRotateRemaining -= 1
             browseNextSource()
@@ -589,11 +606,14 @@ final class HarvestModel {
                     health: report.confirmed.isEmpty ? .limited : .healthy,
                     message: report.summary
                 )
-                if !shouldAutoImport, self.autoRotateRemaining > 0 {
-                    // Queue-only browsing chains straight to the next source; the
-                    // auto-import path chains from finishImportRun instead, after the
-                    // recipes are actually in. Scheduled as a fresh task so the
-                    // `isDiscovering` reset in the defer above lands first.
+                // Chain to whatever is next: an explicitly selected source first, then
+                // auto-rotate. Queue-only browsing chains here; the auto-import path
+                // chains from finishImportRun instead, after the recipes are actually
+                // in. Scheduled as fresh tasks so the `isDiscovering` reset in the
+                // defer above lands first.
+                if !shouldAutoImport, self.advanceSourceRotation() {
+                    // handled — the next selected source is on its way
+                } else if !shouldAutoImport, self.autoRotateRemaining > 0 {
                     self.autoRotateRemaining -= 1
                     Task { [weak self] in self?.browseNextSource() }
                 } else {
@@ -1277,6 +1297,192 @@ final class HarvestModel {
 
     func cancelAutoRotate() {
         autoRotateRemaining = 0
+        sourceRotationQueue.removeAll()
+    }
+
+    // MARK: - Build 92: multi-select browsing
+
+    /// Browses a hand-picked set of sources one after another — the multi-select
+    /// dropdown's "Browse N sources" button. `queueOnly` collects links into the queue
+    /// instead of importing as it goes.
+    func browseSources(withIDs ids: [String], queueOnly: Bool = false) {
+        guard !isDiscovering else { return }
+        let eligible = ids.compactMap { id in
+            sources.first { $0.id == id && $0.enabled && $0.discoveryMode.supportsDiscovery }
+        }
+        guard let first = eligible.first else {
+            discoveryFailure = "None of the selected sources can browse."
+            return
+        }
+        rotationQueueOnly = queueOnly
+        sourceRotationQueue = eligible.dropFirst().map(\.id)
+        if !sourceRotationQueue.isEmpty {
+            log(.info, "Browsing \(eligible.count) selected sources, starting with \(first.name).")
+        }
+        discover(first, addToQueueOnly: queueOnly)
+    }
+
+    /// Starts the next explicitly selected source, if any. Returns whether it did.
+    @discardableResult
+    private func advanceSourceRotation() -> Bool {
+        while !sourceRotationQueue.isEmpty {
+            let nextID = sourceRotationQueue.removeFirst()
+            guard let source = sources.first(where: { $0.id == nextID }) else { continue }
+            let queueOnly = rotationQueueOnly
+            // A fresh task so the caller's `isDiscovering` cleanup lands first.
+            Task { [weak self] in self?.discover(source, addToQueueOnly: queueOnly) }
+            return true
+        }
+        return false
+    }
+
+    // MARK: - Build 92: catalog repair and file import/export
+
+    /// Restores the built-in hundred while keeping custom and imported sources.
+    func repairSources() {
+        Task {
+            do {
+                _ = try await sourceRegistry.repairCatalog()
+                await reload()
+                statusMessage = "Catalog restored — \(sources.count) sources"
+                log(.success, "Restored the built-in source catalog (\(sources.count) sources).")
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    /// Merges sources from a file the user picks. Accepts:
+    ///   • JSON — an array of full source profiles (the same shape as sources.json), or
+    ///   • plain text / CSV — one site per line: a URL or domain, optionally
+    ///     "Name | url", "Name, url" or "Name<TAB>url". Lines starting with # are notes.
+    func importSourcesFromFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Update the source list"
+        panel.prompt = "Import"
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.plainText, .json, .commaSeparatedText, .text]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let raw = try? String(contentsOf: url, encoding: .utf8) else {
+            errorMessage = "That file could not be read as text."
+            return
+        }
+        let parsed = Self.parseSourceList(raw)
+        guard !parsed.isEmpty else {
+            errorMessage = "No sources were found in \(url.lastPathComponent). Use one URL or domain per line, or a JSON array of source profiles."
+            return
+        }
+        let existingIDs = Set(sources.map(\.id))
+        let newCount = parsed.filter { !existingIDs.contains($0.id) }.count
+        Task {
+            do {
+                try await sourceRegistry.save(all: parsed)
+                await reload()
+                let updated = parsed.count - newCount
+                statusMessage = "Imported \(parsed.count) source\(parsed.count == 1 ? "" : "s") from \(url.lastPathComponent)"
+                log(.success, "Source list updated from \(url.lastPathComponent): \(newCount) new, \(updated) refreshed.")
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    /// Writes the current catalog to a JSON file that `importSourcesFromFile` (and the
+    /// bundled catalog format) can read back — the round-trip for hand-editing.
+    func exportSourcesToFile() {
+        let panel = NSSavePanel()
+        panel.title = "Export the source list"
+        panel.prompt = "Export"
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "stocked-sources.json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try JSONCoding.encoder().encode(sources)
+            try data.write(to: url, options: .atomic)
+            statusMessage = "Exported \(sources.count) sources"
+            log(.success, "Exported the source list to \(url.lastPathComponent).")
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } catch {
+            present(error)
+        }
+    }
+
+    /// The parser behind `importSourcesFromFile`, separated so it stays testable.
+    nonisolated static func parseSourceList(_ raw: String) -> [SourceProfile] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        // JSON array of profiles first — full fidelity, tolerant per element.
+        if trimmed.hasPrefix("["), let data = trimmed.data(using: .utf8) {
+            if let strict = try? JSONDecoder().decode([SourceProfile].self, from: data) {
+                return strict
+            }
+            if let lossy = try? JSONDecoder().decode(LossyArray<SourceProfile>.self, from: data),
+               !lossy.elements.isEmpty {
+                return lossy.elements
+            }
+        }
+
+        // Line-based: "Name | url", "Name, url", "Name<TAB>url", or a bare URL/domain.
+        var out: [SourceProfile] = []
+        var seen = Set<String>()
+        for line in trimmed.components(separatedBy: .newlines) {
+            let cleaned = line.trimmingCharacters(in: .whitespaces)
+            guard !cleaned.isEmpty, !cleaned.hasPrefix("#"), !cleaned.hasPrefix("//") else { continue }
+
+            var name: String? = nil
+            var address = cleaned
+            for separator in ["|", "\t", ","] {
+                if let range = cleaned.range(of: separator) {
+                    let left = String(cleaned[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+                    let right = String(cleaned[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+                    // Whichever side looks like the address is the address.
+                    if right.contains(".") && (left.isEmpty || !left.contains("://")) {
+                        name = left.nilIfBlank
+                        address = right
+                    } else if left.contains(".") {
+                        name = right.nilIfBlank
+                        address = left
+                    }
+                    break
+                }
+            }
+
+            if !address.contains("://") { address = "https://" + address }
+            guard let url = URL(string: address),
+                  let host = url.host?.lowercased(),
+                  host.contains(".") else { continue }
+            let domain = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+            guard seen.insert(domain).inserted else { continue }
+
+            let slug = domain.replacingOccurrences(of: ".", with: "-")
+            let displayName = name ?? domain
+                .components(separatedBy: ".").first.map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                ?? domain
+            out.append(SourceProfile(
+                id: "imported-\(slug)",
+                name: displayName,
+                domains: [domain, "www." + domain],
+                baseURL: "https://\(host)",
+                enabled: true,
+                discoveryEnabled: true,
+                discoveryMode: .sitemapOnly,
+                parserMode: .nativeFirst,
+                minimumDelaySeconds: 2,
+                maximumConcurrency: 2,
+                dailyRequestLimit: 150,
+                robotsRequired: true,
+                imageDownloadEnabled: true,
+                sitemapURLs: ["https://\(host)/sitemap.xml"],
+                recipeURLPatterns: [],
+                excludedURLPatterns: SourceProfile.defaultExcludedPatterns,
+                tags: ["Imported"],
+                notes: "Imported from a source list file.",
+                health: .unknown
+            ))
+        }
+        return out
     }
 
     /// Clears out everything already rejected, in one motion.
