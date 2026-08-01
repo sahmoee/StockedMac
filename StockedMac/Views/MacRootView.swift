@@ -25,6 +25,9 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
     case tools     = "Tools"
     case harvest   = "Harvest"
     case household = "Household"
+    /// Build 91: the full import pipeline — sources, queue, verification, image
+    /// recovery, cloud cache — in one place. Harvest keeps the review library.
+    case browse    = "Browse"
 
     var id: String { rawValue }
 
@@ -40,6 +43,7 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
         case .tools:     return "wrench.and.screwdriver"
         case .harvest:   return "leaf"
         case .household: return "person.2"
+        case .browse:    return "globe"
         }
     }
 
@@ -56,6 +60,7 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
         case .tools:     return "8"
         case .harvest:   return "9"
         case .household: return "0"
+        case .browse:    return "b"
         }
     }
 }
@@ -79,6 +84,7 @@ final class MacNavigation {
 struct MacRootView: View {
     @Environment(MacKitchenStore.self) private var store
     @Environment(MacHouseholdSync.self) private var sync
+    @Environment(HarvestModel.self) private var harvest
 
     /// Owned by the App so the menu bar commands can drive the same selection the sidebar
     /// shows. A window-local @State here would leave ⌘2 doing nothing.
@@ -155,7 +161,11 @@ struct MacRootView: View {
         case .insights, .tools:
             return nil
         case .harvest:
-            return nil
+            let waiting = harvest.recipes.filter { $0.reviewState == .needsReview }.count
+            return waiting > 0 ? "\(waiting)" : nil
+        case .browse:
+            let queued = harvest.queuedURLCount
+            return queued > 0 ? "\(queued)" : nil
         case .household:
             return sync.isJoined ? "\(max(1, sync.members.count))" : nil
         }
@@ -215,6 +225,7 @@ struct MacRootView: View {
         case .tools:     MacToolsView()
         case .harvest:   MacHarvestView()
         case .household: MacHouseholdView()
+        case .browse:    MacBrowseView()
         }
     }
 
@@ -235,7 +246,7 @@ struct MacRootView: View {
 
     private var supportsAdding: Bool {
         switch navigation.section {
-        case .home, .cook, .insights, .tools, .harvest, .household: return false
+        case .home, .cook, .insights, .tools, .harvest, .household, .browse: return false
         default: return true
         }
     }

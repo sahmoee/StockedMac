@@ -24,14 +24,14 @@ nonisolated enum MacBuildConfig {
     /// A separate product from the iOS app — separate project, separate bundle
     /// identifier — but the version line tracks the shared build history (the project file
     /// carries the real numbers; these are only the fallback if Info.plist is unreadable).
-    private static let fallbackVersion     = "4.30"
-    private static let fallbackBuildNumber = 90
+    private static let fallbackVersion     = "4.31"
+    private static let fallbackBuildNumber = 91
 
     /// When the shared model layer was last checked against the phone's copy. Models.swift
     /// and KitchenMetrics.swift are byte-for-byte identical to the iOS tree as of this
     /// check; re-run the diff and update this string whenever either side moves, so the
     /// provenance stays honest rather than decorative.
-    static let sharedModelLineage = "Shared models verified identical to iOS — Build 90, August 2026"
+    static let sharedModelLineage = "Shared models verified identical to iOS — Build 91, August 2026"
 
     static var buildNumber: Int {
         Int(bundleString("CFBundleVersion") ?? "") ?? fallbackBuildNumber
@@ -44,19 +44,18 @@ nonisolated enum MacBuildConfig {
 
     static let buildDate = "August 2026"
     static let buildName = """
-        Recipe housekeeping now has buttons. Settings \u{25B8} Data has always told you how \
-        many recipes are on this Mac and then offered you nothing to do about it \u{2014} the \
-        spreadsheet export and the spreadsheet-driven removal added in the last update \
-        lived in the File menu and nowhere else, which is a fine place for import and \
-        export and a poor place for tidying up. Both are now in Settings as well, right \
-        under the counts, alongside a third button that clears out the recipes from the \
-        two retired sources on demand instead of making you wait for the next launch. \
-        That button counts first and puts the number in its own label, so you can see at \
-        a glance whether there is anything to remove, and it goes grey when there is not. \
-        Nothing removes anything without showing you what it found and asking, and a \
-        copy is saved first either way, so a mistake is a restore rather than a loss. The \
-        File menu keeps every item it had. Removals still travel across your household, \
-        so a recipe cleared out here stays cleared out on the phone.
+        Browsing has its own room now. A new Browse section sits under Household with \
+        the full import pipeline in one place: a dropdown of a hundred recipe sites \u{2014} \
+        the top fifty American and the top fifty worldwide \u{2014} grouped, searchable, and \
+        guaranteed to load because the catalog now ships inside the app as well as \
+        beside it. One Pause button parks everything mid-flight and Resume picks the \
+        run back up; the queue can be bulk-verified so category pages never become \
+        half-parsed drafts; images are validated, retried, and required before a \
+        recipe may reach the kitchen, so the phone never shows a grey square. Approved \
+        recipes and their pictures can sync to the Stocked Worker's new harvest cache, \
+        past browse sessions can be restored with one click, and Auto-rotate walks as \
+        many sources as you ask it to. Harvest keeps the reviewing \u{2014} with thumbnails, \
+        bulk approve, and a filter for anything still missing its photo.
         """
 
     // MARK: - Environment

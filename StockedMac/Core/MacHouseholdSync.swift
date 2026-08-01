@@ -134,6 +134,11 @@ final class MacHouseholdSync {
     /// push would fail for every item in it, not just that recipe.
     nonisolated static let maxSyncedImageBytes = 180_000
 
+    /// Maximum total size of the recipe array in a push body. Keeping the push under
+    /// ~800 KB means it fits comfortably within typical Worker body limits and never
+    /// times out on a slow connection, even with a large recipe library.
+    nonisolated static let maxPushBodyBytes = 800_000
+
     @ObservationIgnored private var autoSyncTask: Task<Void, Never>?
 
     private let log = Logger(subsystem: "com.sowens.StockedMac", category: "household")
@@ -411,7 +416,7 @@ final class MacHouseholdSync {
             body["groDeleted"] = Array(pendingGroceryDeletes)
         }
         if syncRecipes {
-            body["userRecipes"]       = store.recipes.compactMap(userRecipeDict)
+            body["userRecipes"]       = recipesForPayload(store)
             body["userRecipeDeleted"] = Array(pendingRecipeDeletes)
         }
         if syncPlan {
@@ -511,6 +516,44 @@ final class MacHouseholdSync {
         object["updatedAt"]    = recipe.updatedAt
         object["lastWriterID"] = recipe.lastWriterID
         return object
+    }
+
+    /// Builds the recipes array for a push, staying within `maxPushBodyBytes`.
+    ///
+    /// Strategy, cheapest first:
+    /// 1. Full payload — done if it fits.
+    /// 2. Strip all embedded imageData; the phone falls back to imageURL on demand.
+    /// 3. Sort newest-first and drop from the tail until the payload fits. Pull always
+    ///    fetches the whole library; only this incremental push is capped.
+    private func recipesForPayload(_ store: MacKitchenStore) -> [[String: Any]] {
+        // Only sync recipes that have an image — imageless recipes render poorly
+        // on iOS and unnecessarily inflate the payload.
+        let withImages = store.recipes.filter { r in
+            r.imageData != nil || (r.imageURL?.nilIfBlank != nil)
+        }
+        var dicts = withImages.compactMap(userRecipeDict)
+        guard !dicts.isEmpty else { return dicts }
+
+        if let data = try? JSONSerialization.data(withJSONObject: dicts),
+           data.count <= Self.maxPushBodyBytes { return dicts }
+
+        // Step 2: strip embedded images so phone falls back to imageURL.
+        dicts = withImages.map { r -> UserRecipe in
+            var copy = r; copy.imageData = nil; return copy
+        }.compactMap(userRecipeDict)
+
+        if let data = try? JSONSerialization.data(withJSONObject: dicts),
+           data.count <= Self.maxPushBodyBytes { return dicts }
+
+        // Step 3: sort newest-first, trim from tail until under budget.
+        dicts.sort { ($0["updatedAt"] as? Double ?? 0) > ($1["updatedAt"] as? Double ?? 0) }
+        while dicts.count > 1,
+              let data = try? JSONSerialization.data(withJSONObject: dicts),
+              data.count > Self.maxPushBodyBytes {
+            dicts.removeLast()
+        }
+        log.warning("recipe sync payload trimmed to \(dicts.count) recipes to fit push budget")
+        return dicts
     }
 
     private func plannedMealDict(_ meal: PlannedMeal) -> [String: Any]? {

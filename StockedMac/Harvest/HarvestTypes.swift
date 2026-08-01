@@ -225,7 +225,21 @@ nonisolated struct AppSettings: Codable, Sendable {
     var rememberBrowsedSources: Bool
     var lastBrowsedSourceID: String?
     var recentSourceIDs: [String]
-    
+    // ── Build 91 (Browse) ────────────────────────────────────────────────
+    /// A draft without an image never reaches the kitchen (the phone shows a blank
+    /// placeholder for imageless recipes). On by default because the bridge already
+    /// enforced it silently; now it is visible and adjustable.
+    var requireImageForImport: Bool
+    /// After a run, automatically retry image downloads for drafts that recorded an
+    /// image URL but whose download failed.
+    var autoFetchMissingImages: Bool
+    /// Check queued URLs really are recipe pages before importing them.
+    var verifyBeforeImport: Bool
+    /// Push approved recipes (and their images) to the Worker cache after approval.
+    var cloudSyncEnabled: Bool
+    /// How many sources "Auto-rotate" walks through in one sitting.
+    var autoRotateSourceCount: Int
+
     static var defaults: AppSettings {
         AppSettings(
             userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -243,8 +257,54 @@ nonisolated struct AppSettings: Codable, Sendable {
             retainLogEntries: 200,
             rememberBrowsedSources: true,
             lastBrowsedSourceID: nil,
-            recentSourceIDs: []
+            recentSourceIDs: [],
+            requireImageForImport: true,
+            autoFetchMissingImages: true,
+            verifyBeforeImport: false,
+            cloudSyncEnabled: false,
+            autoRotateSourceCount: 3
         )
+    }
+}
+
+// Tolerant decoding: every field falls back to its default when absent, so a settings.json
+// written by ANY earlier build (which lacks the Build 91 keys) still loads instead of
+// silently resetting the user to factory settings. Encoding stays synthesized-shaped.
+nonisolated extension AppSettings {
+    private enum CodingKeys: String, CodingKey {
+        case userAgent, parserMode, downloadImages, parseIngredientStructure
+        case maximumConcurrentJobs, useWorkerFallback, autoApproveConfidence
+        case retryFailedImports, autoImportVerified, skipAlreadyImported
+        case cacheMaximumAgeHours, maximumCacheBytes, retainLogEntries
+        case rememberBrowsedSources, lastBrowsedSourceID, recentSourceIDs
+        case requireImageForImport, autoFetchMissingImages, verifyBeforeImport
+        case cloudSyncEnabled, autoRotateSourceCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = AppSettings.defaults
+        userAgent               = (try? c.decodeIfPresent(String.self, forKey: .userAgent)) ?? d.userAgent
+        parserMode              = (try? c.decodeIfPresent(ParserMode.self, forKey: .parserMode)) ?? d.parserMode
+        downloadImages          = (try? c.decodeIfPresent(Bool.self, forKey: .downloadImages)) ?? d.downloadImages
+        parseIngredientStructure = (try? c.decodeIfPresent(Bool.self, forKey: .parseIngredientStructure)) ?? d.parseIngredientStructure
+        maximumConcurrentJobs   = (try? c.decodeIfPresent(Int.self, forKey: .maximumConcurrentJobs)) ?? d.maximumConcurrentJobs
+        useWorkerFallback       = (try? c.decodeIfPresent(Bool.self, forKey: .useWorkerFallback)) ?? d.useWorkerFallback
+        autoApproveConfidence   = (try? c.decodeIfPresent(Double.self, forKey: .autoApproveConfidence)) ?? d.autoApproveConfidence
+        retryFailedImports      = (try? c.decodeIfPresent(Bool.self, forKey: .retryFailedImports)) ?? d.retryFailedImports
+        autoImportVerified      = (try? c.decodeIfPresent(Bool.self, forKey: .autoImportVerified)) ?? d.autoImportVerified
+        skipAlreadyImported     = (try? c.decodeIfPresent(Bool.self, forKey: .skipAlreadyImported)) ?? d.skipAlreadyImported
+        cacheMaximumAgeHours    = (try? c.decodeIfPresent(Int.self, forKey: .cacheMaximumAgeHours)) ?? d.cacheMaximumAgeHours
+        maximumCacheBytes       = (try? c.decodeIfPresent(Int.self, forKey: .maximumCacheBytes)) ?? d.maximumCacheBytes
+        retainLogEntries        = (try? c.decodeIfPresent(Int.self, forKey: .retainLogEntries)) ?? d.retainLogEntries
+        rememberBrowsedSources  = (try? c.decodeIfPresent(Bool.self, forKey: .rememberBrowsedSources)) ?? d.rememberBrowsedSources
+        lastBrowsedSourceID     = try? c.decodeIfPresent(String.self, forKey: .lastBrowsedSourceID)
+        recentSourceIDs         = (try? c.decodeIfPresent([String].self, forKey: .recentSourceIDs)) ?? []
+        requireImageForImport   = (try? c.decodeIfPresent(Bool.self, forKey: .requireImageForImport)) ?? d.requireImageForImport
+        autoFetchMissingImages  = (try? c.decodeIfPresent(Bool.self, forKey: .autoFetchMissingImages)) ?? d.autoFetchMissingImages
+        verifyBeforeImport      = (try? c.decodeIfPresent(Bool.self, forKey: .verifyBeforeImport)) ?? d.verifyBeforeImport
+        cloudSyncEnabled        = (try? c.decodeIfPresent(Bool.self, forKey: .cloudSyncEnabled)) ?? d.cloudSyncEnabled
+        autoRotateSourceCount   = (try? c.decodeIfPresent(Int.self, forKey: .autoRotateSourceCount)) ?? d.autoRotateSourceCount
     }
 }
 
@@ -515,5 +575,77 @@ nonisolated enum URLSafety {
             components?.queryItems = queryItems.isEmpty ? nil : queryItems
         }
         return components?.url ?? url
+    }
+}
+
+// MARK: - Tolerant source decoding (Build 91)
+//
+// A catalog entry written by an older build — or edited by hand — no longer takes the
+// whole catalog down with it. Only id, name, domains and baseURL are truly required;
+// everything else falls back to the same defaults the memberwise initializer uses.
+// Encoding stays synthesized, so sources.json keeps its full shape on disk.
+
+nonisolated extension SourceProfile {
+    private enum CodingKeys: String, CodingKey {
+        case id, name, domains, baseURL, enabled, discoveryEnabled, discoveryMode
+        case parserMode, minimumDelaySeconds, maximumConcurrency, dailyRequestLimit
+        case robotsRequired, imageDownloadEnabled, sitemapURLs, recipeURLPatterns
+        case excludedURLPatterns, tags, notes, health
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id      = try c.decode(String.self, forKey: .id)
+        name    = try c.decode(String.self, forKey: .name)
+        domains = try c.decode([String].self, forKey: .domains)
+        baseURL = try c.decode(String.self, forKey: .baseURL)
+        enabled              = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? true
+        discoveryEnabled     = (try? c.decodeIfPresent(Bool.self, forKey: .discoveryEnabled)) ?? false
+        discoveryMode        = (try? c.decodeIfPresent(DiscoveryMode.self, forKey: .discoveryMode)) ?? .sitemapOnly
+        parserMode           = (try? c.decodeIfPresent(ParserMode.self, forKey: .parserMode)) ?? .nativeFirst
+        minimumDelaySeconds  = (try? c.decodeIfPresent(Int.self, forKey: .minimumDelaySeconds)) ?? 2
+        maximumConcurrency   = (try? c.decodeIfPresent(Int.self, forKey: .maximumConcurrency)) ?? 2
+        dailyRequestLimit    = (try? c.decodeIfPresent(Int.self, forKey: .dailyRequestLimit)) ?? 100
+        robotsRequired       = (try? c.decodeIfPresent(Bool.self, forKey: .robotsRequired)) ?? true
+        imageDownloadEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .imageDownloadEnabled)) ?? true
+        sitemapURLs          = (try? c.decodeIfPresent([String].self, forKey: .sitemapURLs)) ?? []
+        recipeURLPatterns    = (try? c.decodeIfPresent([String].self, forKey: .recipeURLPatterns)) ?? []
+        excludedURLPatterns  = (try? c.decodeIfPresent([String].self, forKey: .excludedURLPatterns)) ?? SourceProfile.defaultExcludedPatterns
+        tags                 = (try? c.decodeIfPresent([String].self, forKey: .tags)) ?? []
+        notes                = try? c.decodeIfPresent(String.self, forKey: .notes)
+        health               = (try? c.decodeIfPresent(SourceHealth.self, forKey: .health)) ?? .unknown
+    }
+}
+
+/// Decodes an array element-by-element, dropping the elements that fail instead of
+/// failing the whole array. Used for both the source catalog and stray recipe records.
+nonisolated struct LossyArray<Element: Codable & Sendable>: Codable, Sendable {
+    var elements: [Element]
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var out: [Element] = []
+        while !container.isAtEnd {
+            if let value = try? container.decode(Element.self) {
+                out.append(value)
+            } else {
+                _ = try? container.decode(AnyDiscard.self)   // skip the bad element
+            }
+        }
+        elements = out
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try elements.encode(to: encoder)
+    }
+
+    private struct AnyDiscard: Codable {}
+}
+
+nonisolated extension RecipeImage {
+    /// True when the image bytes are actually on disk, not merely promised by a URL.
+    var hasLocalFile: Bool {
+        guard let path = localPath, !path.isEmpty else { return false }
+        return FileManager.default.fileExists(atPath: path)
     }
 }

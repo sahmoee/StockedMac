@@ -27,6 +27,9 @@ enum MacHarvestBridge {
         for draft in drafts {
             let key = normalizedTitle(draft.title)
             guard !key.isEmpty, !existing.contains(key) else { continue }
+            // Skip recipes without an image — the iOS app shows a blank placeholder
+            // for imageless recipes and they look out of place in the library.
+            guard draft.image != nil else { continue }
             store.addRecipe(userRecipe(from: draft))
             existing.insert(key)
             added += 1
@@ -136,11 +139,16 @@ enum MacHarvestBridge {
 
     private static func notes(for draft: RecipeDraft) -> String {
         var lines: [String] = []
-        let attribution = draft.source.attribution.nilIfBlank ?? draft.source.host
+        // Prefer a human-readable attribution; discard the internal company handle
+        // ("sowens") so it never leaks into user-visible notes.
+        let rawAttr = draft.source.attribution.nilIfBlank ?? draft.source.host.nilIfBlank
+        let isSowens = rawAttr?.lowercased().contains("sowens") == true
+        let attribution = isSowens ? nil : rawAttr
         if let url = draft.source.url.nilIfBlank {
-            lines.append("Imported from \(attribution) — \(url)")
-        } else {
-            lines.append("Imported from \(attribution)")
+            let label = attribution ?? url
+            lines.append("Source: \(label)")
+        } else if let attr = attribution {
+            lines.append("Source: \(attr)")
         }
         if let note = draft.discoveryNote?.nilIfBlank { lines.append(note) }
         if let yield = draft.yield?.nilIfBlank { lines.append("Yield: \(yield)") }

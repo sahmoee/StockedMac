@@ -1,189 +1,150 @@
-# Build 90 (4.30) — Mac only: recipe housekeeping you can actually find
+# Build 91 (4.31) — the Browse section
 
-**This package is the Mac delta only.** Nothing in it belongs in the iOS project, and no
-iOS file is included. The iOS app is unaffected and stays on Build 89 / 4.29.
+**This package touches two projects: the Mac app (primary) and the unified worker (one new
+file, one revised file). No iOS file is included or required.** The iOS app stays on its own
+build; two optional read-only worker routes are waiting for it whenever it wants them.
 
----
+Which project is which:
 
-## Why you couldn't find either option
-
-Both features existed. Neither was anywhere you would look.
-
-**Removing recipes with a matching spreadsheet** shipped in Build 88 as two File-menu
-items — *Export recipes as CSV…* and *Remove recipes from a CSV…*. The File menu is the
-right home for import and export and the wrong home for tidying up, and if the Build 88
-Mac files were never copied into your tree, the items are not there at all.
-
-**Removing the Kaggle and Sowens recipes** shipped in Build 89 as a silent sweep that runs
-at launch. It has no button, no menu item and no message. Working exactly as designed, it
-is indistinguishable from not being installed.
-
-This build puts all three actions in **Settings ▸ Data**, in a new *Recipes* section
-directly under the counts, and adds the retired-source removal to the File menu as well.
-
----
-
-## Files
-
-| File | New / Revised | What changed |
+| Folder in this package | Copies into | Project |
 |---|---|---|
-| `StockedMac/Views/MacRecipeMaintenance.swift` | **New** | The three jobs — export, remove-by-spreadsheet, remove-retired-sources — in one place so the menu and Settings share them. |
-| `StockedMac/Views/MacRecipeMaintenanceSection.swift` | **New** | The *Recipes* block in Settings ▸ Data. Self-contained; one line drops it into any Form. |
-| `StockedMac/Views/MacSettingsView.swift` | Revised | One line added to the Data form. **Read the note below before copying this file.** |
-| `StockedMac/Views/MacCommands.swift` | Revised | The two CSV items now call the shared helper; adds *Remove Kaggle and Sowens recipes…*. |
-| `StockedMac/Core/MacBuildConfig.swift` | Revised | 89/4.29 → **90/4.30**, new `buildName`. |
-| `StockedMac/Core/MacRecipeCSV.swift` | Unchanged (Build 88) | Included so this package works even if Build 88's Mac half was never copied in. |
-| `StockedMac/Core/MacRecipeSourceBlocklist.swift` | Unchanged (Build 89) | Same reason. |
-| `StockedMac/StockedMacApp.swift` | Unchanged (Build 89) | Same reason — it carries the launch sweep. |
-
-The last three are byte-identical to what was already sent. They are here so you can copy
-the folder over and be done, rather than checking which earlier package landed.
+| `StockedMac/` | `Documents/Stocked Mac/StockedMac/` | **Stocked for Mac** (macOS only) |
+| `worker/` | `Documents/worker/` | **Unified Cloudflare Worker** |
+| `sync/` | see inside each file | Cross-project trackers for all three folders |
 
 ---
 
-## Read this before copying `MacSettingsView.swift`
+## Why "No sources loaded" happened
 
-Your screenshot shows Settings with three tabs: **General, Data, About**. The copy
-included here matches that exactly — it is your file with one line added.
+The 100-site catalog existed on disk (`default-sources.json`) but reached the app only as a
+*bundled resource*. On trees where the synchronized folder didn't copy the JSON into the app
+bundle, `SourceRegistry` found no local file, no bundled file, and quietly loaded nothing —
+the Browse panel then said "No sources loaded" and `resetSources` put "Action failed" in the
+footer, exactly what your screenshot shows.
 
-Some Stocked Mac trees have a fourth **Account** tab (Sign in with Apple, added in Build
-78). **If your Settings window has an Account tab, do not copy the included
-`MacSettingsView.swift`** — it would delete that tab. Instead open your own copy, find the
-Data form, and paste one line above the `Section` whose header is `Starting over`:
+Three fixes, layered:
 
-```swift
-            MacRecipeMaintenanceSection()
+1. **The catalog is now compiled into the app** (`DefaultSourceCatalog.swift`) — the chain is
+   local `sources.json` → bundled JSON → embedded constant. It can no longer be missing.
+2. **An empty local `sources.json` no longer wins.** An interrupted first launch used to leave
+   a valid `[]` on disk that shadowed the catalog forever.
+3. **Decoding is tolerant** — per-element (one bad entry costs one entry, not the catalog) and
+   per-field (old files missing new keys still load).
 
-            Section {
-                HStack {
-                    Button("Load a sample kitchen…") { confirmSample = true }
-```
+The catalog is the top 50 American recipe sites plus the top 50 worldwide, grouped that way
+in the new dropdown.
 
-That is the entire change to that file. Everything else in this package applies either
-way.
+---
+
+## The new Browse section
+
+`MacBrowseView.swift` adds **Browse** to the sidebar under Household (⌘B). Every import
+function moved there from Harvest: the source dropdown (grouped: Recent / American Top 50 /
+Worldwide Top 50 / Custom, searchable by name, tag or domain, with health dots), Browse &
+Import, Queue only, Next in rotation, the queue editor, auto-verify, and the discovery
+report. Harvest keeps the review library and gained review tools of its own.
+
+### Ten new features
+
+1. **Browse sidebar section** — the full import pipeline in one place, under Household.
+2. **Pause / Resume everything** — one gate parks browsing, imports and image downloads
+   mid-run without cancelling; Resume continues exactly where it stopped.
+3. **Bulk verify** — checks every queued URL against the recipe-page detector and removes
+   the ones that aren't recipes (network failures keep their URL). Optional
+   *verify before import* runs it automatically.
+4. **Auto-rotate** — browses N sources back to back (count is a stepper, 1–10), chaining
+   after each source's import finishes.
+5. **Image gate** — "Require an image before a recipe reaches the kitchen" is now a visible,
+   enforced setting: no auto-approval and no hand-over without image bytes on disk, so the
+   iOS app never receives a pictureless recipe.
+6. **Fetch missing images** — one button retries every failed image download; also runs
+   automatically after each import run (toggleable).
+7. **Cloud cache sync** — approved recipes and their images push to the Worker
+   (`POST /harvest/cache`, `POST /harvest/image`), manually or automatically on approval.
+8. **Session history** — the last 20 discovery reports are listed and restorable with one
+   click, including finishing a stopped session's unchecked links.
+9. **Bulk approve / reject** in Harvest — act on everything the current filter shows.
+10. **Missing-image filter + thumbnails** in Harvest — see exactly which drafts the phone
+    would reject, with a cached thumbnail per row and a "no image" badge.
+
+### Ten improvements
+
+1. Embedded source catalog — "No sources loaded" is structurally impossible now.
+2. Empty/corrupt `sources.json` recovery (falls through to the catalog instead of nothing).
+3. Tolerant `SourceProfile` and `AppSettings` decoding — old files load, new keys default;
+   your saved settings survive this upgrade instead of resetting.
+4. Image validation — downloads must decode as a real image ≥ 120 px on the short edge;
+   HTML error pages saved as `.jpg` no longer count as photos.
+5. Content-addressed image files — the same image URL reuses the bytes already on disk
+   (SHA-256 filename) instead of a fresh UUID copy per import.
+6. Per-source crawl delay — the rate limiter honours each site's `minimumDelaySeconds`
+   instead of a hardcoded 2 s for everybody.
+7. Auto-approval respects the image gate (no more approve-then-silently-drop).
+8. Settings edited in Browse actually save (`scheduleSettingsSave` is wired to every toggle).
+9. Sidebar badges for Browse (queued URLs) and Harvest (awaiting review).
+10. Kitchen home card "Browse recipes" now opens Browse; proper Accept headers on image
+    requests; queue/report/pause states all surfaced inline instead of hiding in logs.
+
+---
+
+## Worker changes (`worker/`)
+
+New `src/apps/stocked/src/harvest.js` + four routes wired in `index.js`
+(version → `2026-08-01.1`, capability `harvest-cache`):
+
+| Route | What |
+|---|---|
+| `POST /harvest/cache` | Upsert ≤ 50 recipes into KV (`harvest:recipe:<id>` + index) |
+| `POST /harvest/image` | Store one image — R2 (`env.MEDIA`) when bound, else KV base64, ≤ 1 MB |
+| `GET /harvest/recipes` | The whole cache, 10-min edge cache |
+| `GET /harvest/img/<id>.jpg` | One image, 30-day edge cache |
+
+All behind the existing `X-Stocked-Key` gate; writes rate-limited like other routes. No new
+bindings required (uses `CROWD`; uses `MEDIA` R2 automatically if you ever bind it).
+**About cPanel:** the worker retired the cPanel origin (see `content.js`); this cache is its
+successor — same job, on infrastructure that is actually still in the loop. Deploy with
+`wrangler deploy` as usual.
 
 ---
 
 ## Installing
 
-1. Copy `StockedMac/` over the Mac tree, keeping the folder structure — minus
-   `MacSettingsView.swift` if the note above applies to you. The project uses Xcode
-   synchronized folders, so the two new `.swift` files compile just by being on disk;
-   there is no target-membership step.
-
-2. **Set the version in Build Settings.**
+1. Copy `StockedMac/` over `Documents/Stocked Mac/StockedMac/`, keeping the folder
+   structure. Synchronized folders pick up the four new Swift files automatically.
+   `default-sources.json` (unchanged content) stays where it is.
+2. Copy `worker/src/apps/stocked/index.js` and `worker/src/apps/stocked/src/harvest.js`
+   into `Documents/worker/`, then `wrangler deploy`.
+3. Copy each file in `sync/` to the folder named at the top of that file.
+4. Set the Mac target's version in Build Settings:
 
    ```
-   MARKETING_VERSION       = 4.30
-   CURRENT_PROJECT_VERSION = 90
+   MARKETING_VERSION       = 4.31
+   CURRENT_PROJECT_VERSION = 91
    ```
 
-The iOS target keeps `4.29` / `89`. The two apps are separate products with separate
-version lines, and this build changes nothing on the phone.
+   The iOS target keeps its own numbers; nothing on the phone changes.
 
 ---
 
-## What you get
+## The things not to refactor
 
-### Settings ▸ Data, new *Recipes* section
-
-*Export recipes as a spreadsheet…* writes one row per recipe, both libraries, with a
-`remove` column. *Remove recipes from a spreadsheet…* takes that file back, matches the
-ticked rows against your library, and shows you every match — including the ambiguous and
-the unmatched — before anything goes.
-
-*Remove N retired-source recipes…* is the third button, and **the number is in the label**.
-That is the part worth having: a button that says "No retired-source recipes to remove"
-and sits greyed out tells you the sweep already did its job, which is the one thing the
-silent Build 89 version could never tell you. If it shows a count, pressing it names the
-breakdown, asks, saves a restorable copy, and then removes them.
-
-### File menu
-
-*Export recipes as CSV…* and *Remove recipes from a CSV…* stay exactly where they were —
-anyone who has learned them keeps them — and *Remove Kaggle and Sowens recipes…* joins
-them. The bodies moved into `MacRecipeMaintenance`; the menu no longer owns the code.
-
----
-
-## What the counts will probably say
-
-Your Data pane reads **102 recipes**. If Build 89's Mac half is already in your tree and
-the app has been launched since, the Kaggle and Sowens recipes are gone from that 102
-already, and the new button will be greyed out saying there is nothing to remove. That is
-the correct result, not a failure — and it is now legible instead of invisible.
-
-If the button shows a count instead, Build 89's Mac half never made it in. Copying this
-package fixes that too, because `MacRecipeSourceBlocklist.swift` and `StockedMacApp.swift`
-are included.
-
----
-
-## The thing not to refactor
-
-**Every removal path here goes through `MacKitchenStore.deleteRecipe(ids:)` and
-`deleteSavedRecipes(ids:)`, or the next household pull puts everything back.**
-
-The Mac has no `didSet` observers — `@Observable` rewrites stored properties into
-accessors, which property observers cannot coexist with — so the household tombstone
-bookkeeping lives inside those two methods, which call `sync?.noteRecipeDeleted(_:)` and
-`noteSavedRecipeDeleted(_:)`. Filtering `store.recipes` in place would remove the recipes
-locally, leave no tombstone, and the next pull would restore all of them.
-
-`MacRecipeMaintenance.removeRetiredSources` deliberately does **not** call
-`MacRecipePurge.run`. That path is right for a silent launch sweep — no confirmation, no
-backup, no window — and wrong for a button somebody pressed. The manual version counts
-first, says what it found, waits for a yes, and routes through
-`MacRecipeCSV.remove(recipeIDs:savedRecipeIDs:store:)`, which writes a restorable copy on
-the way past. Both end at the same two store methods, so the tombstones are recorded
-either way. Keep both; they are not duplicates.
-
-**Three copies of the blocklist rules exist and must agree**:
-`MacRecipeSourceBlocklist.swift` here, `RecipeSourceBlocklist.swift` in the iOS project,
-and the constants atop `stocked-purge-recipes.py` from the Build 89 Mac package. Change
-one, change all three.
-
----
-
-## What is matched, and what is deliberately not
-
-A recipe is judged **only by where it came from**: source name, source or image URL, ID
-prefix, and tags. Titles, ingredients and steps are never read. A recipe called "Kaggle
-Chicken Curry" that you typed yourself survives. Tags are matched by whole-tag equality,
-not substring, so a hand-written recipe tagged `kaggle-style` is safe.
-`MacBuildConfig.company` is `"Sowens Studios"` — brand, not a recipe source. Nothing in
-the blocklist reads it, and nothing should.
-
----
+- **Hand-over still goes through `MacHarvestBridge.add` → `MacKitchenStore.addRecipe`**, and
+  removals through the store's delete methods — the household tombstone rules from the
+  Build 90 README all still apply.
+- The bridge's own `image != nil` guard stays even though the model now gates earlier;
+  belt and braces on the "nothing without an image" promise.
+- `AppSettings`/`SourceProfile` keep synthesized **encoding**; only decoding is custom.
+  Don't add fields without extending both the field list and the tolerant `init(from:)`.
+- The Worker's legacy 7 routes, header names and schema versions are untouched.
 
 ## Verification done here
 
-Every Swift file brace-, paren- and bracket-balanced. Every symbol the new code calls was
-resolved against the real tree: `MacRecipeCSV.exportFilename()` / `.exportCSV(store:)` /
-`.plan(from:store:)` / `.remove(recipeIDs:savedRecipeIDs:store:)`,
-`MacRecipeCSVWindow.confirm(plan:)`, `MacRecipeSourceBlocklist.isBlocked(_:)` for both
-`UserRecipe` and `GeneratedRecipe`, and `MacKitchenStore.recipes` / `.savedRecipes` /
-`.deleteRecipe(ids:)` / `.deleteSavedRecipes(ids:)` / `.storageDirectory` /
-`.lastSavedAt` / `.lastSaveError`. The two new top-level type names
-(`MacRecipeMaintenance`, `MacRecipeMaintenanceSection`) were checked for collisions across
-every Stocked tree. The included `MacSettingsView.swift` was confirmed to reference
-neither `MacAppleAuth` nor `AuthenticationServices`, so it cannot drag in a dependency
-your tree may not have.
-
-**There is no Swift compiler here — the real build is Xcode on your Mac.**
-
----
-
-## Still outstanding on your side
-
-`RecipeDraft` needs `nonisolated` on its declaration in whichever file now holds it:
-
-```swift
-nonisolated struct RecipeDraft: Identifiable, Codable, Hashable, Sendable {
-```
-
-Without it, the Mac target's `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` makes
-`refreshFingerprint()` main-actor-isolated and `actor RecipeStore.merge()` cannot call it.
-Do not add `await` at the call site — a `mutating` call on a value type inside an actor
-cannot be awaited. `ParserResult`, `IngredientSection`, `InstructionSection`, `RecipeTimes`
-and `AppSettings` want the same marker.
+Every Swift file brace/paren/bracket-balanced (raw-string aware). Both worker files pass
+`node --check`. Every symbol the new code calls was resolved against the staged tree:
+`MacTheme.gold/green`, `MacCard`, `MacEmpty`, `MacNavigation.section`,
+`HarvestModel`'s stores/actors, `MacWorkerClient.isConfigured`,
+`MacBuildConfig.authorizeWorkerRequest`, `JSONCoding`, `URLSafety`, `Hashing.sha256`,
+`nilIfBlank`, and the worker's `util.js` exports (`json`, `errJson`, `withCors`,
+`background`, `logEvent`). The embedded catalog round-trips through `JSONDecoder` with the
+tolerant `SourceProfile` decoder. **There is no Swift compiler here — the real build is
+Xcode on your Mac.**

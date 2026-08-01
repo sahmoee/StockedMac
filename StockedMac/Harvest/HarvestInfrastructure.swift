@@ -2,17 +2,38 @@
 
 import Foundation
 
+// MARK: - Pause Gate (Build 91)
+
+/// One switch that pauses every network request the Harvester makes — discovery,
+/// page fetches and image downloads all funnel through `HTTPClient`, which waits
+/// here before each request. Pausing therefore stops new work immediately without
+/// cancelling anything: Resume picks up exactly where the run left off.
+actor PauseGate {
+    private(set) var isPaused = false
+
+    func pause()  { isPaused = true }
+    func resume() { isPaused = false }
+
+    func waitWhileParked() async {
+        while isPaused && !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+    }
+}
+
 // MARK: - HTTP Client
 
 actor HTTPClient {
     private let session: URLSession
     private let cacheDirectory: URL
     private var userAgent: String
-    
-    init(cacheDirectory: URL, userAgent: String) {
+    private let pauseGate: PauseGate?
+
+    init(cacheDirectory: URL, userAgent: String, pauseGate: PauseGate? = nil) {
         self.cacheDirectory = cacheDirectory
         self.userAgent = userAgent
-        
+        self.pauseGate = pauseGate
+
         let config = URLSessionConfiguration.default
         config.httpAdditionalHeaders = ["User-Agent": userAgent]
         config.requestCachePolicy = .returnCacheDataElseLoad
@@ -27,6 +48,8 @@ actor HTTPClient {
     }
     
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        if let pauseGate { await pauseGate.waitWhileParked() }
+        try Task.checkCancellation()
         var modifiedRequest = request
         modifiedRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         return try await session.data(for: modifiedRequest)
@@ -125,23 +148,31 @@ actor DomainRateLimiter {
     private var requestCounts: [String: Int] = [:]
     private var pausedUntil: [String: Date] = [:]
     
-    func waitIfNeeded(for domain: String) async {
+    /// `minimumDelay` comes from the source profile, so a site that asked for a slower
+    /// crawl actually gets one — Build 90 hardcoded two seconds for everybody.
+    func waitIfNeeded(for domain: String, minimumDelay: Double = 2.0) async {
         // Check if paused
         if let pausedUntil = pausedUntil[domain], pausedUntil > Date() {
             let delay = pausedUntil.timeIntervalSinceNow
             try? await Task.sleep(for: .seconds(delay))
         }
-        
+
         // Apply minimum delay between requests
+        let floor = max(0.5, minimumDelay)
         if let last = lastRequest[domain] {
             let elapsed = Date().timeIntervalSince(last)
-            if elapsed < 2.0 {
-                try? await Task.sleep(for: .seconds(2.0 - elapsed))
+            if elapsed < floor {
+                try? await Task.sleep(for: .seconds(floor - elapsed))
             }
         }
-        
+
         lastRequest[domain] = Date()
         requestCounts[domain, default: 0] += 1
+    }
+
+    /// How many requests this domain has answered since the counters were last reset.
+    func requestCount(for domain: String) -> Int {
+        requestCounts[domain, default: 0]
     }
     
     func clearPause(for domain: String) {

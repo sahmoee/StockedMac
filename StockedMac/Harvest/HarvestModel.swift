@@ -27,6 +27,18 @@ final class HarvestModel {
     var discoveryFailure: String?
     var isImporting = false
     var isDiscovering = false
+    // ── Build 91 (Browse) ───────────────────────────────────────────────
+    /// One switch that parks every network request (browsing, imports, image
+    /// downloads). Nothing is cancelled; Resume continues where work stopped.
+    var isPaused = false
+    var isBulkVerifying = false
+    var bulkVerifyProgress: ImportProgress = .idle
+    var isCloudSyncing = false
+    var cloudSyncStatus: String?
+    /// Past browse sessions, newest first, restored from DiscoveryReports on disk.
+    var sessionHistory: [DiscoveryReport] = []
+    /// Sources still to visit in the current auto-rotate run.
+    var autoRotateRemaining = 0
     var selectedRecipeID: UUID?
     var selectedRecipeIDs: Set<UUID> = []
     var selectedSourceID: String?
@@ -39,6 +51,8 @@ final class HarvestModel {
     let paths: AppPaths
 
     @ObservationIgnored private var hasStarted = false
+    @ObservationIgnored private let pauseGate: PauseGate
+    @ObservationIgnored private var bulkVerifyTask: Task<Void, Never>?
     @ObservationIgnored private var importTask: Task<Void, Never>?
     @ObservationIgnored private var discoveryTask: Task<Void, Never>?
     @ObservationIgnored private var settingsSaveTask: Task<Void, Never>?
@@ -91,12 +105,15 @@ final class HarvestModel {
         // A missing bundled catalog is reported later instead of trapping.
         sourceRegistry = SourceRegistry(
             localURL: resolved.paths.sourcesFile,
-            bundledURL: AppPaths.bundledResource("sources.json")
+            bundledURL: AppPaths.bundledResource("default-sources.json")
         )
 
+        let gate = PauseGate()
+        pauseGate = gate
         let http = HTTPClient(
             cacheDirectory: resolved.paths.httpCache,
-            userAgent: initialSettings.userAgent
+            userAgent: initialSettings.userAgent,
+            pauseGate: gate
         )
         let robots = RobotsPolicy(userAgent: initialSettings.userAgent)
         let limiter = DomainRateLimiter()
@@ -135,6 +152,7 @@ final class HarvestModel {
             logs = await logStore.recent(limit: 200)
             // Bring back the last browse so a relaunch does not throw away work.
             discoveryReport = loadLastReport()
+            loadSessionHistory()
             await reload()
             if let added = try? await sourceRegistry.mergeBuiltInAdditions(), added > 0 {
                 log(.info, "Added \(added) new built-in source\(added == 1 ? "" : "s").")
@@ -189,7 +207,13 @@ final class HarvestModel {
 
     // MARK: - Import
 
-    func importURLs() {
+    func importURLs(skipVerify: Bool = false) {
+        // "Verify before import" runs the queue through the page detector first, so a
+        // pasted category page never becomes a half-parsed draft somebody has to delete.
+        if settings.verifyBeforeImport, !skipVerify, !isRetryPass {
+            bulkVerifyQueue(thenImport: true)
+            return
+        }
         beginImport(parsedImportURLs())
     }
 
@@ -334,7 +358,10 @@ final class HarvestModel {
                detail.recipe.confidence >= threshold,
                detail.recipe.warnings.isEmpty,
                detail.recipe.exportProblems.isEmpty,
-               detail.duplicateTitles.isEmpty {
+               detail.duplicateTitles.isEmpty,
+               // The image gate: nothing without a picture on disk auto-approves,
+               // because the bridge would drop it and the phone shows placeholders.
+               !settings.requireImageForImport || detail.recipe.image?.hasLocalFile == true {
                 pendingAutoApproval.insert(detail.recipe.id)
                 message += " • auto-approved"
             }
@@ -388,6 +415,24 @@ final class HarvestModel {
             return
         }
         isRetryPass = false
+
+        // A recipe whose image download failed gets one more chance before anyone
+        // has to notice — a draft without a picture cannot reach the phone.
+        if settings.autoFetchMissingImages {
+            let recovered = await fetchMissingImagesInternal(quiet: true)
+            if recovered > 0 { await reload() }
+        }
+
+        // Push freshly approved work to the Worker cache when the user asked for that.
+        if settings.cloudSyncEnabled { syncApprovedToCloud() }
+
+        // Auto-rotate: move on to the next source until the run is used up.
+        if autoRotateRemaining > 0, !isDiscovering {
+            autoRotateRemaining -= 1
+            browseNextSource()
+            return
+        }
+
         notifyIfBackgrounded()
     }
 
@@ -442,7 +487,21 @@ final class HarvestModel {
 
     // MARK: - Discovery
 
-    func discover(_ source: SourceProfile) {
+    /// Number of valid http(s) URLs currently in the import queue text box.
+    var queuedURLCount: Int {
+        importText.components(separatedBy: .newlines)
+            .flatMap { $0.components(separatedBy: ",") }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && (URL(string: $0)?.scheme?.hasPrefix("http") == true) }
+            .count
+    }
+
+    /// Crawls a source and always adds found URLs to the queue (ignores autoImportVerified).
+    func discoverToQueue(_ source: SourceProfile) {
+        discover(source, addToQueueOnly: true)
+    }
+
+    func discover(_ source: SourceProfile, addToQueueOnly: Bool = false) {
         guard !isDiscovering else { return }
         guard source.enabled else {
             discoveryFailure = "\(source.name) is disabled. Enable it in Sources first."
@@ -479,10 +538,12 @@ final class HarvestModel {
                 )
                 guard let self else { return }
                 self.discoveryReport = report
-                // One action, not two: browsing a source imports what it found.
-                if self.settings.autoImportVerified, !report.confirmed.isEmpty {
+                // Always persist the report so a cancelled session survives relaunch.
+                await self.persistReport(report)
+                let shouldAutoImport = !addToQueueOnly && self.settings.autoImportVerified
+                if shouldAutoImport, !report.confirmed.isEmpty {
                     self.importDirect(report.confirmed.map(\.url))
-                } else if self.settings.autoImportVerified,
+                } else if shouldAutoImport,
                           report.confirmed.isEmpty,
                           !report.unverified.isEmpty {
                     // A run that stopped early still found real links. Finish
@@ -528,8 +589,16 @@ final class HarvestModel {
                     health: report.confirmed.isEmpty ? .limited : .healthy,
                     message: report.summary
                 )
-                await self.persistReport(report)
-                self.notifyIfBackgrounded()
+                if !shouldAutoImport, self.autoRotateRemaining > 0 {
+                    // Queue-only browsing chains straight to the next source; the
+                    // auto-import path chains from finishImportRun instead, after the
+                    // recipes are actually in. Scheduled as a fresh task so the
+                    // `isDiscovering` reset in the defer above lands first.
+                    self.autoRotateRemaining -= 1
+                    Task { [weak self] in self?.browseNextSource() }
+                } else {
+                    self.notifyIfBackgrounded()
+                }
             } catch is CancellationError {
                 self?.statusMessage = "Browse canceled"
             } catch {
@@ -585,6 +654,7 @@ final class HarvestModel {
         )
         // A stable copy so the last run can be restored on the next launch.
         try? data.write(to: paths.lastDiscoveryReport, options: .atomic)
+        loadSessionHistory()
     }
 
     private func loadLastReport() -> DiscoveryReport? {
@@ -710,7 +780,10 @@ final class HarvestModel {
                 let changed = try await recipeStore.setReviewState(state, for: ids)
                 await reload()
                 log(.info, "Marked \(changed.count) recipe\(changed.count == 1 ? "" : "s") as \(state.label).")
-                if state == .approved { handOver(changed) }
+                if state == .approved {
+                    handOver(changed)
+                    if settings.cloudSyncEnabled { syncApprovedToCloud() }
+                }
             } catch {
                 present(error)
             }
@@ -1002,6 +1075,218 @@ final class HarvestModel {
     func clearLogs() {
         logs.removeAll()
         Task { await logStore.clear() }
+    }
+
+    // MARK: - Build 91: pause / verify / images / cloud / sessions
+
+    /// Parks every new network request. Requests already in flight finish; nothing
+    /// is cancelled, so Resume continues the run exactly where it stopped.
+    func togglePause() {
+        isPaused.toggle()
+        let paused = isPaused
+        let gate = pauseGate
+        Task {
+            if paused {
+                await gate.pause()
+            } else {
+                await gate.resume()
+            }
+        }
+        statusMessage = paused
+            ? "Paused — in-flight requests finish, nothing new starts"
+            : "Resumed"
+        log(.info, paused ? "Paused all browsing and downloads." : "Resumed browsing and downloads.")
+    }
+
+    /// Checks every queued URL against the recipe-page detector and removes the ones
+    /// that are not recipes. Network failures keep their URL — a timeout is not
+    /// evidence against a page.
+    func bulkVerifyQueue(thenImport: Bool = false) {
+        guard !isBulkVerifying, !isImporting else { return }
+        let urls = parsedImportURLs()
+        guard !urls.isEmpty else {
+            statusMessage = "The queue is empty."
+            return
+        }
+        isBulkVerifying = true
+        bulkVerifyProgress = ImportProgress(
+            completed: 0, total: urls.count, succeeded: 0, failed: 0, currentURL: nil
+        )
+        statusMessage = "Verifying \(urls.count) queued URL\(urls.count == 1 ? "" : "s")…"
+        let activeSettings = settings
+        let coordinator = coordinator
+
+        bulkVerifyTask = Task { [weak self] in
+            var keep: [String] = []
+            var dropped = 0
+            for url in urls {
+                if Task.isCancelled {
+                    keep.append(url)            // unchecked URLs stay queued
+                    continue
+                }
+                do {
+                    let verdict = try await coordinator.inspect(urlString: url, settings: activeSettings)
+                    if verdict.isRecipe {
+                        keep.append(url)
+                        self?.bulkVerifyProgress.succeeded += 1
+                    } else {
+                        dropped += 1
+                        self?.bulkVerifyProgress.failed += 1
+                        self?.log(.warning, "Not a recipe page; removed from the queue.", url: url)
+                    }
+                } catch {
+                    keep.append(url)
+                    self?.bulkVerifyProgress.failed += 1
+                }
+                self?.bulkVerifyProgress.completed += 1
+                self?.bulkVerifyProgress.currentURL = url
+            }
+            guard let self else { return }
+            let cancelled = Task.isCancelled
+            self.importText = keep.joined(separator: "\n")
+            self.isBulkVerifying = false
+            self.bulkVerifyTask = nil
+            self.statusMessage = cancelled
+                ? "Verify stopped — kept \(keep.count) URLs"
+                : "Verified the queue: kept \(keep.count), removed \(dropped)"
+            self.log(dropped > 0 ? .warning : .success,
+                     "Bulk verify kept \(keep.count) of \(urls.count) queued URLs.")
+            if thenImport, !cancelled, !keep.isEmpty {
+                self.importURLs(skipVerify: true)
+            }
+        }
+    }
+
+    func cancelBulkVerify() {
+        bulkVerifyTask?.cancel()
+        statusMessage = "Stopping verification…"
+    }
+
+    /// Drafts whose image bytes never made it to disk (or were cleaned away).
+    var imagelessCount: Int {
+        recipes.filter { !($0.image?.hasLocalFile ?? false) }.count
+    }
+
+    /// Retries the image download for every draft that has an image URL but no bytes.
+    func fetchMissingImages() {
+        Task {
+            let fixed = await fetchMissingImagesInternal(quiet: false)
+            if fixed > 0 { await reload() }
+        }
+    }
+
+    private func fetchMissingImagesInternal(quiet: Bool) async -> Int {
+        let targets = recipes.filter {
+            !($0.image?.hasLocalFile ?? false) && $0.image?.originalURL.nilIfBlank != nil
+        }
+        guard !targets.isEmpty else {
+            if !quiet { statusMessage = "Every recipe already has its image." }
+            return 0
+        }
+        if !quiet {
+            statusMessage = "Fetching \(targets.count) missing image\(targets.count == 1 ? "" : "s")…"
+        }
+        let activeSettings = settings
+        var fixed = 0
+        for draft in targets {
+            guard !Task.isCancelled, let urlString = draft.image?.originalURL else { continue }
+            do {
+                let image = try await imageStore.download(
+                    urlString: urlString,
+                    settings: activeSettings,
+                    referer: draft.source.url
+                )
+                var updated = draft
+                updated.image = image
+                _ = try? await recipeStore.upsert(updated)
+                fixed += 1
+            } catch {
+                log(.warning, "Image retry failed: \(error.localizedDescription)", url: urlString)
+            }
+        }
+        if fixed > 0 {
+            log(.success, "Recovered \(fixed) missing image\(fixed == 1 ? "" : "s").")
+        }
+        if !quiet {
+            statusMessage = fixed > 0 ? "Recovered \(fixed) images" : "No images could be recovered"
+        }
+        return fixed
+    }
+
+    /// Pushes every approved, image-complete recipe (and its image bytes) to the
+    /// Stocked Worker's harvest cache, where the household and the iOS app can read
+    /// them back. Safe to run repeatedly — the Worker stores by recipe id.
+    func syncApprovedToCloud() {
+        guard !isCloudSyncing else { return }
+        guard MacWorkerClient.isConfigured else {
+            cloudSyncStatus = "The Worker key isn't configured (Secrets.xcconfig), so nothing can upload."
+            return
+        }
+        let batch = approvedRecipes.filter { $0.image?.hasLocalFile ?? false }
+        guard !batch.isEmpty else {
+            cloudSyncStatus = "Nothing approved with an image to sync yet."
+            return
+        }
+        isCloudSyncing = true
+        cloudSyncStatus = "Syncing \(batch.count) recipe\(batch.count == 1 ? "" : "s")…"
+        Task { [weak self] in
+            do {
+                let result = try await HarvestCloudSync.push(batch)
+                self?.cloudSyncStatus =
+                    "Synced \(result.recipes) recipe\(result.recipes == 1 ? "" : "s") and \(result.images) image\(result.images == 1 ? "" : "s") to the Worker cache."
+                self?.log(.success, "Cloud cache: \(result.recipes) recipes, \(result.images) images uploaded.")
+            } catch {
+                self?.cloudSyncStatus = "Cloud sync failed: \(error.localizedDescription)"
+                self?.log(.error, "Cloud sync failed: \(error.localizedDescription)")
+            }
+            self?.isCloudSyncing = false
+        }
+    }
+
+    /// Restores the saved discovery reports so past sessions are one click to resume.
+    func loadSessionHistory() {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: paths.discoveryReports,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        let decoder = JSONCoding.decoder()
+        sessionHistory = files
+            .filter { $0.pathExtension == "json" }
+            .compactMap { url -> DiscoveryReport? in
+                guard let data = try? Data(contentsOf: url) else { return nil }
+                return try? decoder.decode(DiscoveryReport.self, from: data)
+            }
+            .sorted { $0.finishedAt > $1.finishedAt }
+            .prefix(20)
+            .map { $0 }
+    }
+
+    /// Brings a past session back as the active report so its links can be queued,
+    /// imported, or its unverified remainder finished.
+    func restoreSession(_ report: DiscoveryReport) {
+        discoveryReport = report
+        statusMessage = "Restored the \(report.sourceName) session (\(report.confirmed.count) verified links)"
+    }
+
+    /// Browses several sources back to back — the count comes from Settings.
+    func autoRotate() {
+        guard !isDiscovering else { return }
+        autoRotateRemaining = max(1, settings.autoRotateSourceCount) - 1
+        browseNextSource()
+    }
+
+    func cancelAutoRotate() {
+        autoRotateRemaining = 0
+    }
+
+    /// Clears out everything already rejected, in one motion.
+    func deleteRejected() {
+        let ids = Set(recipes.filter { $0.reviewState == .rejected }.map(\.id))
+        guard !ids.isEmpty else {
+            statusMessage = "No rejected recipes to clear."
+            return
+        }
+        delete(ids: ids)
     }
 
     // MARK: - Helpers
