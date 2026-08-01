@@ -1,0 +1,14 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+.DS_Store
+
+# If you ever paste a real key into Secrets.xcconfig, keep it out of git.
+# (The committed version holds only empty defaults and an optional include.)
+Secrets.local.xcconfig
+
+# BuildBuddy undo backups (tool state, not source)
+.buildbuddy-backups/

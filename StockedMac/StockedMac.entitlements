@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sandboxing is mandatory for the Mac App Store, and sensible regardless. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+
+	<!-- Without this every household sync fails silently. It is the single most
+	     commonly forgotten entitlement on macOS. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- File ▸ Export and File ▸ Import use NSSavePanel / NSOpenPanel, which grant
+	     access to exactly the file the person picked and nothing else. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+
+	<!-- Sign in with Apple. "Default" is the same value the iOS target uses; both bundle
+	     identifiers must have the capability enabled on the same team (5DV5N49VG8) or the
+	     button returns an unhelpful "invalid client" at runtime. The Mac keeps its own
+	     Keychain vault — it cannot read the phone's — so the person signs in once here. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+</dict>
+</plist>
