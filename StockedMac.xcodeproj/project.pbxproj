@@ -7,18 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		EA033EF1301E03550023DFA7 /* HarvestTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA033EEE301E00C00023DFA7 /* HarvestTypes.swift */; };
-		EA033EF2301E035B0023DFA7 /* HarvestServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA033EEF301E027F0023DFA7 /* HarvestServices.swift */; };
-		EA033EF3301E03610023DFA7 /* HarvestInfrastructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA033EF0301E028A0023DFA7 /* HarvestInfrastructure.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		7C0000000000000000000004 /* Stocked.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Stocked.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7C0000000000000000000010 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 		7C0000000000000000000011 /* Secrets.example.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.example.xcconfig; sourceTree = "<group>"; };
-		EA033EEE301E00C00023DFA7 /* HarvestTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarvestTypes.swift; sourceTree = "<group>"; };
-		EA033EEF301E027F0023DFA7 /* HarvestServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarvestServices.swift; sourceTree = "<group>"; };
-		EA033EF0301E028A0023DFA7 /* HarvestInfrastructure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarvestInfrastructure.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -59,9 +53,6 @@
 				7C0000000000000000000010 /* Secrets.xcconfig */,
 				7C0000000000000000000011 /* Secrets.example.xcconfig */,
 				7C0000000000000000000005 /* StockedMac */,
-				EA033EEE301E00C00023DFA7 /* HarvestTypes.swift */,
-				EA033EEF301E027F0023DFA7 /* HarvestServices.swift */,
-				EA033EF0301E028A0023DFA7 /* HarvestInfrastructure.swift */,
 				7C0000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -148,9 +139,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				EA033EF3301E03610023DFA7 /* HarvestInfrastructure.swift in Sources */,
-				EA033EF2301E035B0023DFA7 /* HarvestServices.swift in Sources */,
-				EA033EF1301E03550023DFA7 /* HarvestTypes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
