@@ -442,6 +442,14 @@ struct MacBrowseView: View {
                         .font(.caption)
                     Button(showURLEditor ? "Hide editor" : "Edit") { showURLEditor.toggle() }
                         .font(.caption)
+                    if queued > 0 {
+                        Button {
+                            harvest.cleanQueue()
+                        } label: {
+                            Label("Clean", systemImage: "sparkles").font(.caption)
+                        }
+                        .help("Remove duplicates, recipes already in the library, and links that failed this session — and report the counts")
+                    }
                     Spacer(minLength: 0)
                     if queued > 0 {
                         Button("Clear") { harvest.importText = "" }
@@ -449,6 +457,22 @@ struct MacBrowseView: View {
                     }
                 }
                 .buttonStyle(.borderless)
+
+                if queued > harvest.settings.queueCap {
+                    HStack(spacing: 5) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.caption2).foregroundStyle(.orange)
+                        Text("Over the \(harvest.settings.queueCap)-URL cap — new mined links won't join until it drains. Clean, import, or raise the cap.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Stepper(value: $harvest.settings.queueCap, in: 100...5000, step: 100) {
+                    Text("Queue cap: \(harvest.settings.queueCap) URLs")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .onChange(of: harvest.settings.queueCap) { harvest.scheduleSettingsSave() }
 
                 if showURLEditor {
                     TextEditor(text: $harvest.importText)

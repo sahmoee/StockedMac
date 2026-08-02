@@ -41,3 +41,6 @@
 
 ### 2026-08-02 — note: Mac Build 97
 - Crawler resilience work, client-side only. **No worker change.**
+
+### 2026-08-02 — note: Mac Build 98
+- Queue-control work, client-side only. **No worker change.**

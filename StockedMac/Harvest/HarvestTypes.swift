@@ -255,6 +255,9 @@ nonisolated struct AppSettings: Codable, Sendable {
     var importSpacingSeconds: Int
     /// Bumped when defaults change meaning; start() migrates old files forward once.
     var settingsRevision: Int
+    /// Hard ceiling on the import queue. Mined and discovered links stop joining once
+    /// the queue holds this many — a bound on the snowball, adjustable in the Queue card.
+    var queueCap: Int
 
     static var defaults: AppSettings {
         AppSettings(
@@ -287,7 +290,8 @@ nonisolated struct AppSettings: Codable, Sendable {
             requireStandardsForAutoApprove: true,
             useWebKitFallback: true,
             importSpacingSeconds: 0,
-            settingsRevision: 2
+            settingsRevision: 2,
+            queueCap: 500
         )
     }
 
@@ -316,7 +320,7 @@ nonisolated extension AppSettings {
         case requireImageForImport, autoFetchMissingImages, verifyBeforeImport
         case cloudSyncEnabled, autoRotateSourceCount
         case preferredCrawlMethod, crawlAggressiveness, requireStandardsForAutoApprove
-        case useWebKitFallback, importSpacingSeconds, settingsRevision
+        case useWebKitFallback, importSpacingSeconds, settingsRevision, queueCap
     }
 
     init(from decoder: Decoder) throws {
@@ -349,6 +353,7 @@ nonisolated extension AppSettings {
         useWebKitFallback       = (try? c.decodeIfPresent(Bool.self, forKey: .useWebKitFallback)) ?? d.useWebKitFallback
         importSpacingSeconds    = (try? c.decodeIfPresent(Int.self, forKey: .importSpacingSeconds)) ?? d.importSpacingSeconds
         settingsRevision        = (try? c.decodeIfPresent(Int.self, forKey: .settingsRevision)) ?? 0
+        queueCap                = (try? c.decodeIfPresent(Int.self, forKey: .queueCap)) ?? d.queueCap
     }
 }
 

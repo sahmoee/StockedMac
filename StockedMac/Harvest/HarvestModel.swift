@@ -58,6 +58,9 @@ final class HarvestModel {
     /// One line describing how the last import run went.
     var lastImportSummary: String?
     @ObservationIgnored private var minedURLs: [String] = []
+    /// Every link that arrived via category-page mining THIS SESSION. Mined pages do
+    /// not mine further (no snowball), and the same link never joins the queue twice.
+    @ObservationIgnored private var sessionMinedSet: Set<String> = []
     /// Consecutive failures per host this run; 8 trips the breaker for that host.
     @ObservationIgnored private var hostFailureStreaks: [String: Int] = [:]
     @ObservationIgnored private var trippedHosts: Set<String> = []
@@ -319,8 +322,28 @@ final class HarvestModel {
         let activeSettings = settings
         let concurrency = max(1, min(activeSettings.maximumConcurrentJobs, 8))
         let coordinator = coordinator
+        let store = recipeStore
 
         importTask = Task { [weak self] in
+            // Skip what the library already holds BEFORE spending requests on it —
+            // re-running a big queue no longer re-fetches every known recipe.
+            var urls = urls
+            if activeSettings.skipAlreadyImported,
+               let known = try? await store.knownSourceURLs(), !known.isEmpty {
+                let before = urls.count
+                urls = urls.filter { !known.contains($0) }
+                let skipped = before - urls.count
+                if skipped > 0 {
+                    self?.importProgress.total = urls.count
+                    self?.log(.info, "Skipped \(skipped) URL\(skipped == 1 ? "" : "s") already in the library.")
+                }
+            }
+            guard !urls.isEmpty else {
+                self?.isImporting = false
+                self?.statusMessage = "Everything queued is already in the library."
+                self?.importTask = nil
+                return
+            }
             await withTaskGroup(of: ImportOutcome.self) { group in
                 var next = 0
                 // Keep exactly `concurrency` imports in flight rather than
@@ -375,6 +398,10 @@ final class HarvestModel {
                 self.retryQueue.removeAll()
                 self.pendingAutoApproval.removeAll()
                 self.isRetryPass = false
+                if !self.minedURLs.isEmpty {
+                    self.log(.warning, "Stopped — discarded \(self.minedURLs.count) freshly mined links. What imported so far is kept; browse again to re-find the rest.")
+                    self.minedURLs.removeAll()
+                }
                 await self.reload()
             } else {
                 await self.finishImportRun()
@@ -436,9 +463,16 @@ final class HarvestModel {
         } else if outcome.error == "Canceled" {
             // A cancelled import is the user's decision, not a failure — no red row.
         } else if !outcome.mined.isEmpty {
-            // A category page slipped into the queue; its recipes replace it.
-            minedURLs.append(contentsOf: outcome.mined)
-            log(.info, "Category page — found \(outcome.mined.count) recipe links on it; they join the queue after this run.", url: outcome.url)
+            if sessionMinedSet.contains(outcome.url) {
+                // A mined link turned out to be ANOTHER category page. Expanding it
+                // again is how 288 candidates became a 1,662-URL queue — one
+                // generation of mining is the limit.
+                log(.info, "A mined link was itself a category page; not expanding further.", url: outcome.url)
+            } else {
+                let fresh = outcome.mined.filter { !sessionMinedSet.contains($0) }
+                minedURLs.append(contentsOf: fresh)
+                log(.info, "Category page — found \(fresh.count) recipe links on it; they join the queue after this run.", url: outcome.url)
+            }
         } else {
             importProgress.failed += 1
             if let host {
@@ -501,15 +535,42 @@ final class HarvestModel {
         }
         isRetryPass = false
 
-        // Recipes mined off category pages join the queue, deduplicated, in one batch.
+        // Recipes mined off category pages join the queue — deduplicated against this
+        // session's mining, the library, and the queue cap, so rounds CONVERGE
+        // instead of snowballing.
         var minedNote = ""
         if !minedURLs.isEmpty {
             var seen = Set<String>()
-            let unique = minedURLs.filter { seen.insert($0).inserted }
+            var unique = minedURLs.filter { seen.insert($0).inserted && !sessionMinedSet.contains($0) }
             minedURLs.removeAll()
-            appendImportURLs(unique)
-            minedNote = " · \(unique.count) recipes mined from category pages joined the queue"
-            log(.success, "\(unique.count) recipe links mined from category pages joined the queue — press Import to bring them in.")
+
+            var droppedKnown = 0
+            if settings.skipAlreadyImported,
+               let known = try? await recipeStore.knownSourceURLs(), !known.isEmpty {
+                let before = unique.count
+                unique = unique.filter { !known.contains($0) }
+                droppedKnown = before - unique.count
+            }
+
+            var droppedByCap = 0
+            let capacity = max(0, settings.queueCap - queuedURLCount)
+            if unique.count > capacity {
+                droppedByCap = unique.count - capacity
+                unique = Array(unique.prefix(capacity))
+            }
+
+            unique.forEach { sessionMinedSet.insert($0) }
+            if !unique.isEmpty {
+                appendImportURLs(unique)
+                minedNote = " · \(unique.count) mined recipes joined the queue"
+                log(.success, "\(unique.count) mined recipe links joined the queue — press Import to bring them in.")
+            }
+            if droppedKnown > 0 {
+                log(.info, "\(droppedKnown) mined link\(droppedKnown == 1 ? "" : "s") already in the library; not re-queued.")
+            }
+            if droppedByCap > 0 {
+                log(.warning, "Queue is at its \(settings.queueCap)-URL cap; \(droppedByCap) mined links were left out. Raise the cap in the Queue card, or import and re-browse.")
+            }
         }
 
         // The run in one line, kept until the next run starts.
@@ -1239,6 +1300,46 @@ final class HarvestModel {
         skippedByBreaker += 1
         importProgress.completed += 1
         importProgress.currentURL = url
+    }
+
+    /// One press that answers "are these duplicates?": removes exact duplicates,
+    /// everything already in the library, and everything that failed this session —
+    /// and says how many of each it removed.
+    func cleanQueue() {
+        let raw = importText
+            .components(separatedBy: .newlines)
+            .flatMap { $0.components(separatedBy: ",") }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .compactMap { try? URLSafety.validatedRemoteURL($0) }
+            .map { URLSafety.normalized($0).absoluteString }
+        guard !raw.isEmpty else {
+            statusMessage = "The queue is empty."
+            return
+        }
+        let failed = Set(lastFailures.map(\.url))
+        let store = recipeStore
+        statusMessage = "Cleaning the queue…"
+        Task {
+            let known = (try? await store.knownSourceURLs()) ?? []
+            var seen = Set<String>()
+            var duplicates = 0
+            var alreadyImported = 0
+            var failedEarlier = 0
+            var keep: [String] = []
+            for url in raw {
+                if !seen.insert(url).inserted { duplicates += 1; continue }
+                if known.contains(url) { alreadyImported += 1; continue }
+                if failed.contains(url) { failedEarlier += 1; continue }
+                keep.append(url)
+            }
+            importText = keep.joined(separator: "\n")
+            let removed = duplicates + alreadyImported + failedEarlier
+            statusMessage = removed == 0
+                ? "Queue is clean — \(keep.count) unique new URLs."
+                : "Cleaned: kept \(keep.count) — removed \(duplicates) duplicate\(duplicates == 1 ? "" : "s"), \(alreadyImported) already imported, \(failedEarlier) failed earlier"
+            log(removed == 0 ? .info : .success, statusMessage)
+        }
     }
 
     /// Copies every failed URL to the clipboard, one per line.

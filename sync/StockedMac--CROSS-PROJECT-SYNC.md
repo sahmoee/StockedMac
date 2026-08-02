@@ -8,6 +8,15 @@
 
 ## Applied updates
 
+### Build 98 (4.38) — queue control — 2026-08-02
+- Mining converges: one generation deep, session-wide mined-set (no URL joins twice),
+  mined batches filtered against the library, hard queue cap (default 500, stepper).
+- Clean button: removes duplicates / already-imported / failed-this-session with
+  counts. Imports skip library-known URLs before spending requests.
+- Stop semantics: imported work kept, mined leftovers discarded with a note; a
+  stopped browse still delivers its partial report.
+- Worker impact: none. iOS impact: none.
+
 ### Build 97 (4.37) — resilience — 2026-08-02
 - Listicle/roundup slugs classify as listings (suffix/prefix/digit rules, numeric-id
   override); page detector re-judges the RENDERED DOM (hydrated roundups get mined);
