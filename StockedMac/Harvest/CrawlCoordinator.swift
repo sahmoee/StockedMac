@@ -18,6 +18,8 @@ actor CrawlCoordinator {
     private let ingredientParser = IngredientParser()
     private let detector = RecipePageDetector()
     private var pythonParser: PythonWorkerClient
+    /// Rendered-HTML cache for the current run, so a retry never renders twice.
+    private var renderCache: [String: String] = [:]
 
     init(
         store: RecipeStore,
@@ -60,28 +62,19 @@ actor CrawlCoordinator {
         var html = page.text
         var usedWebKit = false
         if settings.useWebKitFallback, RecipePageDetector.looksBlocked(html) {
-            if let rendered = try? await WebKitRenderer.shared.renderedHTML(
-                for: page.finalURL, userAgent: settings.userAgent
-            ) {
+            if let rendered = await renderedHTML(for: page.finalURL, settings: settings) {
                 html = rendered
                 usedWebKit = true
             }
         }
 
         // Refuse category and roundup pages up front rather than emitting a
-        // half-parsed record that a reviewer then has to delete.
+        // half-parsed record that a reviewer then has to delete — after handing
+        // their recipe links back so the caller can queue them.
         let verdict = detector.inspect(html: html, url: page.finalURL, source: source)
         if !allowNonRecipePages, verdict.kind == .listing {
-            // Build 96: a category page is a lead, not a dead end — hand its recipe
-            // links back so the caller can queue them.
-            let mined = DiscoveryEngine.extractLinks(from: html, base: page.finalURL)
-                .filter { DiscoveryEngine.classify($0, source: source) == .recipe }
-            if !mined.isEmpty {
-                throw CompanionError.listingPage(page.finalURL.absoluteString, Array(mined.prefix(60)))
-            }
-            throw CompanionError.notARecipe(
-                "\(page.finalURL.absoluteString) — \(verdict.evidence.first ?? "it links to other recipes")"
-            )
+            try refuseListing(html: html, page: page, source: source,
+                              evidence: verdict.evidence.first)
         }
 
         let mode = source.parserMode == .nativeFirst ? settings.parserMode : source.parserMode
@@ -94,13 +87,19 @@ actor CrawlCoordinator {
             guard settings.useWebKitFallback, !usedWebKit else {
                 throw Self.friendlyParseError(error, html: html)
             }
-            guard let rendered = try? await WebKitRenderer.shared.renderedHTML(
-                for: page.finalURL, userAgent: settings.userAgent
-            ) else {
+            guard let rendered = await renderedHTML(for: page.finalURL, settings: settings) else {
                 throw Self.friendlyParseError(error, html: html)
             }
             usedWebKit = true
             html = rendered
+            // Build 97: many roundups only reveal their nature after hydration — the
+            // raw HTML is a JS shell. Re-run the page detector on the RENDERED DOM
+            // and mine it as a listing before concluding "no recipe here".
+            let renderedVerdict = detector.inspect(html: rendered, url: page.finalURL, source: source)
+            if !allowNonRecipePages, renderedVerdict.kind == .listing {
+                try refuseListing(html: rendered, page: page, source: source,
+                                  evidence: renderedVerdict.evidence.first)
+            }
             do {
                 parsed = try await parse(html: rendered, url: page.finalURL, mode: mode, settings: settings)
             } catch {
@@ -232,7 +231,37 @@ actor CrawlCoordinator {
             settings: settings,
             accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
         )
-        return detector.inspect(html: page.text, url: page.finalURL, source: source)
+        var html = page.text
+        if settings.useWebKitFallback, RecipePageDetector.looksBlocked(html),
+           let rendered = await renderedHTML(for: page.finalURL, settings: settings) {
+            html = rendered
+        }
+        return detector.inspect(html: html, url: page.finalURL, source: source)
+    }
+
+    /// Rendered HTML via the invisible browser, cached per URL for this run.
+    private func renderedHTML(for url: URL, settings: AppSettings) async -> String? {
+        let key = url.absoluteString
+        if let cached = renderCache[key] { return cached }
+        guard let html = try? await WebKitRenderer.shared.renderedHTML(
+            for: url, userAgent: settings.userAgent
+        ) else { return nil }
+        if renderCache.count > 40 { renderCache.removeAll() }
+        renderCache[key] = html
+        return html
+    }
+
+    /// Refuses a listing page — after handing its recipe links back when it has any.
+    private func refuseListing(html: String, page: PolicyFetcher.FetchedPage,
+                               source: SourceProfile, evidence: String?) throws -> Never {
+        let mined = DiscoveryEngine.extractLinks(from: html, base: page.finalURL)
+            .filter { DiscoveryEngine.classify($0, source: source) == .recipe }
+        if !mined.isEmpty {
+            throw CompanionError.listingPage(page.finalURL.absoluteString, Array(mined.prefix(60)))
+        }
+        throw CompanionError.notARecipe(
+            "\(page.finalURL.absoluteString) — \(evidence ?? "it links to other recipes")"
+        )
     }
 
     func setPythonParser(_ client: PythonWorkerClient) {

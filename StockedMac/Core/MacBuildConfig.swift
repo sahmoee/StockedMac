@@ -24,14 +24,14 @@ nonisolated enum MacBuildConfig {
     /// A separate product from the iOS app — separate project, separate bundle
     /// identifier — but the version line tracks the shared build history (the project file
     /// carries the real numbers; these are only the fallback if Info.plist is unreadable).
-    private static let fallbackVersion     = "4.36"
-    private static let fallbackBuildNumber = 96
+    private static let fallbackVersion     = "4.37"
+    private static let fallbackBuildNumber = 97
 
     /// When the shared model layer was last checked against the phone's copy. Models.swift
     /// and KitchenMetrics.swift are byte-for-byte identical to the iOS tree as of this
     /// check; re-run the diff and update this string whenever either side moves, so the
     /// provenance stays honest rather than decorative.
-    static let sharedModelLineage = "Shared models verified identical to iOS — Build 96, August 2026"
+    static let sharedModelLineage = "Shared models verified identical to iOS — Build 97, August 2026"
 
     static var buildNumber: Int {
         Int(bundleString("CFBundleVersion") ?? "") ?? fallbackBuildNumber
@@ -44,18 +44,18 @@ nonisolated enum MacBuildConfig {
 
     static let buildDate = "August 2026"
     static let buildName = """
-        The nine failures in the last screenshot were all the same failure: \
-        "breakfast", "dinner", "lunch" \u{2014} category hubs the URL classifier mistook \
-        for dishes because they sat under /recipes/. Hubs are now recognized by their \
-        shape and mined instead of imported: land on one and its actual recipe links \
-        join the queue, deduplicated, at the end of the run. The JSON-LD hunt got \
-        wider too \u{2014} hydration payloads in plain script tags now count \u{2014} and photo \
-        galleries are skipped outright. Viewing a page happens IN the app now: the \
-        built-in browser opens inside the Browse pane itself, no sheet, from the \
-        toolbar or any failure's View button, with Import this page, a force-import \
-        for pages the detector reads wrong, and Add to queue. Failure rows read \
-        cleanly \u{2014} slug, site, and the first engine's verdict on one line \u{2014} and the \
-        whole right pane keeps a readable measure instead of stretching to the window.
+        Resilience, uninvited. The roundups that still failed \u{2014} "packable-breakfasts", \
+        "5-healthy-muffins" \u{2014} are recognized now by their listicle shape, and pages \
+        that only reveal themselves after JavaScript runs are re-judged on the RENDERED \
+        document, so a roundup becomes queued recipes instead of a red line even when \
+        the raw HTML was a shell. A circuit breaker stops a hopeless site after eight \
+        straight failures rather than grinding through four hundred. Cancelled imports \
+        stopped counting as failures, failures deduplicate, the panel now leads with \
+        reasons counted \u{2014} "No recipe data \u{00D7}12" \u{2014} and grew a Copy URLs button. Links \
+        that failed this session stay out of the queue when re-browsing. The invisible \
+        browser turned ephemeral \u{2014} no cookies or caches accumulate, less sandbox noise \
+        in the console \u{2014} renders are cached per run so retries never pay twice, and \
+        bulk verify now sees through bot walls with the same rendered eyes.
         """
 
     // MARK: - Environment

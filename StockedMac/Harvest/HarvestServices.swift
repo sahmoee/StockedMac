@@ -767,6 +767,22 @@ actor DiscoveryEngine {
         // Build 95 rule let them through because they matched the "/recipes/" pattern,
         // and the importer then failed them 288 at a time.
         let last = segments.last.map(String.init) ?? ""
+
+        // Listicles and how-to roundups are hyphenated like dishes but are hubs:
+        // "packable-breakfasts", "5-healthy-muffins-yes-its-possible", "best-…",
+        // "how-to-…". A trailing numeric id (…-24681564) marks a real record and
+        // overrides all of this.
+        let endsWithID = last.range(of: "[0-9]{5,}$", options: .regularExpression) != nil
+        if !endsWithID {
+            let listicleSuffixes = ["-recipes", "-ideas", "-dishes", "-meals", "-dinners",
+                                    "-breakfasts", "-lunches", "-desserts", "-snacks",
+                                    "-favorites", "-classics", "-essentials"]
+            let listiclePrefixes = ["best-", "top-", "easy-healthy-", "how-to-", "what-to-"]
+            if listicleSuffixes.contains(where: { last.hasSuffix($0) }) { return .listing }
+            if listiclePrefixes.contains(where: { last.hasPrefix($0) }) { return .listing }
+            if let first = last.first, first.isNumber { return .listing }
+        }
+
         let slugLike = (last.contains("-") && last.count >= 6)
             || last.rangeOfCharacter(from: .decimalDigits) != nil
         if !source.recipeURLPatterns.isEmpty {
@@ -1444,10 +1460,15 @@ nonisolated struct RecipePageDetector {
         let hasIngredients = lowercased.contains("ingredient")
         let hasInstructions = lowercased.contains("instruction") || lowercased.contains("direction")
         
-        // Check for listing indicators
-        let hasMultipleRecipeLinks = (try? NSRegularExpression(pattern: "/recipe/", options: .caseInsensitive)
-            .numberOfMatches(in: html, range: NSRange(html.startIndex..., in: html))) ?? 0 > 5
-        
+        // Check for listing indicators — use the SOURCE's own recipe URL patterns, so
+        // Food Network's "/recipes/" roundups register, not just "/recipe/" sites.
+        let patterns = source.recipeURLPatterns.isEmpty
+            ? ["/recipe/", "/recipes/"] : source.recipeURLPatterns
+        let recipeLinkCount = patterns
+            .map { html.components(separatedBy: $0).count - 1 }
+            .max() ?? 0
+        let hasMultipleRecipeLinks = recipeLinkCount >= 6
+
         if hasRecipeSchema && hasIngredients && hasInstructions {
             return RecipePageVerdict(kind: .recipe, evidence: ["Recipe schema found", "Has ingredients and instructions"])
         } else if hasMultipleRecipeLinks {

@@ -686,6 +686,23 @@ struct MacBrowseView: View {
         MacCard(title: "Import failures", systemImage: "exclamationmark.triangle",
                 footnote: "\(harvest.lastFailures.count)") {
             VStack(alignment: .leading, spacing: 6) {
+                // The shape of the problem before the list of it: reasons, counted.
+                let grouped = Dictionary(grouping: harvest.lastFailures) {
+                    $0.reason.components(separatedBy: " | ").first ?? $0.reason
+                }
+                .map { (reason: $0.key, count: $0.value.count) }
+                .sorted { $0.count > $1.count }
+                ForEach(grouped.prefix(3), id: \.reason) { item in
+                    HStack(spacing: 6) {
+                        Text("\(item.count)×")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.orange)
+                        Text(item.reason)
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                }
+                Divider()
                 ForEach(harvest.lastFailures.suffix(10)) { failure in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         VStack(alignment: .leading, spacing: 1) {
@@ -716,6 +733,7 @@ struct MacBrowseView: View {
                 HStack(spacing: 8) {
                     Button("Retry all") { harvest.retryFailures() }
                         .disabled(harvest.isImporting)
+                    Button("Copy URLs") { harvest.copyFailedURLs() }
                     Button("Clear") { harvest.clearFailures() }
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
@@ -761,6 +779,10 @@ struct MacBrowseView: View {
                                 .font(.caption)
                                 .foregroundStyle(entry.level == .error ? .red : .secondary)
                                 .lineLimit(2)
+                            Spacer(minLength: 0)
+                            Text(entry.timestamp, style: .relative)
+                                .font(.caption2).foregroundStyle(.tertiary)
+                                .lineLimit(1)
                         }
                     }
                 }

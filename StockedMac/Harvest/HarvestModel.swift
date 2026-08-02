@@ -58,6 +58,10 @@ final class HarvestModel {
     /// One line describing how the last import run went.
     var lastImportSummary: String?
     @ObservationIgnored private var minedURLs: [String] = []
+    /// Consecutive failures per host this run; 8 trips the breaker for that host.
+    @ObservationIgnored private var hostFailureStreaks: [String: Int] = [:]
+    @ObservationIgnored private var trippedHosts: Set<String> = []
+    @ObservationIgnored private var skippedByBreaker = 0
     @ObservationIgnored private var lastLogKey = ""
     @ObservationIgnored private var lastLogRepeat = 1
     @ObservationIgnored private var autoApprovedThisRun = 0
@@ -302,6 +306,9 @@ final class HarvestModel {
             lastImportSummary = nil
             autoApprovedThisRun = 0
             minedURLs.removeAll()
+            hostFailureStreaks.removeAll()
+            trippedHosts.removeAll()
+            skippedByBreaker = 0
         }
 
         isImporting = true
@@ -335,12 +342,23 @@ final class HarvestModel {
                     if activeSettings.importSpacingSeconds > 0 {
                         try? await Task.sleep(for: .seconds(Double(activeSettings.importSpacingSeconds)))
                     }
-                    let url = urls[next]
-                    next += 1
-                    group.addTask {
-                        await HarvestModel.performImport(
-                            url: url, settings: activeSettings, coordinator: coordinator
-                        )
+                    // The circuit breaker: a host that failed 8 straight times gets its
+                    // remaining URLs skipped instead of failing them one by one.
+                    var scheduled = false
+                    while !scheduled, next < urls.count {
+                        let url = urls[next]
+                        next += 1
+                        if let host = URL(string: url)?.host?.lowercased(),
+                           self?.isHostTripped(host) == true {
+                            self?.noteBreakerSkip(url)
+                            continue
+                        }
+                        group.addTask {
+                            await HarvestModel.performImport(
+                                url: url, settings: activeSettings, coordinator: coordinator
+                            )
+                        }
+                        scheduled = true
                     }
                 }
             }
@@ -385,7 +403,9 @@ final class HarvestModel {
     private func record(_ outcome: ImportOutcome) {
         importProgress.completed += 1
         importProgress.currentURL = outcome.url
+        let host = URL(string: outcome.url)?.host?.lowercased()
         if let detail = outcome.detail {
+            if let host { hostFailureStreaks[host] = 0 }
             importProgress.succeeded += 1
             var message = detail.wasUpdate
                 ? "Updated \(detail.recipe.title)"
@@ -413,15 +433,25 @@ final class HarvestModel {
                 message += " • auto-approved"
             }
             log(detail.duplicateTitles.isEmpty ? .success : .warning, message, url: outcome.url)
+        } else if outcome.error == "Canceled" {
+            // A cancelled import is the user's decision, not a failure — no red row.
         } else if !outcome.mined.isEmpty {
             // A category page slipped into the queue; its recipes replace it.
             minedURLs.append(contentsOf: outcome.mined)
             log(.info, "Category page — found \(outcome.mined.count) recipe links on it; they join the queue after this run.", url: outcome.url)
         } else {
             importProgress.failed += 1
+            if let host {
+                let streak = (hostFailureStreaks[host] ?? 0) + 1
+                hostFailureStreaks[host] = streak
+                if streak == 8, !trippedHosts.contains(host) {
+                    trippedHosts.insert(host)
+                    log(.warning, "8 straight failures from \(host) — skipping the rest of its URLs this run. Try the built-in browser, or a different method/UA.")
+                }
+            }
             if settings.retryFailedImports, !isRetryPass, Self.isRetryable(outcome.error) {
                 retryQueue.append(outcome.url)
-            } else {
+            } else if !lastFailures.contains(where: { $0.url == outcome.url }) {
                 lastFailures.append(ImportFailure(url: outcome.url, reason: outcome.error ?? "Import failed"))
                 if lastFailures.count > 50 { lastFailures.removeFirst(lastFailures.count - 50) }
             }
@@ -484,6 +514,7 @@ final class HarvestModel {
 
         // The run in one line, kept until the next run starts.
         lastImportSummary = "Imported \(importProgress.succeeded) · auto-approved \(autoApprovedThisRun) · failed \(importProgress.failed)"
+            + (skippedByBreaker > 0 ? " · \(skippedByBreaker) skipped by the circuit breaker" : "")
             + minedNote
             + (lastFailures.isEmpty ? "" : " — the failures are listed below with retry.")
 
@@ -712,7 +743,8 @@ final class HarvestModel {
     /// already typed there.
     func queue(_ links: [DiscoveredLink]) {
         let existing = Set(parsedImportURLs())
-        let additions = links.map(\.url).filter { !existing.contains($0) }
+        let failed = Set(lastFailures.map(\.url))
+        let additions = links.map(\.url).filter { !existing.contains($0) && !failed.contains($0) }
         guard !additions.isEmpty else {
             statusMessage = "Every discovered recipe is already queued."
             return
@@ -1197,6 +1229,25 @@ final class HarvestModel {
                 log(.error, error.localizedDescription, url: urlString)
             }
         }
+    }
+
+    private func isHostTripped(_ host: String) -> Bool {
+        trippedHosts.contains(host)
+    }
+
+    private func noteBreakerSkip(_ url: String) {
+        skippedByBreaker += 1
+        importProgress.completed += 1
+        importProgress.currentURL = url
+    }
+
+    /// Copies every failed URL to the clipboard, one per line.
+    func copyFailedURLs() {
+        let text = lastFailures.map(\.url).joined(separator: "\n")
+        guard !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        statusMessage = "Copied \(lastFailures.count) failed URL\(lastFailures.count == 1 ? "" : "s")"
     }
 
     /// Re-runs every failed import from the last run.

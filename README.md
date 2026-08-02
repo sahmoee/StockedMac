@@ -1,79 +1,69 @@
-# Build 96 (4.36) — pristine Browse, hub mining, in-pane browser
+# Build 97 (4.37) — fifteen improvements, some against instructions
 
 **Mac delta only.** No worker or iOS change. Full `StockedMac/` folder included
-(Builds 91–95 with 96 on top).
+(Builds 91–96 with 97 on top).
 
----
+About the console dump: those `WebContent` sandbox lines (pboard, launchservicesd,
+RunningBoard, WEBP) are macOS's normal noise for a sandboxed WebKit process — they mean
+the built-in browser IS running, not that it's broken. Build 97 still quiets it: the
+invisible renderer now uses an **ephemeral website data store** (no cookies/caches on
+disk, fewer sandbox negotiations) and denies media autoplay.
 
-## The parser wasn't broken — the classifier was
+Your remaining failures — `packable-breakfasts`, `5-healthy-muffins-yes-its-possible`,
+`how-to-make-…`, `one-pot` — are FN roundups/topic hubs that pass a hyphen test. Items
+1–3 below close that hole from three directions.
 
-Look at the failure names in your screenshot: `breakfast`, `dinner`, `lunch`,
-`appetizers`, `main-dish`, `side-dishes`, `chicken`. Those are Food Network **category
-hubs**, not recipes — they carry no recipe schema, so every engine truthfully failed.
-Build 95's classifier let them through because they matched the source's `/recipes/`
-pattern. Build 96 fixes the shape test and turns hubs from failures into leads:
+## The fifteen
 
-- **Hub slugs are listings now.** A final path segment with no hyphen and no digits
-  ("breakfast") is a hub even under `/recipes/`; real dishes look like
-  `perfect-gravy-recipe-1928388`. Photo galleries and video shells are skipped outright.
-- **Hubs are mined, not failed.** If a category page still reaches the importer, its
-  recipe links are extracted and **join the queue automatically** at the end of the run
-  (deduplicated), with a note in the summary — a wrong URL now yields recipes instead
-  of a red line.
-- **Wider JSON-LD hunt.** Hydration payloads (Next.js-style plain `<script>` bodies
-  containing a schema.org Recipe) are now scanned too, with a string-aware balanced-JSON
-  extractor — one more class of "No JSON-LD found" gone.
-
-## Viewing pages happens in the app
-
-The browser no longer opens as a sheet. **It takes over the Browse right pane** — press
-*Open browser* in the toolbar, or *View* on any failure row, and the page renders right
-there over https with the address bar on top. *Import this page* runs the normal
-pipeline; the ⌄ menu force-imports a page the category detector reads wrong (which
-queues the hub's recipes instead if it really is one); *Add to queue* files the URL;
-*Close* returns to the activity pane.
-
-## Twenty ways recipe browsing & importing got better
-
-1. Hub-slug classification — "breakfast"-style URLs can't masquerade as dishes.
-2. Digit-slugs (`…-recipe-1928388`) recognized as dishes even without hyphen rules.
-3. Category pages hit at import are mined for their recipe links.
-4. Mined links auto-join the queue, deduplicated, in one batch at run end.
-5. Mined counts appear in the run summary and Activity.
-6. Photo/gallery/video URLs skipped before they waste a request.
-7. JSON-LD found inside plain `<script>` hydration payloads.
-8. String-aware balanced-JSON extraction (braces inside strings can't fool it).
-9. The in-app browser is in-pane — no sheet, no window juggling.
-10. Failure rows: slug + site + the first engine's verdict, one line each.
-11. The pipe-chain of every fallback's echo is gone from failure rows.
-12. *View* on a failure opens that exact page in-pane, pre-filled.
-13. Force-import for pages the detector reads wrong — and even that path mines hubs.
-14. Single-page imports (`Import this page`) select the new draft in Harvest.
-15. Right-pane content keeps a readable measure (920 pt cap) on wide windows.
-16. Toolbar browser button toggles — it reads "Close browser" while open.
-17. A fresh address gets a fresh browser panel (no half-navigated leftovers).
-18. Browser works at any pane size (minimum lowered for the embedded case).
-19. Import-anyway is disabled mid-run, so it can't pile onto an active batch.
-20. Classification improvements feed discovery too — sitemap walks now route hubs to
-    link-mining instead of the candidate list, so "288 candidates" means 288 dishes.
+1. **Listicle shapes are hubs.** Slugs ending `-breakfasts`, `-ideas`, `-meals`, `-recipes`…,
+   starting `best-`, `top-`, `how-to-`, `what-to-`, or starting with a digit
+   (`5-healthy-muffins…`) classify as listings — unless they end in a numeric id
+   (`…-24681564`), which always marks a real record.
+2. **Rendered re-judgment.** When a page only reveals itself after JavaScript runs, the
+   page detector now re-inspects the *rendered* DOM — a hydrated roundup becomes queued
+   recipes instead of "No JSON-LD found".
+3. **Pattern-aware link density.** The listing detector counts links using each source's
+   own URL patterns (`/recipes/` for FN), not a hardcoded `/recipe/` — roundups register
+   as roundups.
+4. **Circuit breaker** *(against "import everything I queued")*: eight straight failures
+   from one host skips the rest of that host's URLs this run, with one warning line and
+   a count in the summary — no more 400-failure marathons.
+5. **Cancelled ≠ failed** — pressing Stop no longer paints red rows for the unprocessed
+   remainder.
+6. **Failures deduplicate** by URL; retry loops can't stack the same page twice.
+7. **The failures panel leads with the shape of the problem** — reasons counted
+   ("No recipe data ×12") above the per-URL list.
+8. **Copy URLs** button — the failed list, one per line, straight to the clipboard.
+9. **Failed links stay out of the queue** when re-browsing this session *(against "queue
+   everything verified")* — clearing the failures list re-admits them deliberately.
+10. **Per-run render cache** — a retried URL never pays for a second WebKit render.
+11. **Ephemeral renderer** — nonPersistent data store, autoplay denied, less console
+    noise, nothing accumulating on disk.
+12. **Bulk verify sees through bot walls** — the verifier renders blocked pages with the
+    same WebKit eyes the importer uses, so "Verify queued URLs" works on FN too.
+13. **Activity log timestamps** — every line shows how long ago, right-aligned.
+14. **Success resets a host's failure streak** — one bad stretch doesn't poison a good
+    site for the rest of the run.
+15. **Breaker skips are visible** — counted in progress and named in the run summary,
+    never silent.
 
 ## Installing
 
 1. Copy `StockedMac/` over `Documents/Stocked Mac/StockedMac/`.
-2. Build Settings: `MARKETING_VERSION = 4.36`, `CURRENT_PROJECT_VERSION = 96`.
-3. Clear the queue and browse Food Network again — the hub URLs won't be queued at
-   all this time, and any that remain get mined into real recipes.
+2. Build Settings: `MARKETING_VERSION = 4.37`, `CURRENT_PROJECT_VERSION = 97`.
+3. Retry the failures: the roundups will convert to queued recipe links (watch the
+   summary's "mined" note), and real dishes import.
 
-Files changed vs Build 95: `Harvest/HarvestServices.swift` (classifier, script-JSON
-scan), `Harvest/HarvestTypes.swift` (listingPage error), `Harvest/CrawlCoordinator.swift`
-(hub mining), `Harvest/HarvestModel.swift` (mined-queue handling, importPage),
-`Views/MacBrowserPanel.swift` (embeddable, force-import), `Views/MacBrowseView.swift`
-(in-pane browser, failure rows, measure), `Core/MacBuildConfig.swift`.
+Files changed vs Build 96: `Harvest/HarvestServices.swift` (listicle rules, detector
+density), `Harvest/CrawlCoordinator.swift` (render cache, rendered re-judgment,
+WebKit-aware verify), `Harvest/HarvestModel.swift` (breaker, failure hygiene, copy),
+`Harvest/WebKitRenderer.swift` (ephemeral store), `Views/MacBrowseView.swift`
+(grouped failures, timestamps), `Core/MacBuildConfig.swift`.
 
 ## Verification done here
 
-All Swift files brace/paren/bracket-balanced (raw-string aware). The classifier was
-desk-checked against the nine failing slugs from the screenshot (all → listing), real
-FN dish URLs (→ recipe), Allrecipes `/recipe/12345/name/` (→ recipe), and gallery URLs
-(→ skip). The balanced-JSON extractor was traced against nested objects and braces in
-strings. **No Swift compiler here — the real build is Xcode.**
+All Swift files brace/paren/bracket-balanced (raw-string aware). The listicle rules
+were desk-checked against every slug in your screenshot (all 10 → listing or id-recipe
+correctly) and against real dish slugs (`perfect-gravy-recipe-1928388`,
+`sugar-cookie-banana-bread-24681564` → recipe). Breaker paths traced for streak-reset,
+retry passes, and cancel. **No Swift compiler here — the real build is Xcode.**

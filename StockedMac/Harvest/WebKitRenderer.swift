@@ -42,6 +42,11 @@ final class WebKitRenderer: NSObject {
 
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Ephemeral: no cookies or caches accumulate on disk, and the WebContent
+        // process has less to negotiate with the sandbox (quieter console, too).
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.mediaTypesRequiringUserActionForPlayback = .all
+        configuration.suppressesIncrementalRendering = true
         let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 1280, height: 900),
                              configuration: configuration)
         view.customUserAgent = userAgent

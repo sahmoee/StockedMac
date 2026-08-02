@@ -38,3 +38,6 @@
 
 ### 2026-08-02 — note: Mac Build 96
 - Mac browsing/import fixes only. **No iOS change required.**
+
+### 2026-08-02 — note: Mac Build 97
+- Mac crawler resilience only. **No iOS change required.**

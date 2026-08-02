@@ -8,6 +8,16 @@
 
 ## Applied updates
 
+### Build 97 (4.37) — resilience — 2026-08-02
+- Listicle/roundup slugs classify as listings (suffix/prefix/digit rules, numeric-id
+  override); page detector re-judges the RENDERED DOM (hydrated roundups get mined);
+  listing detection uses each source's own URL patterns.
+- Circuit breaker (8 straight failures/host skips the rest that run, health-visible);
+  cancelled ≠ failed; failures dedupe + grouped reason counts + Copy URLs; failed
+  links excluded on re-queue; per-run render cache; ephemeral WebKit renderer;
+  bulk verify renders blocked pages; activity timestamps.
+- Worker impact: none. iOS impact: none.
+
 ### Build 96 (4.36) — hub mining + in-pane browser — 2026-08-02
 - Failure root cause: category hubs ("breakfast", "dinner") classified as recipes
   under /recipes/. Fixed shape test (hyphen/digit slugs); galleries skipped; hubs
