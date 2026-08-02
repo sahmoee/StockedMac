@@ -24,14 +24,14 @@ nonisolated enum MacBuildConfig {
     /// A separate product from the iOS app — separate project, separate bundle
     /// identifier — but the version line tracks the shared build history (the project file
     /// carries the real numbers; these are only the fallback if Info.plist is unreadable).
-    private static let fallbackVersion     = "4.34"
-    private static let fallbackBuildNumber = 94
+    private static let fallbackVersion     = "4.35"
+    private static let fallbackBuildNumber = 95
 
     /// When the shared model layer was last checked against the phone's copy. Models.swift
     /// and KitchenMetrics.swift are byte-for-byte identical to the iOS tree as of this
     /// check; re-run the diff and update this string whenever either side moves, so the
     /// provenance stays honest rather than decorative.
-    static let sharedModelLineage = "Shared models verified identical to iOS — Build 94, August 2026"
+    static let sharedModelLineage = "Shared models verified identical to iOS — Build 95, August 2026"
 
     static var buildNumber: Int {
         Int(bundleString("CFBundleVersion") ?? "") ?? fallbackBuildNumber
@@ -44,18 +44,19 @@ nonisolated enum MacBuildConfig {
 
     static let buildDate = "August 2026"
     static let buildName = """
-        Sitemaps stopped being a place runs go to die. The crawler now walks sitemap \
-        files breadth-first against one budget \u{2014} children of giant sitemap indexes \
-        included \u{2014} visiting the recipe-smelling ones first, inflating the gzipped \
-        ones big sites actually ship, timing out any request after twenty seconds \
-        instead of a minute, and stopping early once it has enough candidates. When a \
-        site's sitemap still yields nothing, the run no longer ends at zero: on Auto \
-        the engines chain, sitemap to category pages to feeds, until one of them finds \
-        recipes, and the report says which engine won. The Browse screen was redesigned \
-        around it: every control group in its own card with labels above controls so \
-        nothing overlaps at any width, a pause banner instead of a cramped bar, a real \
-        progress card with a bar, pages-read and recipes-found counts on the right, and \
-        an honest empty state where the vacancy used to be.
+        Importing stopped taking no for an answer. The wall of red in the last build \
+        came from one thing: the crawler introduced itself with a truncated user agent \
+        that big sites answer with a bot wall instead of a recipe, and the only parser \
+        that mattered wanted JSON-LD that wasn't there. Now the crawler identifies as \
+        Safari, and when a page still won't parse it is loaded in an invisible WebKit \
+        view and read the way a browser reads it. Behind JSON-LD stand two new local \
+        parsers \u{2014} schema.org microdata, then a layout reconstruction whose confidence \
+        is capped so a person always reviews it. Browsing no longer imports by itself: \
+        it queues, and importing is your button to press, with an optional spacing \
+        throttle. A visible in-app browser (toolbar, or any failure row) lets you open \
+        any https page and import exactly what you're looking at. Failures became a \
+        panel with reasons, per-page Open, and Retry all \u{2014} and two hundred copies of \
+        the same error now read as one line with a counter, not a wall.
         """
 
     // MARK: - Environment

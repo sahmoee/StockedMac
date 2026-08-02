@@ -31,3 +31,7 @@
 
 ### 2026-08-02 — note: Mac Build 94
 - Sitemap-engine fixes and Browse UI redesign, all client-side. **No worker change.**
+
+### 2026-08-02 — note: Mac Build 95
+- Import pipeline overhaul (UA, parser chain, WebKit fallback, in-app browser) — all
+  client-side. **No worker change.**

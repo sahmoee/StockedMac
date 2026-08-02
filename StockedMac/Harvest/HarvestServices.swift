@@ -1351,6 +1351,20 @@ nonisolated struct IngredientParser {
 }
 
 nonisolated struct RecipePageDetector {
+
+    /// A page that is really a bot wall, not content. Short bodies and challenge
+    /// phrases; used to decide the WebKit-rendered retry and to say something more
+    /// useful than "No JSON-LD found".
+    static func looksBlocked(_ html: String) -> Bool {
+        if html.count < 2500 { return true }
+        let lower = html.lowercased()
+        let markers = ["captcha", "access denied", "are you a robot", "unusual traffic",
+                       "just a moment", "cf-challenge", "cf-browser-verification",
+                       "request blocked", "pardon our interruption", "px-captcha",
+                       "bot detection", "enable javascript and cookies"]
+        return markers.contains { lower.contains($0) }
+    }
+
     func inspect(html: String, url: URL, source: SourceProfile) -> RecipePageVerdict {
         let lowercased = html.lowercased()
         
@@ -1370,5 +1384,199 @@ nonisolated struct RecipePageDetector {
         } else {
             return RecipePageVerdict(kind: .other, evidence: ["No clear recipe markers"])
         }
+    }
+}
+
+
+// MARK: - Microdata parser (Build 95)
+//
+// Second engine: schema.org via itemprop attributes, for sites that mark recipes up
+// in HTML instead of JSON-LD. Regex-scoped, deliberately forgiving.
+
+nonisolated struct MicrodataRecipeParser {
+
+    func parse(html: String, url: URL) throws -> ParserResult {
+        let ingredients = Self.itempropValues(["recipeIngredient", "ingredients"], in: html)
+        let steps = Self.itempropValues(["recipeInstructions"], in: html)
+            .flatMap { $0.components(separatedBy: .newlines) }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.count > 3 }
+        guard ingredients.count >= 2, !steps.isEmpty else {
+            throw CompanionError.parseFailed("No schema.org microdata recipe found")
+        }
+        let title = Self.itempropValues(["name"], in: html).first
+            ?? HeuristicRecipeParser.metaContent("og:title", in: html)
+            ?? ""
+        guard !title.isEmpty else {
+            throw CompanionError.parseFailed("Microdata recipe has no name")
+        }
+        let image = Self.itempropAttribute(["image"], attributes: ["content", "src", "href"], in: html)
+            ?? HeuristicRecipeParser.metaContent("og:image", in: html)
+
+        return ParserResult(
+            title: title,
+            summary: Self.itempropValues(["description"], in: html).first
+                ?? HeuristicRecipeParser.metaContent("og:description", in: html),
+            author: Self.itempropValues(["author"], in: html).first,
+            imageURL: image,
+            ingredientSections: [IngredientSection(name: nil, items: ingredients.map { IngredientItem(raw: $0) })],
+            instructionSections: [InstructionSection(name: nil, steps: steps)],
+            yield: Self.itempropValues(["recipeYield"], in: html).first,
+            servings: nil,
+            times: RecipeTimes(),
+            nutrition: [:],
+            cuisines: Self.itempropValues(["recipeCuisine"], in: html),
+            categories: Self.itempropValues(["recipeCategory"], in: html),
+            keywords: [],
+            diets: [],
+            canonicalURL: nil,
+            confidence: 0.7,
+            warnings: ["Parsed from HTML microdata; check the details."],
+            parser: "native-microdata"
+        )
+    }
+
+    /// Text content of elements carrying one of these itemprops.
+    static func itempropValues(_ names: [String], in html: String) -> [String] {
+        var out: [String] = []
+        for name in names {
+            guard let regex = try? NSRegularExpression(
+                pattern: "<([a-z0-9]+)[^>]*itemprop\\s*=\\s*[\"']" + name + "[\"'][^>]*>([\\s\\S]*?)</\\1>",
+                options: .caseInsensitive
+            ) else { continue }
+            let ns = html as NSString
+            for match in regex.matches(in: html, range: NSRange(location: 0, length: ns.length))
+            where match.numberOfRanges > 2 {
+                let text = HeuristicRecipeParser.plainText(ns.substring(with: match.range(at: 2)))
+                if !text.isEmpty { out.append(text) }
+            }
+            // Meta-style: <meta itemprop="name" content="...">
+            if out.isEmpty, let value = itempropAttribute([name], attributes: ["content"], in: html) {
+                out.append(value)
+            }
+        }
+        return out.cleanedUnique()
+    }
+
+    static func itempropAttribute(_ names: [String], attributes: [String], in html: String) -> String? {
+        for name in names {
+            for attribute in attributes {
+                let patterns = [
+                    "itemprop\\s*=\\s*[\"']" + name + "[\"'][^>]*" + attribute + "\\s*=\\s*[\"']([^\"']+)[\"']",
+                    attribute + "\\s*=\\s*[\"']([^\"']+)[\"'][^>]*itemprop\\s*=\\s*[\"']" + name + "[\"']",
+                ]
+                for pattern in patterns {
+                    guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { continue }
+                    let ns = html as NSString
+                    if let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: ns.length)),
+                       match.numberOfRanges > 1 {
+                        return ns.substring(with: match.range(at: 1))
+                    }
+                }
+            }
+        }
+        return nil
+    }
+}
+
+// MARK: - Heuristic parser (Build 95)
+//
+// Last local resort: og: tags for identity, class-name scraping for the body. Its
+// confidence is capped low so nothing it produces can auto-approve — a human reads it.
+
+nonisolated struct HeuristicRecipeParser {
+
+    func parse(html: String, url: URL) throws -> ParserResult {
+        let ingredients = Self.listItems(classContaining: "ingredient", in: html)
+        let steps = Self.listItems(classContaining: "instruction", in: html)
+            + Self.listItems(classContaining: "direction", in: html)
+            + Self.listItems(classContaining: "step", in: html)
+        let uniqueSteps = steps.cleanedUnique().filter { $0.count > 8 }
+        guard ingredients.count >= 3, uniqueSteps.count >= 2 else {
+            throw CompanionError.parseFailed("No recognizable recipe structure in the HTML")
+        }
+        let title = Self.metaContent("og:title", in: html)
+            ?? Self.tagText("title", in: html)
+            ?? ""
+        guard !title.isEmpty else {
+            throw CompanionError.parseFailed("The page has no title")
+        }
+
+        return ParserResult(
+            title: title,
+            summary: Self.metaContent("og:description", in: html),
+            author: nil,
+            imageURL: Self.metaContent("og:image", in: html),
+            ingredientSections: [IngredientSection(name: nil, items: ingredients.map { IngredientItem(raw: $0) })],
+            instructionSections: [InstructionSection(name: nil, steps: uniqueSteps)],
+            yield: nil,
+            servings: nil,
+            times: RecipeTimes(),
+            nutrition: [:],
+            cuisines: [],
+            categories: [],
+            keywords: [],
+            diets: [],
+            canonicalURL: nil,
+            confidence: 0.55,
+            warnings: ["Reconstructed from the page layout, not structured data — review before approving."],
+            parser: "heuristic-html"
+        )
+    }
+
+    /// <li>/<p> text where the element's class mentions the marker.
+    static func listItems(classContaining marker: String, in html: String) -> [String] {
+        guard let regex = try? NSRegularExpression(
+            pattern: "<(li|p)[^>]*class\\s*=\\s*[\"'][^\"']*" + marker + "[^\"']*[\"'][^>]*>([\\s\\S]*?)</\\1>",
+            options: .caseInsensitive
+        ) else { return [] }
+        let ns = html as NSString
+        var out: [String] = []
+        for match in regex.matches(in: html, range: NSRange(location: 0, length: ns.length))
+        where match.numberOfRanges > 2 {
+            let text = plainText(ns.substring(with: match.range(at: 2)))
+            if text.count > 2, text.count < 500 { out.append(text) }
+        }
+        return out
+    }
+
+    static func metaContent(_ property: String, in html: String) -> String? {
+        let patterns = [
+            "<meta[^>]+(?:property|name)\\s*=\\s*[\"']" + property + "[\"'][^>]+content\\s*=\\s*[\"']([^\"']+)[\"']",
+            "<meta[^>]+content\\s*=\\s*[\"']([^\"']+)[\"'][^>]+(?:property|name)\\s*=\\s*[\"']" + property + "[\"']",
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { continue }
+            let ns = html as NSString
+            if let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: ns.length)),
+               match.numberOfRanges > 1 {
+                let value = plainText(ns.substring(with: match.range(at: 1)))
+                if !value.isEmpty { return value }
+            }
+        }
+        return nil
+    }
+
+    static func tagText(_ tag: String, in html: String) -> String? {
+        guard let regex = try? NSRegularExpression(
+            pattern: "<" + tag + "[^>]*>([\\s\\S]*?)</" + tag + ">", options: .caseInsensitive
+        ) else { return nil }
+        let ns = html as NSString
+        guard let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: ns.length)),
+              match.numberOfRanges > 1 else { return nil }
+        let value = plainText(ns.substring(with: match.range(at: 1)))
+        return value.isEmpty ? nil : value
+    }
+
+    /// Tags stripped, entities decoded, whitespace collapsed.
+    static func plainText(_ fragment: String) -> String {
+        var text = fragment.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+        let entities = ["&amp;": "&", "&quot;": "\"", "&#39;": "'", "&apos;": "'",
+                        "&nbsp;": " ", "&lt;": "<", "&gt;": ">", "&#8217;": "'", "&#8211;": "-"]
+        for (entity, replacement) in entities {
+            text = text.replacingOccurrences(of: entity, with: replacement)
+        }
+        return text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

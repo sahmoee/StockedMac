@@ -31,3 +31,7 @@
 
 ### 2026-08-02 — note: Mac Build 94
 - Mac crawler/UI fixes only. **No iOS change required.**
+
+### 2026-08-02 — note: Mac Build 95
+- Mac import pipeline overhaul only. **No iOS change required.** Heuristic-parsed
+  recipes can never auto-approve, so nothing below standard reaches the household.

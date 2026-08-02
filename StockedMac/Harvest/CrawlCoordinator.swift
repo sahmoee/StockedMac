@@ -13,6 +13,8 @@ actor CrawlCoordinator {
     private let imageStore: ImageStore
     private let discovery: DiscoveryEngine
     private let nativeParser = NativeRecipeParser()
+    private let microdataParser = MicrodataRecipeParser()
+    private let heuristicParser = HeuristicRecipeParser()
     private let ingredientParser = IngredientParser()
     private let detector = RecipePageDetector()
     private var pythonParser: PythonWorkerClient
@@ -53,23 +55,56 @@ actor CrawlCoordinator {
             accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
         )
 
+        // Build 95: if the plain fetch got a bot wall or a JS shell, render the page
+        // in the invisible WebKit view and work from what a real browser sees.
+        var html = page.text
+        var usedWebKit = false
+        if settings.useWebKitFallback, RecipePageDetector.looksBlocked(html) {
+            if let rendered = try? await WebKitRenderer.shared.renderedHTML(
+                for: page.finalURL, userAgent: settings.userAgent
+            ) {
+                html = rendered
+                usedWebKit = true
+            }
+        }
+
         // Refuse category and roundup pages up front rather than emitting a
         // half-parsed record that a reviewer then has to delete.
-        let verdict = detector.inspect(html: page.text, url: page.finalURL, source: source)
+        let verdict = detector.inspect(html: html, url: page.finalURL, source: source)
         if !allowNonRecipePages, verdict.kind == .listing {
             throw CompanionError.notARecipe(
                 "\(page.finalURL.absoluteString) — \(verdict.evidence.first ?? "it links to other recipes")"
             )
         }
 
-        let parsed = try await parse(
-            html: page.text,
-            url: page.finalURL,
-            mode: source.parserMode == .nativeFirst ? settings.parserMode : source.parserMode,
-            settings: settings
-        )
+        let mode = source.parserMode == .nativeFirst ? settings.parserMode : source.parserMode
+        var parsed: ParserResult
+        do {
+            parsed = try await parse(html: html, url: page.finalURL, mode: mode, settings: settings)
+        } catch {
+            // One rendered retry when the plain HTML would not parse — many sites only
+            // hydrate their recipe data client-side.
+            guard settings.useWebKitFallback, !usedWebKit else {
+                throw Self.friendlyParseError(error, html: html)
+            }
+            guard let rendered = try? await WebKitRenderer.shared.renderedHTML(
+                for: page.finalURL, userAgent: settings.userAgent
+            ) else {
+                throw Self.friendlyParseError(error, html: html)
+            }
+            usedWebKit = true
+            html = rendered
+            do {
+                parsed = try await parse(html: rendered, url: page.finalURL, mode: mode, settings: settings)
+            } catch {
+                throw Self.friendlyParseError(error, html: rendered)
+            }
+        }
 
         var warnings = parsed.warnings
+        if usedWebKit {
+            warnings.append("Loaded with the built-in browser (the site blocks direct fetches).")
+        }
         if verdict.kind == .listing {
             warnings.insert("This page also lists other recipes; check the extraction.", at: 0)
         }
@@ -197,6 +232,16 @@ actor CrawlCoordinator {
         pythonParser = client
     }
 
+    /// Turns parser-stack noise into one sentence a person can act on.
+    private nonisolated static func friendlyParseError(_ error: any Error, html: String) -> any Error {
+        if RecipePageDetector.looksBlocked(html) {
+            return CompanionError.parseFailed(
+                "The site is blocking automated access to this page (bot wall). Try the built-in browser, or a different User-Agent in the Crawler card."
+            )
+        }
+        return error
+    }
+
     // MARK: - Parsing
 
     private func parse(html: String, url: URL, mode: ParserMode,
@@ -236,6 +281,16 @@ actor CrawlCoordinator {
             }
         }
 
+        // Second tier (Build 95): microdata, then heuristic reconstruction. The
+        // heuristic's confidence is capped below every auto-approve threshold, so its
+        // output is always reviewed by a person.
+        if !isGoodEnough() {
+            record(runMicrodata(html: html, url: url))
+        }
+        if results.filter(\.isComplete).isEmpty {
+            record(runHeuristic(html: html, url: url))
+        }
+
         // Third tier: the regular Stocked Worker. When the local engines did not produce a
         // confident, complete recipe and the Worker is configured, hand it the page text
         // for one model-backed attempt. This is the engine that works in the sandboxed App
@@ -261,6 +316,22 @@ actor CrawlCoordinator {
             return (try nativeParser.parse(html: html, url: url), nil)
         } catch {
             return (nil, "Native parser: \(error.localizedDescription)")
+        }
+    }
+
+    private func runMicrodata(html: String, url: URL) -> (result: ParserResult?, error: String?) {
+        do {
+            return (try microdataParser.parse(html: html, url: url), nil)
+        } catch {
+            return (nil, "Microdata: \(error.localizedDescription)")
+        }
+    }
+
+    private func runHeuristic(html: String, url: URL) -> (result: ParserResult?, error: String?) {
+        do {
+            return (try heuristicParser.parse(html: html, url: url), nil)
+        } catch {
+            return (nil, "Heuristic: \(error.localizedDescription)")
         }
     }
 

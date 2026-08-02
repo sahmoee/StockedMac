@@ -247,10 +247,21 @@ nonisolated struct AppSettings: Codable, Sendable {
     /// Auto-approval additionally requires the recipe to pass the Stocked standards
     /// checklist (title, ingredients, steps, image, honest attribution, …).
     var requireStandardsForAutoApprove: Bool
+    // ── Build 95 (Importing) ─────────────────────────────────────────────
+    /// When a page won't parse from a plain fetch (bot wall, JS-rendered), load it in
+    /// an invisible WebKit view and parse the rendered HTML instead.
+    var useWebKitFallback: Bool
+    /// Extra seconds between imports, on top of the per-domain limiter. 0 = none.
+    var importSpacingSeconds: Int
+    /// Bumped when defaults change meaning; start() migrates old files forward once.
+    var settingsRevision: Int
 
     static var defaults: AppSettings {
         AppSettings(
-            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            // A real, current Safari UA. The old truncated string ("...AppleWebKit/537.36"
+            // and nothing after) is a bot-wall tripwire — Food Network's CDN answers it
+            // with a challenge page that contains no recipe at all.
+            userAgent: AppSettings.safariUserAgent,
             parserMode: .nativeFirst,
             downloadImages: true,
             parseIngredientStructure: true,
@@ -273,9 +284,23 @@ nonisolated struct AppSettings: Codable, Sendable {
             autoRotateSourceCount: 3,
             preferredCrawlMethod: .auto,
             crawlAggressiveness: .balanced,
-            requireStandardsForAutoApprove: true
+            requireStandardsForAutoApprove: true,
+            useWebKitFallback: true,
+            importSpacingSeconds: 0,
+            settingsRevision: 2
         )
     }
+
+    // ── User-agent presets (Build 95) ────────────────────────────────────
+    static let safariUserAgent =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15"
+    static let chromeUserAgent =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    static let honestUserAgent =
+        "StockedHarvester/1.0 (+https://sowensstudios.com)"
+    /// The Build 90-94 default; recognized so migration can replace it.
+    static let legacyUserAgent =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 }
 
 // Tolerant decoding: every field falls back to its default when absent, so a settings.json
@@ -291,6 +316,7 @@ nonisolated extension AppSettings {
         case requireImageForImport, autoFetchMissingImages, verifyBeforeImport
         case cloudSyncEnabled, autoRotateSourceCount
         case preferredCrawlMethod, crawlAggressiveness, requireStandardsForAutoApprove
+        case useWebKitFallback, importSpacingSeconds, settingsRevision
     }
 
     init(from decoder: Decoder) throws {
@@ -320,6 +346,9 @@ nonisolated extension AppSettings {
         preferredCrawlMethod    = (try? c.decodeIfPresent(CrawlMethod.self, forKey: .preferredCrawlMethod)) ?? d.preferredCrawlMethod
         crawlAggressiveness     = (try? c.decodeIfPresent(CrawlAggressiveness.self, forKey: .crawlAggressiveness)) ?? d.crawlAggressiveness
         requireStandardsForAutoApprove = (try? c.decodeIfPresent(Bool.self, forKey: .requireStandardsForAutoApprove)) ?? d.requireStandardsForAutoApprove
+        useWebKitFallback       = (try? c.decodeIfPresent(Bool.self, forKey: .useWebKitFallback)) ?? d.useWebKitFallback
+        importSpacingSeconds    = (try? c.decodeIfPresent(Int.self, forKey: .importSpacingSeconds)) ?? d.importSpacingSeconds
+        settingsRevision        = (try? c.decodeIfPresent(Int.self, forKey: .settingsRevision)) ?? 0
     }
 }
 

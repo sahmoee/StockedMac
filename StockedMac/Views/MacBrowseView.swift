@@ -17,6 +17,8 @@ struct MacBrowseView: View {
     @State private var selectedSourceIDs: Set<String> = []
     @State private var showSourcePicker = false
     @State private var showURLEditor = false
+    @State private var showBrowser = false
+    @State private var browserAddress = ""
 
     // MARK: - Source grouping
 
@@ -91,6 +93,15 @@ struct MacBrowseView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
+                    browserAddress = ""
+                    showBrowser = true
+                } label: {
+                    Label("Open browser", systemImage: "safari")
+                }
+                .help("Browse any site in-app and import the page you're looking at")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
                     harvest.togglePause()
                 } label: {
                     Label(harvest.isPaused ? "Resume" : "Pause",
@@ -98,6 +109,9 @@ struct MacBrowseView: View {
                 }
                 .help("Pause or resume every download — browsing, imports and images")
             }
+        }
+        .sheet(isPresented: $showBrowser) {
+            MacBrowserPanel(address: browserAddress)
         }
     }
 
@@ -167,21 +181,28 @@ struct MacBrowseView: View {
 
                 // Actions
                 HStack(spacing: 6) {
+                    // Build 95: browsing queues; importing is the explicit second step
+                    // (unless auto-verify & approve is switched on — then the primary
+                    // button says exactly what it will do).
+                    let autoImports = harvest.settings.autoImportVerified
                     if selectedSources.count == 1, let source = selectedSources.first {
-                        Button("Browse & Import") { harvest.discover(source) }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(harvest.isDiscovering)
-                        Button("Queue only") { harvest.discoverToQueue(source) }
-                            .disabled(harvest.isDiscovering)
-                    } else if selectedSources.count > 1 {
-                        Button("Browse \(selectedSources.count) sources") {
-                            harvest.browseSources(withIDs: selectedSources.map(\.id))
+                        Button(autoImports ? "Browse & Import" : "Browse") {
+                            harvest.discover(source)
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(harvest.isDiscovering)
-                        Button("Queue from \(selectedSources.count)") {
-                            harvest.browseSources(withIDs: selectedSources.map(\.id), queueOnly: true)
+                        if autoImports {
+                            Button("Queue only") { harvest.discoverToQueue(source) }
+                                .disabled(harvest.isDiscovering)
                         }
+                    } else if selectedSources.count > 1 {
+                        Button(autoImports
+                               ? "Browse & import \(selectedSources.count)"
+                               : "Browse \(selectedSources.count) sources") {
+                            harvest.browseSources(withIDs: selectedSources.map(\.id),
+                                                  queueOnly: !autoImports)
+                        }
+                        .buttonStyle(.borderedProminent)
                         .disabled(harvest.isDiscovering)
                     } else {
                         Button("Next in rotation") { harvest.browseNextSource() }
@@ -303,8 +324,63 @@ struct MacBrowseView: View {
                 .onChange(of: harvest.settings.crawlAggressiveness) {
                     harvest.scheduleSettingsSave()
                 }
+
+                Toggle("Use the built-in browser when a site blocks direct fetches",
+                       isOn: $harvest.settings.useWebKitFallback)
+                    .toggleStyle(.checkbox).font(.caption)
+                    .onChange(of: harvest.settings.useWebKitFallback) {
+                        harvest.scheduleSettingsSave()
+                    }
+
+                Stepper(value: $harvest.settings.importSpacingSeconds, in: 0...30) {
+                    Text(harvest.settings.importSpacingSeconds == 0
+                         ? "No extra pause between imports"
+                         : "Pause \(harvest.settings.importSpacingSeconds) s between imports")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .onChange(of: harvest.settings.importSpacingSeconds) {
+                    harvest.scheduleSettingsSave()
+                }
+
+                Divider()
+
+                HStack(spacing: 10) {
+                    Menu {
+                        Button("Safari (recommended)") { setUserAgent(AppSettings.safariUserAgent) }
+                        Button("Chrome") { setUserAgent(AppSettings.chromeUserAgent) }
+                        Button("Honest bot") { setUserAgent(AppSettings.honestUserAgent) }
+                    } label: {
+                        Label("User agent: \(userAgentLabel)", systemImage: "person.crop.rectangle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .font(.caption)
+                    .help("How the crawler identifies itself to sites")
+                    Spacer(minLength: 0)
+                    Button {
+                        harvest.resetRateLimits()
+                    } label: {
+                        Label("Clear pauses", systemImage: "hare")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .help("Clear every rate-limit pause and daily counter")
+                }
             }
         }
+    }
+
+    private var userAgentLabel: String {
+        switch harvest.settings.userAgent {
+        case AppSettings.safariUserAgent: return "Safari"
+        case AppSettings.chromeUserAgent: return "Chrome"
+        case AppSettings.honestUserAgent: return "Honest bot"
+        default: return "Custom"
+        }
+    }
+
+    private func setUserAgent(_ value: String) {
+        harvest.settings.userAgent = value
+        harvest.scheduleSettingsSave()
     }
 
     // MARK: - Verification card
@@ -540,6 +616,14 @@ struct MacBrowseView: View {
                         }
                     }
 
+                    if let summary = harvest.lastImportSummary, !harvest.isImporting {
+                        MacCard(title: "Last import", systemImage: "tray.and.arrow.down") {
+                            Text(summary).font(.callout)
+                        }
+                    }
+
+                    if !harvest.lastFailures.isEmpty { failuresCard }
+
                     if !harvest.sessionHistory.isEmpty { historyCard }
 
                     activityCard
@@ -591,6 +675,43 @@ struct MacBrowseView: View {
                     Spacer(minLength: 0)
                 }
                 .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var failuresCard: some View {
+        MacCard(title: "Import failures", systemImage: "exclamationmark.triangle",
+                footnote: "\(harvest.lastFailures.count)") {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(harvest.lastFailures.suffix(10)) { failure in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(URL(string: failure.url)?.lastPathComponent.nilIfBlank ?? failure.url)
+                                .font(.caption.weight(.medium)).lineLimit(1)
+                            Text(failure.reason)
+                                .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                        Spacer(minLength: 0)
+                        Button("Open") {
+                            browserAddress = failure.url
+                            showBrowser = true
+                        }
+                        .buttonStyle(.borderless).font(.caption)
+                        .help("Open in the built-in browser and import by hand")
+                    }
+                }
+                if harvest.lastFailures.count > 10 {
+                    Text("…and \(harvest.lastFailures.count - 10) more.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                HStack(spacing: 8) {
+                    Button("Retry all") { harvest.retryFailures() }
+                        .disabled(harvest.isImporting)
+                    Button("Clear") { harvest.clearFailures() }
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .font(.caption)
             }
         }
     }

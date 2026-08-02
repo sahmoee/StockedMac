@@ -8,6 +8,16 @@
 
 ## Applied updates
 
+### Build 95 (4.35) — importing overhaul — 2026-08-02
+- Root cause of mass import failures fixed: truncated UA tripped bot walls; crawler
+  now identifies as Safari (one-time migration), with UA presets.
+- Parser chain: JSON-LD → microdata → heuristic layout (review-only confidence) →
+  Worker; invisible-WebKit rendered-HTML fallback for blocked/JS pages.
+- Browsing no longer auto-imports (explicit Import step; migration turns it off once).
+- In-app WebKit browser panel (view any https page, Import this page / Add to queue);
+  failures panel with reasons + Retry all; import summary card; spacing throttle;
+  log de-duplication. Worker impact: none. iOS impact: none.
+
 ### Build 94 (4.34) — sitemap fix + Browse redesign — 2026-08-02
 - "Stuck on Reading sitemaps" fixed: 20 s request timeouts, breadth-first sitemap walk
   with a per-speed file budget (children of sitemap indexes included), recipe-first

@@ -9,6 +9,13 @@ private nonisolated struct ImportOutcome: Sendable {
     var error: String?
 }
 
+/// One failed import, kept so failures are actionable instead of scrolling away.
+nonisolated struct ImportFailure: Identifiable, Sendable {
+    let id = UUID()
+    let url: String
+    let reason: String
+}
+
 @MainActor
 @Observable
 final class HarvestModel {
@@ -43,6 +50,14 @@ final class HarvestModel {
     /// Explicitly selected sources still waiting their turn (multi-select browsing).
     var sourceRotationQueue: [String] = []
     @ObservationIgnored private var rotationQueueOnly = false
+    // ── Build 95 (Importing) ────────────────────────────────────────────
+    /// Failed imports from the current/last run, newest last, capped at 50.
+    var lastFailures: [ImportFailure] = []
+    /// One line describing how the last import run went.
+    var lastImportSummary: String?
+    @ObservationIgnored private var lastLogKey = ""
+    @ObservationIgnored private var lastLogRepeat = 1
+    @ObservationIgnored private var autoApprovedThisRun = 0
     var selectedRecipeID: UUID?
     var selectedRecipeIDs: Set<UUID> = []
     var selectedSourceID: String?
@@ -152,6 +167,7 @@ final class HarvestModel {
         }
         Task {
             settings = await settingsStore.load()
+            migrateSettingsIfNeeded()
             pythonWorkerAvailable = PythonWorkerClient.locate().isAvailable
             logs = await logStore.recent(limit: 200)
             // Bring back the last browse so a relaunch does not throw away work.
@@ -279,6 +295,9 @@ final class HarvestModel {
         if !isRetryPass {
             pendingAutoApproval.removeAll()
             retryQueue.removeAll()
+            lastFailures.removeAll()
+            lastImportSummary = nil
+            autoApprovedThisRun = 0
         }
 
         isImporting = true
@@ -309,6 +328,9 @@ final class HarvestModel {
                 for await outcome in group {
                     self?.record(outcome)
                     guard !Task.isCancelled, next < urls.count else { continue }
+                    if activeSettings.importSpacingSeconds > 0 {
+                        try? await Task.sleep(for: .seconds(Double(activeSettings.importSpacingSeconds)))
+                    }
                     let url = urls[next]
                     next += 1
                     group.addTask {
@@ -388,6 +410,9 @@ final class HarvestModel {
             importProgress.failed += 1
             if settings.retryFailedImports, !isRetryPass, Self.isRetryable(outcome.error) {
                 retryQueue.append(outcome.url)
+            } else {
+                lastFailures.append(ImportFailure(url: outcome.url, reason: outcome.error ?? "Import failed"))
+                if lastFailures.count > 50 { lastFailures.removeFirst(lastFailures.count - 50) }
             }
             log(.error, outcome.error ?? "Import failed", url: outcome.url)
         }
@@ -415,6 +440,7 @@ final class HarvestModel {
             do {
                 let changed = try await recipeStore.setReviewState(.approved, for: ids)
                 if !changed.isEmpty {
+                    autoApprovedThisRun += changed.count
                     log(.success, "Approved \(changed.count) high-confidence recipe\(changed.count == 1 ? "" : "s") automatically.")
                     handOver(changed)
                 }
@@ -433,6 +459,10 @@ final class HarvestModel {
             return
         }
         isRetryPass = false
+
+        // The run in one line, kept until the next run starts.
+        lastImportSummary = "Imported \(importProgress.succeeded) · auto-approved \(autoApprovedThisRun) · failed \(importProgress.failed)"
+            + (lastFailures.isEmpty ? "" : " — the failures are listed below with retry.")
 
         // A recipe whose image download failed gets one more chance before anyone
         // has to notice — a draft without a picture cannot reach the phone.
@@ -1101,6 +1131,36 @@ final class HarvestModel {
         Task { await logStore.clear() }
     }
 
+    // MARK: - Build 95: migrations, failures, spacing
+
+    /// One-time forward migration when defaults change meaning. Revision 2 (Build 95):
+    /// browsing no longer imports by itself, and the crawler stops announcing itself
+    /// with a truncated UA that trips bot walls.
+    private func migrateSettingsIfNeeded() {
+        guard settings.settingsRevision < 2 else { return }
+        if settings.userAgent == AppSettings.legacyUserAgent {
+            settings.userAgent = AppSettings.safariUserAgent
+        }
+        if settings.autoImportVerified {
+            settings.autoImportVerified = false
+        }
+        settings.settingsRevision = 2
+        scheduleSettingsSave()
+        log(.info, "New defaults applied: browsing queues instead of auto-importing, and the crawler identifies as Safari. Both are adjustable in Browse.")
+    }
+
+    /// Re-runs every failed import from the last run.
+    func retryFailures() {
+        let urls = lastFailures.map(\.url)
+        guard !urls.isEmpty else { return }
+        lastFailures.removeAll()
+        importDirect(urls)
+    }
+
+    func clearFailures() {
+        lastFailures.removeAll()
+    }
+
     // MARK: - Build 91: pause / verify / images / cloud / sessions
 
     /// Parks every new network request. Requests already in flight finish; nothing
@@ -1515,6 +1575,16 @@ final class HarvestModel {
     }
 
     private func log(_ level: CrawlLogEntry.Level, _ message: String, url: String? = nil) {
+        // Collapse runs of the identical message into one line with a counter, so 200
+        // copies of the same parse failure read as one entry, not a wall of red.
+        let key = "\(level.rawValue)|\(message)"
+        if key == lastLogKey, !logs.isEmpty {
+            lastLogRepeat += 1
+            logs[0] = CrawlLogEntry(level: level, message: "\(message) (×\(lastLogRepeat))", url: url)
+            return
+        }
+        lastLogKey = key
+        lastLogRepeat = 1
         let entry = CrawlLogEntry(level: level, message: message, url: url)
         logs.insert(entry, at: 0)
         let retain = max(50, settings.retainLogEntries)

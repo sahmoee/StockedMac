@@ -1,0 +1,117 @@
+// WebKitRenderer.swift — an invisible WebKit view that loads a page like Safari would
+// and hands back the rendered HTML (Build 95).
+//
+// Two jobs feed off it:
+//   • the importer's fallback — when a plain fetch returns a bot wall or a JS shell,
+//     the rendered document usually contains the recipe (and its JSON-LD) intact;
+//   • nothing else. The VISIBLE in-app browser is MacBrowserPanel; this one never
+//     joins the view hierarchy.
+//
+// Requests are serialized — one page at a time — because a single hidden web view is
+// cheap and predictable, and the importer only asks when the cheap path failed.
+
+import Foundation
+import WebKit
+
+@MainActor
+final class WebKitRenderer: NSObject {
+
+    static let shared = WebKitRenderer()
+
+    private var webView: WKWebView?
+    private var continuation: CheckedContinuation<String, Error>?
+    private var timeoutTask: Task<Void, Never>?
+    private var busy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Loads the URL in a hidden web view, waits for the page (plus a beat for
+    /// client-side hydration), and returns `document.documentElement.outerHTML`.
+    func renderedHTML(
+        for url: URL,
+        userAgent: String,
+        timeout: TimeInterval = 18
+    ) async throws -> String {
+        while busy {
+            await withCheckedContinuation { waiters.append($0) }
+        }
+        busy = true
+        defer {
+            busy = false
+            if !waiters.isEmpty { waiters.removeFirst().resume() }
+        }
+
+        let configuration = WKWebViewConfiguration()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 1280, height: 900),
+                             configuration: configuration)
+        view.customUserAgent = userAgent
+        view.navigationDelegate = self
+        webView = view
+        defer {
+            view.stopLoading()
+            view.navigationDelegate = nil
+            webView = nil
+        }
+
+        return try await withCheckedThrowingContinuation { cont in
+            continuation = cont
+            timeoutTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(timeout))
+                self?.finish(.failure(CompanionError.parseFailed(
+                    "The built-in browser timed out loading the page"
+                )))
+            }
+            view.load(URLRequest(url: url))
+        }
+    }
+
+    private func finish(_ result: Result<String, any Error>) {
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        guard let cont = continuation else { return }
+        continuation = nil
+        switch result {
+        case .success(let html): cont.resume(returning: html)
+        case .failure(let error): cont.resume(throwing: error)
+        }
+    }
+
+    private func harvestDocument(from view: WKWebView) {
+        view.evaluateJavaScript("document.documentElement.outerHTML") { [weak self] value, error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let html = value as? String, !html.isEmpty {
+                    self.finish(.success(html))
+                } else {
+                    self.finish(.failure(error ?? CompanionError.parseFailed(
+                        "Could not read the rendered page"
+                    )))
+                }
+            }
+        }
+    }
+}
+
+extension WebKitRenderer: @preconcurrency WKNavigationDelegate {
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Give client-side rendering a moment to hydrate before reading the DOM.
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(1300))
+            guard let self, self.continuation != nil else { return }
+            self.harvestDocument(from: webView)
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        finish(.failure(error))
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: any Error
+    ) {
+        finish(.failure(error))
+    }
+}
