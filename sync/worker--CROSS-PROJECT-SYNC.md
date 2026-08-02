@@ -44,3 +44,6 @@
 
 ### 2026-08-02 — note: Mac Build 98
 - Queue-control work, client-side only. **No worker change.**
+
+### 2026-08-02 — note: Mac Build 99
+- Bulk-verify mining + batch dials, client-side only. **No worker change.**

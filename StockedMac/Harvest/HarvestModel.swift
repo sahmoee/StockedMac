@@ -254,7 +254,21 @@ final class HarvestModel {
             bulkVerifyQueue(thenImport: true)
             return
         }
-        beginImport(parsedImportURLs())
+        // Build 99: Import DRAINS the queue now — taken URLs leave the text, and an
+        // import-batch size takes only the first N, leaving the rest for next press.
+        let all = parsedImportURLs()
+        guard !all.isEmpty else {
+            errorMessage = "Enter at least one http or https recipe URL."
+            return
+        }
+        let batchSize = settings.importBatchSize
+        let batch = (batchSize > 0 && all.count > batchSize) ? Array(all.prefix(batchSize)) : all
+        let rest = Array(all.dropFirst(batch.count))
+        importText = rest.joined(separator: "\n")
+        if !rest.isEmpty {
+            log(.info, "Importing \(batch.count) URLs; \(rest.count) stay queued for the next batch.")
+        }
+        beginImport(batch)
     }
 
     /// Imports a set of URLs immediately — used by the Browse screen so a
@@ -1389,39 +1403,53 @@ final class HarvestModel {
     /// evidence against a page.
     func bulkVerifyQueue(thenImport: Bool = false) {
         guard !isBulkVerifying, !isImporting else { return }
-        let urls = parsedImportURLs()
-        guard !urls.isEmpty else {
+        let all = parsedImportURLs()
+        guard !all.isEmpty else {
             statusMessage = "The queue is empty."
             return
         }
+        // A pass checks the FRONT of the queue, up to the batch size from Verification.
+        let batchSize = settings.bulkVerifyBatchSize
+        let batch = (batchSize > 0 && all.count > batchSize) ? Array(all.prefix(batchSize)) : all
+        let rest = Array(all.dropFirst(batch.count))
+
         isBulkVerifying = true
         bulkVerifyProgress = ImportProgress(
-            completed: 0, total: urls.count, succeeded: 0, failed: 0, currentURL: nil
+            completed: 0, total: batch.count, succeeded: 0, failed: 0, currentURL: nil
         )
-        statusMessage = "Verifying \(urls.count) queued URL\(urls.count == 1 ? "" : "s")…"
+        statusMessage = "Verifying \(batch.count) of \(all.count) queued URL\(all.count == 1 ? "" : "s")…"
         let activeSettings = settings
         let coordinator = coordinator
 
         bulkVerifyTask = Task { [weak self] in
             var keep: [String] = []
+            var mined: [String] = []
+            var hubs = 0
             var dropped = 0
-            for url in urls {
+            for url in batch {
                 if Task.isCancelled {
                     keep.append(url)            // unchecked URLs stay queued
                     continue
                 }
                 do {
-                    let verdict = try await coordinator.inspect(urlString: url, settings: activeSettings)
-                    if verdict.isRecipe {
+                    switch try await coordinator.verifyOrMine(urlString: url, settings: activeSettings) {
+                    case .recipe:
                         keep.append(url)
                         self?.bulkVerifyProgress.succeeded += 1
-                    } else {
+                    case .listing(let links):
+                        // Build 99: a category page is REPLACED by the recipes on it
+                        // (and on up to five of its sub-pages) instead of just removed.
+                        hubs += 1
+                        mined.append(contentsOf: links)
+                        self?.bulkVerifyProgress.failed += 1
+                        self?.log(.info, "Category page — mined \(links.count) recipe links from it and its sub-pages.", url: url)
+                    case .other:
                         dropped += 1
                         self?.bulkVerifyProgress.failed += 1
                         self?.log(.warning, "Not a recipe page; removed from the queue.", url: url)
                     }
                 } catch {
-                    keep.append(url)
+                    keep.append(url)            // network trouble is not evidence
                     self?.bulkVerifyProgress.failed += 1
                 }
                 self?.bulkVerifyProgress.completed += 1
@@ -1429,15 +1457,32 @@ final class HarvestModel {
             }
             guard let self else { return }
             let cancelled = Task.isCancelled
-            self.importText = keep.joined(separator: "\n")
+
+            // Merge: verified recipes + fresh mined links + the unchecked remainder,
+            // deduplicated against everything and capped at the queue cap.
+            var seen = Set(keep)
+            rest.forEach { seen.insert($0) }
+            let freshMined = mined.filter {
+                seen.insert($0).inserted && !self.sessionMinedSet.contains($0)
+            }
+            freshMined.forEach { self.sessionMinedSet.insert($0) }
+            var final = keep + freshMined + rest
+            var capped = 0
+            if final.count > self.settings.queueCap {
+                capped = final.count - self.settings.queueCap
+                final = Array(final.prefix(self.settings.queueCap))
+            }
+            self.importText = final.joined(separator: "\n")
             self.isBulkVerifying = false
             self.bulkVerifyTask = nil
-            self.statusMessage = cancelled
-                ? "Verify stopped — kept \(keep.count) URLs"
-                : "Verified the queue: kept \(keep.count), removed \(dropped)"
-            self.log(dropped > 0 ? .warning : .success,
-                     "Bulk verify kept \(keep.count) of \(urls.count) queued URLs.")
-            if thenImport, !cancelled, !keep.isEmpty {
+            var summary = "Verified \(batch.count): kept \(keep.count)"
+            if hubs > 0 { summary += ", mined \(freshMined.count) from \(hubs) category page\(hubs == 1 ? "" : "s")" }
+            if dropped > 0 { summary += ", removed \(dropped)" }
+            if !rest.isEmpty { summary += " · \(rest.count) unchecked stay queued" }
+            if capped > 0 { summary += " · \(capped) over the queue cap left out" }
+            self.statusMessage = cancelled ? "Verify stopped — " + summary : summary
+            self.log(.success, "Bulk verify: " + summary)
+            if thenImport, !cancelled, !final.isEmpty {
                 self.importURLs(skipVerify: true)
             }
         }

@@ -417,9 +417,16 @@ struct MacBrowseView: View {
                         Button("Bulk verify queue") { harvest.bulkVerifyQueue() }
                             .font(.caption)
                             .disabled(harvest.queuedURLCount == 0 || harvest.isImporting)
+                            .help("Checks the front of the queue; category pages are replaced by the recipes found on them and their sub-pages")
                     }
                     Spacer(minLength: 0)
                 }
+
+                Stepper(value: $harvest.settings.bulkVerifyBatchSize, in: 25...1000, step: 25) {
+                    Text("Verify up to \(harvest.settings.bulkVerifyBatchSize) per pass")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .onChange(of: harvest.settings.bulkVerifyBatchSize) { harvest.scheduleSettingsSave() }
             }
         }
         .onChange(of: harvest.settings.autoImportVerified) { harvest.scheduleSettingsSave() }
@@ -474,6 +481,14 @@ struct MacBrowseView: View {
                 }
                 .onChange(of: harvest.settings.queueCap) { harvest.scheduleSettingsSave() }
 
+                Stepper(value: $harvest.settings.importBatchSize, in: 0...2000, step: 50) {
+                    Text(harvest.settings.importBatchSize == 0
+                         ? "Import batch: everything queued"
+                         : "Import batch: \(harvest.settings.importBatchSize) at a time")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .onChange(of: harvest.settings.importBatchSize) { harvest.scheduleSettingsSave() }
+
                 if showURLEditor {
                     TextEditor(text: $harvest.importText)
                         .font(.system(size: 11, design: .monospaced))
@@ -484,7 +499,9 @@ struct MacBrowseView: View {
 
                 if queued > 0 || harvest.isImporting {
                     HStack(spacing: 6) {
-                        Button("Import \(queued) URL\(queued == 1 ? "" : "s")") { harvest.importURLs() }
+                        Button(harvest.settings.importBatchSize > 0 && queued > harvest.settings.importBatchSize
+                               ? "Import first \(harvest.settings.importBatchSize) of \(queued)"
+                               : "Import \(queued) URL\(queued == 1 ? "" : "s")") { harvest.importURLs() }
                             .buttonStyle(.borderedProminent)
                             .disabled(harvest.isImporting || harvest.isBulkVerifying || queued == 0)
                         if harvest.isImporting {

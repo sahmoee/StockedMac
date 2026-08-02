@@ -258,6 +258,11 @@ nonisolated struct AppSettings: Codable, Sendable {
     /// Hard ceiling on the import queue. Mined and discovered links stop joining once
     /// the queue holds this many — a bound on the snowball, adjustable in the Queue card.
     var queueCap: Int
+    /// How many queued URLs one Bulk-verify pass checks. Front of the queue first.
+    var bulkVerifyBatchSize: Int
+    /// How many URLs one Import press takes. 0 = everything queued; otherwise the
+    /// first N import and the rest stay queued for the next press.
+    var importBatchSize: Int
 
     static var defaults: AppSettings {
         AppSettings(
@@ -291,7 +296,9 @@ nonisolated struct AppSettings: Codable, Sendable {
             useWebKitFallback: true,
             importSpacingSeconds: 0,
             settingsRevision: 2,
-            queueCap: 500
+            queueCap: 500,
+            bulkVerifyBatchSize: 100,
+            importBatchSize: 0
         )
     }
 
@@ -321,6 +328,7 @@ nonisolated extension AppSettings {
         case cloudSyncEnabled, autoRotateSourceCount
         case preferredCrawlMethod, crawlAggressiveness, requireStandardsForAutoApprove
         case useWebKitFallback, importSpacingSeconds, settingsRevision, queueCap
+        case bulkVerifyBatchSize, importBatchSize
     }
 
     init(from decoder: Decoder) throws {
@@ -354,6 +362,8 @@ nonisolated extension AppSettings {
         importSpacingSeconds    = (try? c.decodeIfPresent(Int.self, forKey: .importSpacingSeconds)) ?? d.importSpacingSeconds
         settingsRevision        = (try? c.decodeIfPresent(Int.self, forKey: .settingsRevision)) ?? 0
         queueCap                = (try? c.decodeIfPresent(Int.self, forKey: .queueCap)) ?? d.queueCap
+        bulkVerifyBatchSize     = (try? c.decodeIfPresent(Int.self, forKey: .bulkVerifyBatchSize)) ?? d.bulkVerifyBatchSize
+        importBatchSize         = (try? c.decodeIfPresent(Int.self, forKey: .importBatchSize)) ?? d.importBatchSize
     }
 }
 

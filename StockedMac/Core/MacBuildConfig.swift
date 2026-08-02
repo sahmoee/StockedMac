@@ -24,14 +24,14 @@ nonisolated enum MacBuildConfig {
     /// A separate product from the iOS app — separate project, separate bundle
     /// identifier — but the version line tracks the shared build history (the project file
     /// carries the real numbers; these are only the fallback if Info.plist is unreadable).
-    private static let fallbackVersion     = "4.38"
-    private static let fallbackBuildNumber = 98
+    private static let fallbackVersion     = "4.39"
+    private static let fallbackBuildNumber = 99
 
     /// When the shared model layer was last checked against the phone's copy. Models.swift
     /// and KitchenMetrics.swift are byte-for-byte identical to the iOS tree as of this
     /// check; re-run the diff and update this string whenever either side moves, so the
     /// provenance stays honest rather than decorative.
-    static let sharedModelLineage = "Shared models verified identical to iOS — Build 98, August 2026"
+    static let sharedModelLineage = "Shared models verified identical to iOS — Build 99, August 2026"
 
     static var buildNumber: Int {
         Int(bundleString("CFBundleVersion") ?? "") ?? fallbackBuildNumber
@@ -44,17 +44,16 @@ nonisolated enum MacBuildConfig {
 
     static let buildDate = "August 2026"
     static let buildName = """
-        The queue learned restraint. Mining is one generation deep now \u{2014} a link that \
-        arrived by mining never mines again \u{2014} and every mined batch is checked against \
-        this session's mining, the library, and a queue cap (500 by default, a stepper \
-        in the Queue card) before a single URL joins, so rounds converge instead of \
-        compounding 288 into 1,662. "Are these duplicates?" got a button: Clean removes \
-        exact duplicates, everything already imported, and everything that failed this \
-        session, and tells you how many of each it took out. Imports skip what the \
-        library already holds before spending a request on it. And stopping midway is \
-        now a real choice: what imported stays, freshly mined leftovers are discarded \
-        with a note instead of silently swelling the queue, and a browse stopped \
-        early still hands over everything found so far.
+        Bulk verify stopped throwing food away. A category page in the queue used to \
+        be "not a recipe; removed" \u{2014} fifteen deletions in your last pass. Now the \
+        verifier walks INTO it: the recipes on the page, and on up to five of its \
+        sub-pages, replace the hub in the queue \u{2014} bounded, deduplicated against \
+        everything this session has seen, and capped, so it converges like everything \
+        else. And the batch sizes are yours now: a stepper for how many URLs one \
+        verify pass checks, a stepper for how many one Import press takes (the rest \
+        stay queued for the next press), alongside the queue cap \u{2014} and Import \
+        finally DRAINS the queue as it takes, so the count on the sidebar means \
+        "waiting", not "everything I ever found".
         """
 
     // MARK: - Environment

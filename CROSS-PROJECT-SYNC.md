@@ -8,6 +8,14 @@
 
 ## Applied updates
 
+### Build 99 (4.39) — mining bulk verify + batch dials — 2026-08-02
+- Bulk verify replaces category pages with the recipes found on them AND up to five
+  sub-pages (bounded 80/hub, session-deduped, queue-capped, WebKit-aware).
+- New dials: bulk-verify batch size (25-1000/pass), import batch size (All or
+  50-2000/press, button shows "Import first N of M"), alongside the queue cap.
+- Import now DRAINS the queue (taken URLs leave the text at run start).
+- Worker impact: none. iOS impact: none.
+
 ### Build 98 (4.38) — queue control — 2026-08-02
 - Mining converges: one generation deep, session-wide mined-set (no URL joins twice),
   mined batches filtered against the library, hard queue cap (default 500, stepper).

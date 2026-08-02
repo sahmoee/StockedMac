@@ -1,65 +1,58 @@
-# Build 98 (4.38) — queue control: convergence, dedupe, and stopping on your terms
+# Build 99 (4.39) — bulk verify that mines, and batch sizes you control
 
 **Mac delta only.** No worker or iOS change. Full `StockedMac/` folder included
-(Builds 91–97 with 98 on top).
+(Builds 91–98 with 99 on top).
 
 ---
 
-## Why the queue snowballed
+## Bulk verify walks into category pages now
 
-Build 96's mining had no memory: every category page yielded links, some of those links
-were *more* category pages, and the next round mined them too — 288 candidates became
-1,662 queued URLs, with no way to tell what was new, duplicate, or already yours.
+Your last pass removed 15 URLs as "not a recipe page". Some of those were hubs full of
+recipes. Bulk verify now judges each queued URL three ways:
 
-## What Build 98 does
+- **Recipe** → kept, as before.
+- **Category page** → **replaced by the recipes found on it — and on up to five of its
+  sub-pages** (a "breakfast" hub's sub-categories get mined too). Bounded at 80 links
+  per hub, deduplicated against the queue, this session's mining, and the unchecked
+  remainder, then capped at the queue cap — the convergence rules from Build 98 all
+  apply, so this cannot re-open the snowball.
+- **Neither** → removed, counted.
 
-**Mining converges now.**
+Bot-walled pages get the WebKit-rendered look before judgment, same as importing. The
+summary line says exactly what happened: "Verified 100: kept 74, mined 212 from 9
+category pages, removed 5 · 66 unchecked stay queued".
 
-- **One generation deep.** A link that arrived by mining never mines again. A mined
-  link that turns out to be another category page is noted and dropped, not expanded.
-- **Session memory.** Every mined link is remembered for the session — the same URL
-  can never join the queue twice, across any number of rounds.
-- **Library check.** Mined batches are filtered against recipes you already have
-  before they join (with a count of what was dropped).
-- **Queue cap.** A hard ceiling (default 500, stepper in the Queue card, 100–5,000).
-  When mined links would push past it, they're left out with a clear warning instead
-  of silently piling on. An over-cap banner appears on the card.
+## The three dials
 
-**Duplicates became answerable.**
+| Dial | Where | What it does |
+|---|---|---|
+| **Verify up to N per pass** (25–1,000) | Verification card | One Bulk-verify press checks the front N of the queue; the rest stay queued unchecked |
+| **Import batch** (All, or 50–2,000) | Queue card | One Import press takes the first N and leaves the rest for the next press; the button says "Import first 200 of 1,204" |
+| **Queue cap** (100–5,000) | Queue card | From Build 98 — the ceiling mined/discovered links respect |
 
-- **Clean button** on the Queue card: removes exact duplicates, everything already in
-  the library, and everything that failed this session — then reports exactly what it
-  removed ("kept 214 — removed 96 duplicates, 1,301 already imported, 51 failed
-  earlier").
-- **Imports skip the library first.** Before a run spends a single request, URLs
-  already imported are dropped and counted ("Skipped 1,301 already in the library") —
-  re-importing a big queue costs only what's actually new.
+## Import drains the queue now
 
-**Stopping midway means keeping what you have.**
-
-- Stop during an import: everything imported so far is kept and reloaded; freshly
-  mined leftovers are **discarded with a note** instead of swelling the queue behind
-  your back.
-- Stop during a browse: the engines return everything found up to that moment as a
-  normal session report — *Queue verified links* works on a partial run, and the
-  session lands in history like any other.
+Taken URLs leave the queue text the moment a run starts — the sidebar count finally
+means "waiting to import", not "everything ever found". Stopped runs keep what
+imported; the un-taken remainder is still sitting in the queue untouched.
 
 ## Installing
 
 1. Copy `StockedMac/` over `Documents/Stocked Mac/StockedMac/`.
-2. Build Settings: `MARKETING_VERSION = 4.38`, `CURRENT_PROJECT_VERSION = 98`.
-3. Press **Clean** on your 1,662-URL queue first — expect it to shrink dramatically —
-   then Import what remains.
+2. Build Settings: `MARKETING_VERSION = 4.39`, `CURRENT_PROJECT_VERSION = 99`.
+3. Try: set Import batch to 50, Bulk verify the queue (watch hubs convert to mined
+   dishes), then press Import a few times and watch the count actually go down.
 
-Files changed vs Build 97: `Harvest/HarvestTypes.swift` (queueCap),
-`Harvest/HarvestModel.swift` (mining convergence, session memory, library skip,
-clean queue, cancel semantics), `Views/MacBrowseView.swift` (Clean button, cap
-stepper, over-cap banner), `Core/MacBuildConfig.swift`.
+Files changed vs Build 98: `Harvest/HarvestTypes.swift` (two batch settings),
+`Harvest/CrawlCoordinator.swift` (`verifyOrMine` with sub-page expansion),
+`Harvest/HarvestModel.swift` (mining bulk verify, draining batched imports),
+`Views/MacBrowseView.swift` (steppers, dynamic Import button),
+`Core/MacBuildConfig.swift`.
 
 ## Verification done here
 
-All Swift files brace/paren/bracket-balanced (raw-string aware). The convergence
-argument: mined set is session-global and checked at record-time AND flush-time, so
-the mined-link population is monotone and bounded by the cap; second-generation
-mining is structurally impossible. Cancel paths traced for mined-discard and
-partial-report survival. **No Swift compiler here — the real build is Xcode.**
+All Swift files brace/paren/bracket-balanced (raw-string aware). The merge order in
+bulk verify (kept + fresh-mined + unchecked remainder) was traced for dedupe,
+session-set, cancel-mid-pass, and cap-overflow cases; `verifyOrMine`'s sub-page walk
+is bounded (5 pages, 80 links) and cancellation-checked. **No Swift compiler here —
+the real build is Xcode.**

@@ -44,3 +44,6 @@
 
 ### 2026-08-02 — note: Mac Build 98
 - Mac queue-control only. **No iOS change required.**
+
+### 2026-08-02 — note: Mac Build 99
+- Mac bulk-verify/batching only. **No iOS change required.**

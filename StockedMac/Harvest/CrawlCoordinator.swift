@@ -1,5 +1,12 @@
 import Foundation
 
+/// What Bulk verify learned about one queued URL.
+nonisolated enum PageCheck: Sendable {
+    case recipe
+    case listing(mined: [String])
+    case other
+}
+
 nonisolated struct ImportOutcomeDetail: Sendable {
     var recipe: RecipeDraft
     var wasUpdate: Bool
@@ -262,6 +269,51 @@ actor CrawlCoordinator {
         throw CompanionError.notARecipe(
             "\(page.finalURL.absoluteString) — \(evidence ?? "it links to other recipes")"
         )
+    }
+
+    /// Bulk verify's engine: judges one queued URL, and when it is a category page,
+    /// mines its recipe links — INCLUDING one bounded level of sub-pages (up to 5
+    /// sub-listings, 80 links total), so "breakfast" yields dishes, not a deletion.
+    func verifyOrMine(urlString: String, settings: AppSettings) async throws -> PageCheck {
+        let url = try URLSafety.validatedRemoteURL(urlString)
+        let source = try await registry.profile(for: url) ?? genericProfile(for: url)
+        let page = try await fetcher.fetch(
+            url, source: source, settings: settings,
+            accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
+        )
+        var html = page.text
+        if settings.useWebKitFallback, RecipePageDetector.looksBlocked(html),
+           let rendered = await renderedHTML(for: page.finalURL, settings: settings) {
+            html = rendered
+        }
+        let verdict = detector.inspect(html: html, url: page.finalURL, source: source)
+        switch verdict.kind {
+        case .recipe:
+            return .recipe
+        case .other:
+            return .other
+        case .listing:
+            let links = DiscoveryEngine.extractLinks(from: html, base: page.finalURL)
+            var recipes = links.filter { DiscoveryEngine.classify($0, source: source) == .recipe }
+            // One bounded level of sub-pages: a hub's own sub-categories.
+            let subListings = links
+                .filter { DiscoveryEngine.classify($0, source: source) == .listing }
+                .prefix(5)
+            for sub in subListings where recipes.count < 80 {
+                try Task.checkCancellation()
+                guard let subURL = URL(string: sub) else { continue }
+                guard let subPage = try? await fetcher.fetch(
+                    subURL, source: source, settings: settings,
+                    accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
+                ) else { continue }
+                recipes.append(contentsOf: DiscoveryEngine
+                    .extractLinks(from: subPage.text, base: subPage.finalURL)
+                    .filter { DiscoveryEngine.classify($0, source: source) == .recipe })
+            }
+            var seen = Set<String>()
+            let unique = recipes.filter { seen.insert($0).inserted }
+            return .listing(mined: Array(unique.prefix(80)))
+        }
     }
 
     func setPythonParser(_ client: PythonWorkerClient) {
