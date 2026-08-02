@@ -17,8 +17,8 @@ struct MacBrowseView: View {
     @State private var selectedSourceIDs: Set<String> = []
     @State private var showSourcePicker = false
     @State private var showURLEditor = false
-    @State private var showBrowser = false
-    @State private var browserAddress = ""
+    /// Non-nil shows the in-app browser IN the right pane (Build 96) — "" opens it blank.
+    @State private var inlineBrowser: String? = nil
 
     // MARK: - Source grouping
 
@@ -93,12 +93,12 @@ struct MacBrowseView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    browserAddress = ""
-                    showBrowser = true
+                    inlineBrowser = inlineBrowser == nil ? "" : nil
                 } label: {
-                    Label("Open browser", systemImage: "safari")
+                    Label(inlineBrowser == nil ? "Open browser" : "Close browser",
+                          systemImage: "safari")
                 }
-                .help("Browse any site in-app and import the page you're looking at")
+                .help("Browse any site right here and import the page you're looking at")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -109,9 +109,6 @@ struct MacBrowseView: View {
                 }
                 .help("Pause or resume every download — browsing, imports and images")
             }
-        }
-        .sheet(isPresented: $showBrowser) {
-            MacBrowserPanel(address: browserAddress)
         }
     }
 
@@ -565,7 +562,12 @@ struct MacBrowseView: View {
 
     @ViewBuilder
     private var activityPane: some View {
-        if isIdle, harvest.recipes.isEmpty, harvest.sessionHistory.isEmpty, harvest.discoveryReport == nil {
+        // The in-app browser takes over the right pane when open — the page IS the
+        // content, full height, exactly where the import buttons already are.
+        if let address = inlineBrowser {
+            MacBrowserPanel(address: address, onClose: { inlineBrowser = nil })
+                .id(address)   // a new address gets a fresh panel, not a fought-over one
+        } else if isIdle, harvest.recipes.isEmpty, harvest.sessionHistory.isEmpty, harvest.discoveryReport == nil {
             MacEmpty(
                 title: "Ready to browse",
                 message: "Pick a source on the left — or several — and press Browse & Import. Found recipes land in Harvest for review.",
@@ -629,6 +631,7 @@ struct MacBrowseView: View {
                     activityCard
                 }
                 .padding(16)
+                .frame(maxWidth: 920, alignment: .leading)
             }
         }
     }
@@ -686,18 +689,24 @@ struct MacBrowseView: View {
                 ForEach(harvest.lastFailures.suffix(10)) { failure in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(URL(string: failure.url)?.lastPathComponent.nilIfBlank ?? failure.url)
-                                .font(.caption.weight(.medium)).lineLimit(1)
-                            Text(failure.reason)
-                                .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                            HStack(spacing: 5) {
+                                Text(URL(string: failure.url)?.lastPathComponent.nilIfBlank ?? failure.url)
+                                    .font(.caption.weight(.medium)).lineLimit(1)
+                                if let host = URL(string: failure.url)?.host {
+                                    Text(host).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                                }
+                            }
+                            // The first engine's verdict is the story; the pipe-chain
+                            // of every fallback's echo is noise.
+                            Text(failure.reason.components(separatedBy: " | ").first ?? failure.reason)
+                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 0)
-                        Button("Open") {
-                            browserAddress = failure.url
-                            showBrowser = true
+                        Button("View") {
+                            inlineBrowser = failure.url
                         }
                         .buttonStyle(.borderless).font(.caption)
-                        .help("Open in the built-in browser and import by hand")
+                        .help("Open this page right here and import it by hand")
                     }
                 }
                 if harvest.lastFailures.count > 10 {

@@ -72,6 +72,13 @@ actor CrawlCoordinator {
         // half-parsed record that a reviewer then has to delete.
         let verdict = detector.inspect(html: html, url: page.finalURL, source: source)
         if !allowNonRecipePages, verdict.kind == .listing {
+            // Build 96: a category page is a lead, not a dead end — hand its recipe
+            // links back so the caller can queue them.
+            let mined = DiscoveryEngine.extractLinks(from: html, base: page.finalURL)
+                .filter { DiscoveryEngine.classify($0, source: source) == .recipe }
+            if !mined.isEmpty {
+                throw CompanionError.listingPage(page.finalURL.absoluteString, Array(mined.prefix(60)))
+            }
             throw CompanionError.notARecipe(
                 "\(page.finalURL.absoluteString) — \(verdict.evidence.first ?? "it links to other recipes")"
             )

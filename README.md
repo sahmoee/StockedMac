@@ -1,103 +1,79 @@
-# Build 95 (4.35) — importing that doesn't take no for an answer
+# Build 96 (4.36) — pristine Browse, hub mining, in-pane browser
 
 **Mac delta only.** No worker or iOS change. Full `StockedMac/` folder included
-(Builds 91–94 with 95 on top) — copy this one package and you're current.
+(Builds 91–95 with 96 on top).
 
 ---
 
-## Why everything failed
+## The parser wasn't broken — the classifier was
 
-Two compounding causes, visible in your screenshot:
+Look at the failure names in your screenshot: `breakfast`, `dinner`, `lunch`,
+`appetizers`, `main-dish`, `side-dishes`, `chicken`. Those are Food Network **category
+hubs**, not recipes — they carry no recipe schema, so every engine truthfully failed.
+Build 95's classifier let them through because they matched the source's `/recipes/`
+pattern. Build 96 fixes the shape test and turns hubs from failures into leads:
 
-1. **The user agent.** Since Build 90 the crawler introduced itself as
-   `Mozilla/5.0 (…) AppleWebKit/537.36` — truncated, no browser token. Food Network's
-   CDN (and most big-site bot walls) answers that UA with a challenge page containing
-   no recipe at all, which the parser then honestly reported as "No schema.org/Recipe
-   JSON-LD found", 288 times.
-2. **One parser.** JSON-LD was the only local engine; any page without it (or any bot
-   wall) was a dead end. ("Python worker: not available" is expected — that engine
-   doesn't ship in this build.)
+- **Hub slugs are listings now.** A final path segment with no hyphen and no digits
+  ("breakfast") is a hub even under `/recipes/`; real dishes look like
+  `perfect-gravy-recipe-1928388`. Photo galleries and video shells are skipped outright.
+- **Hubs are mined, not failed.** If a category page still reaches the importer, its
+  recipe links are extracted and **join the queue automatically** at the end of the run
+  (deduplicated), with a note in the summary — a wrong URL now yields recipes instead
+  of a red line.
+- **Wider JSON-LD hunt.** Hydration payloads (Next.js-style plain `<script>` bodies
+  containing a schema.org Recipe) are now scanned too, with a string-aware balanced-JSON
+  extractor — one more class of "No JSON-LD found" gone.
 
-## What Build 95 does about it
+## Viewing pages happens in the app
 
-- **Identifies as Safari** (a real, current UA). A one-time migration updates existing
-  installs still on the old string. Presets in the Crawler card: Safari / Chrome /
-  Honest bot.
-- **Parser chain, four engines deep:** JSON-LD → schema.org **microdata** →
-  **heuristic layout reconstruction** (og: tags + ingredient/step scraping; confidence
-  capped at 0.55 so it can never auto-approve) → the Worker (when configured). Engines
-  fill each other's gaps via the existing merge.
-- **WebKit fallback.** If the plain fetch looks like a bot wall — or parsing still
-  fails — the page is loaded in an invisible WebKit view and the *rendered* HTML is
-  parsed, which is what defeats JS-hydrated and challenge-gated sites. Toggleable;
-  such imports carry a "Loaded with the built-in browser" note.
-- **Honest errors.** A bot-walled page now says so ("The site is blocking automated
-  access…") instead of blaming JSON-LD, and repeated identical log lines collapse to
-  one entry with a ×N counter.
+The browser no longer opens as a sheet. **It takes over the Browse right pane** — press
+*Open browser* in the toolbar, or *View* on any failure row, and the page renders right
+there over https with the address bar on top. *Import this page* runs the normal
+pipeline; the ⌄ menu force-imports a page the category detector reads wrong (which
+queues the hub's recipes instead if it really is one); *Add to queue* files the URL;
+*Close* returns to the activity pane.
 
-## Not running by default
+## Twenty ways recipe browsing & importing got better
 
-Browsing now **queues**; importing is your explicit button. The primary action reads
-"Browse" and fills the queue — it only reads "Browse & Import" when you've switched
-*Auto-verify & approve* on, so the label always tells the truth. A one-time migration
-turns auto-import off for existing installs (flip it back on in Verification if you
-liked it).
-
-## The in-app browser (WebKit, https)
-
-Toolbar → **Open browser**: a real WebKit view with an address bar. Follow links,
-land on a recipe, press **Import this page** (same pipeline as every import) or
-**Add to queue**. Every row in the new failures panel has **Open**, pre-filled with
-that URL — so a page the crawler can't have, you can still take by hand.
-
-## Ten features added
-
-1. In-app WebKit browser panel — any https page, viewable and importable.
-2. Automatic WebKit-rendered fetch fallback for blocked and JS-rendered pages.
-3. schema.org **microdata** parser (second local engine).
-4. **Heuristic HTML** parser (third engine; review-only confidence).
-5. **Import failures panel** — every failed URL with its reason, kept, not scrolled away.
-6. **Retry all** failures in one press; per-row **Open** in the built-in browser.
-7. **Last import summary** card (imported · auto-approved · failed).
-8. **User-agent presets** (Safari / Chrome / Honest bot) in the Crawler card.
-9. **Import spacing throttle** (0–30 s between imports) for extra politeness.
-10. **Clear pauses** quick action — rate-limit pauses and daily counters, one click.
-
-## Twenty improvements
-
-1. Modern Safari UA as the default. 2. One-time settings migration (revision 2) — your
-other preferences survive untouched. 3. Auto-import off by default; nothing runs on its
-own. 4. Log de-duplication (×N counters) — walls of red are gone. 5. Bot walls named in
-errors instead of misreported as missing JSON-LD. 6. Heuristic confidence capped below
-every auto-approve threshold. 7. The four-engine chain merges missing fields across
-engines. 8. Failures capped at 50 and actionable. 9. WebKit imports tagged in the
-draft's warnings. 10. The import summary persists until the next run starts.
-11. Rendered retry happens once per URL — no loops. 12. The hidden renderer is
-serialized, 18 s-capped, and torn down after each page. 13. The visible browser's
-address bar follows in-page navigation. 14. Its Import button disables while a run is
-active. 15. og:title/og:image/og:description used as fallbacks by both new parsers.
-16. Scraped text gets entity decoding and whitespace collapse. 17. Auto-approved count
-shown in the run summary. 18. Browse/Import button labels always match behavior.
-19. Failure rows open the exact URL pre-filled. 20. Import spacing applies between
-scheduled URLs without slowing the first batch.
+1. Hub-slug classification — "breakfast"-style URLs can't masquerade as dishes.
+2. Digit-slugs (`…-recipe-1928388`) recognized as dishes even without hyphen rules.
+3. Category pages hit at import are mined for their recipe links.
+4. Mined links auto-join the queue, deduplicated, in one batch at run end.
+5. Mined counts appear in the run summary and Activity.
+6. Photo/gallery/video URLs skipped before they waste a request.
+7. JSON-LD found inside plain `<script>` hydration payloads.
+8. String-aware balanced-JSON extraction (braces inside strings can't fool it).
+9. The in-app browser is in-pane — no sheet, no window juggling.
+10. Failure rows: slug + site + the first engine's verdict, one line each.
+11. The pipe-chain of every fallback's echo is gone from failure rows.
+12. *View* on a failure opens that exact page in-pane, pre-filled.
+13. Force-import for pages the detector reads wrong — and even that path mines hubs.
+14. Single-page imports (`Import this page`) select the new draft in Harvest.
+15. Right-pane content keeps a readable measure (920 pt cap) on wide windows.
+16. Toolbar browser button toggles — it reads "Close browser" while open.
+17. A fresh address gets a fresh browser panel (no half-navigated leftovers).
+18. Browser works at any pane size (minimum lowered for the embedded case).
+19. Import-anyway is disabled mid-run, so it can't pile onto an active batch.
+20. Classification improvements feed discovery too — sitemap walks now route hubs to
+    link-mining instead of the candidate list, so "288 candidates" means 288 dishes.
 
 ## Installing
 
 1. Copy `StockedMac/` over `Documents/Stocked Mac/StockedMac/`.
-2. Build Settings: `MARKETING_VERSION = 4.35`, `CURRENT_PROJECT_VERSION = 95`.
-3. Launch once (watch Activity note the new defaults), then press **Import 288 URLs** —
-   with the Safari UA and the four-engine chain, Food Network parses.
+2. Build Settings: `MARKETING_VERSION = 4.36`, `CURRENT_PROJECT_VERSION = 96`.
+3. Clear the queue and browse Food Network again — the hub URLs won't be queued at
+   all this time, and any that remain get mined into real recipes.
 
-Files changed vs Build 94: `Harvest/HarvestTypes.swift`, `Harvest/HarvestServices.swift`
-(parsers, blocked detection), `Harvest/CrawlCoordinator.swift` (chain + WebKit retry),
-`Harvest/HarvestModel.swift` (migration, failures, spacing, log dedupe),
-`Harvest/WebKitRenderer.swift` (new), `Views/MacBrowserPanel.swift` (new),
-`Views/MacBrowseView.swift`, `Core/MacBuildConfig.swift`.
+Files changed vs Build 95: `Harvest/HarvestServices.swift` (classifier, script-JSON
+scan), `Harvest/HarvestTypes.swift` (listingPage error), `Harvest/CrawlCoordinator.swift`
+(hub mining), `Harvest/HarvestModel.swift` (mined-queue handling, importPage),
+`Views/MacBrowserPanel.swift` (embeddable, force-import), `Views/MacBrowseView.swift`
+(in-pane browser, failure rows, measure), `Core/MacBuildConfig.swift`.
 
 ## Verification done here
 
-All Swift files brace/paren/bracket-balanced (raw-string aware). Regex escaping in the
-two new parsers desk-checked (Swift string → regex layer). WKNavigationDelegate
-conformances marked `@preconcurrency` for the MainActor-isolated classes. The migration
-only fires below revision 2 and only rewrites the two migrated fields.
-**No Swift compiler here — the real build is Xcode.**
+All Swift files brace/paren/bracket-balanced (raw-string aware). The classifier was
+desk-checked against the nine failing slugs from the screenshot (all → listing), real
+FN dish URLs (→ recipe), Allrecipes `/recipe/12345/name/` (→ recipe), and gallery URLs
+(→ skip). The balanced-JSON extractor was traced against nested objects and braces in
+strings. **No Swift compiler here — the real build is Xcode.**

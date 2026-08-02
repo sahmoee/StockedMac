@@ -539,6 +539,9 @@ nonisolated struct RecipePageVerdict: Sendable {
 nonisolated enum CompanionError: LocalizedError {
     case sourceDisabled(String)
     case notARecipe(String)
+    /// A category/hub page that carries recipe links — the links come along so the
+    /// caller can queue them instead of merely reporting a failure. (Build 96)
+    case listingPage(String, [String])
     case parseFailed(String)
     case robotsDenied
     case rateLimited(String)
@@ -552,6 +555,8 @@ nonisolated enum CompanionError: LocalizedError {
             return "The source \"\(name)\" is disabled"
         case .notARecipe(let detail):
             return "Not a recipe page: \(detail)"
+        case .listingPage(let url, let links):
+            return "Category page, not a recipe (\(links.count) recipe links found on it): \(url)"
         case .parseFailed(let reason):
             return "Could not parse recipe: \(reason)"
         case .robotsDenied:

@@ -7,6 +7,8 @@ private nonisolated struct ImportOutcome: Sendable {
     var url: String
     var detail: ImportOutcomeDetail?
     var error: String?
+    /// Recipe links found on a category page that was imported by mistake.
+    var mined: [String] = []
 }
 
 /// One failed import, kept so failures are actionable instead of scrolling away.
@@ -55,6 +57,7 @@ final class HarvestModel {
     var lastFailures: [ImportFailure] = []
     /// One line describing how the last import run went.
     var lastImportSummary: String?
+    @ObservationIgnored private var minedURLs: [String] = []
     @ObservationIgnored private var lastLogKey = ""
     @ObservationIgnored private var lastLogRepeat = 1
     @ObservationIgnored private var autoApprovedThisRun = 0
@@ -298,6 +301,7 @@ final class HarvestModel {
             lastFailures.removeAll()
             lastImportSummary = nil
             autoApprovedThisRun = 0
+            minedURLs.removeAll()
         }
 
         isImporting = true
@@ -370,6 +374,9 @@ final class HarvestModel {
             return ImportOutcome(url: url, detail: detail, error: nil)
         } catch is CancellationError {
             return ImportOutcome(url: url, detail: nil, error: "Canceled")
+        } catch let CompanionError.listingPage(_, links) {
+            return ImportOutcome(url: url, detail: nil,
+                                 error: "Category page — its recipes were queued instead", mined: links)
         } catch {
             return ImportOutcome(url: url, detail: nil, error: error.localizedDescription)
         }
@@ -406,6 +413,10 @@ final class HarvestModel {
                 message += " • auto-approved"
             }
             log(detail.duplicateTitles.isEmpty ? .success : .warning, message, url: outcome.url)
+        } else if !outcome.mined.isEmpty {
+            // A category page slipped into the queue; its recipes replace it.
+            minedURLs.append(contentsOf: outcome.mined)
+            log(.info, "Category page — found \(outcome.mined.count) recipe links on it; they join the queue after this run.", url: outcome.url)
         } else {
             importProgress.failed += 1
             if settings.retryFailedImports, !isRetryPass, Self.isRetryable(outcome.error) {
@@ -460,8 +471,20 @@ final class HarvestModel {
         }
         isRetryPass = false
 
+        // Recipes mined off category pages join the queue, deduplicated, in one batch.
+        var minedNote = ""
+        if !minedURLs.isEmpty {
+            var seen = Set<String>()
+            let unique = minedURLs.filter { seen.insert($0).inserted }
+            minedURLs.removeAll()
+            appendImportURLs(unique)
+            minedNote = " · \(unique.count) recipes mined from category pages joined the queue"
+            log(.success, "\(unique.count) recipe links mined from category pages joined the queue — press Import to bring them in.")
+        }
+
         // The run in one line, kept until the next run starts.
         lastImportSummary = "Imported \(importProgress.succeeded) · auto-approved \(autoApprovedThisRun) · failed \(importProgress.failed)"
+            + minedNote
             + (lastFailures.isEmpty ? "" : " — the failures are listed below with retry.")
 
         // A recipe whose image download failed gets one more chance before anyone
@@ -1147,6 +1170,33 @@ final class HarvestModel {
         settings.settingsRevision = 2
         scheduleSettingsSave()
         log(.info, "New defaults applied: browsing queues instead of auto-importing, and the crawler identifies as Safari. Both are adjustable in Browse.")
+    }
+
+    /// Imports one page immediately — the in-app browser's buttons. `force` skips the
+    /// category-page refusal for the rare page the detector reads wrong.
+    func importPage(_ urlString: String, force: Bool = false) {
+        let activeSettings = settings
+        let coordinator = coordinator
+        statusMessage = "Importing the open page…"
+        Task {
+            do {
+                let detail = try await coordinator.importRecipe(
+                    urlString: urlString,
+                    settings: activeSettings,
+                    allowNonRecipePages: force
+                )
+                selectedRecipeID = detail.recipe.id
+                await reload()
+                statusMessage = "Imported \(detail.recipe.title)"
+                log(.success, "Imported \(detail.recipe.title) from the built-in browser.", url: urlString)
+            } catch let CompanionError.listingPage(_, links) {
+                appendImportURLs(links)
+                log(.info, "That page is a category; queued \(links.count) recipes from it instead.", url: urlString)
+            } catch {
+                present(error)
+                log(.error, error.localizedDescription, url: urlString)
+            }
+        }
     }
 
     /// Re-runs every failed import from the last run.

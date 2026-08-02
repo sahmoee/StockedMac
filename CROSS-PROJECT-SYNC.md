@@ -8,6 +8,16 @@
 
 ## Applied updates
 
+### Build 96 (4.36) — hub mining + in-pane browser — 2026-08-02
+- Failure root cause: category hubs ("breakfast", "dinner") classified as recipes
+  under /recipes/. Fixed shape test (hyphen/digit slugs); galleries skipped; hubs
+  reaching the importer are MINED — their recipe links auto-join the queue.
+- JSON-LD also found in plain <script> hydration payloads (balanced-JSON extractor).
+- In-app browser now renders inside the Browse right pane (no sheet): toolbar toggle,
+  View on failure rows, Import this page / force-import / Add to queue.
+- Failure rows cleaned (slug + site + first verdict); right pane 920pt measure.
+- Worker impact: none. iOS impact: none.
+
 ### Build 95 (4.35) — importing overhaul — 2026-08-02
 - Root cause of mass import failures fixed: truncated UA tripped bot walls; crawler
   now identifies as Safari (one-time migration), with UA presets.

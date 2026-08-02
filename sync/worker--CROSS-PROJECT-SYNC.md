@@ -35,3 +35,6 @@
 ### 2026-08-02 — note: Mac Build 95
 - Import pipeline overhaul (UA, parser chain, WebKit fallback, in-app browser) — all
   client-side. **No worker change.**
+
+### 2026-08-02 — note: Mac Build 96
+- Classifier fix, hub mining, in-pane browser — client-side only. **No worker change.**

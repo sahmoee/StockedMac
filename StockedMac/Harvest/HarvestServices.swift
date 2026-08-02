@@ -749,6 +749,9 @@ actor DiscoveryEngine {
             "/roundup", "/round-up", "/best-", "/menus/", "/menu/", "/gallery/",
             "/hub/", "/index/", "/page/", "/archive",
         ]
+        // Media galleries and video shells never parse into recipes; skip outright.
+        let skipMarkers = ["/photos/", "/photo/", "/galleries/", "/packages/", "/videos/", "/video/"]
+        if skipMarkers.contains(where: { path.contains($0) }) { return .skip }
         if listingMarkers.contains(where: { path.contains($0) }) { return .listing }
         let trimmed = path.hasSuffix("/") ? String(path.dropLast()) : path
         if trimmed.isEmpty { return .listing }
@@ -759,12 +762,21 @@ actor DiscoveryEngine {
             return .listing
         }
 
-        // Recipe tells: the source's own patterns, else a slug-shaped final segment.
+        // Recipe tells: a slug-shaped final segment — hyphens or digits, some length.
+        // "breakfast", "dinner", "chicken" under /recipes/ are HUBS, not dishes; the
+        // Build 95 rule let them through because they matched the "/recipes/" pattern,
+        // and the importer then failed them 288 at a time.
+        let last = segments.last.map(String.init) ?? ""
+        let slugLike = (last.contains("-") && last.count >= 6)
+            || last.rangeOfCharacter(from: .decimalDigits) != nil
         if !source.recipeURLPatterns.isEmpty {
-            return source.recipeURLPatterns.contains { urlString.contains($0) } ? .recipe : .listing
+            guard source.recipeURLPatterns.contains(where: { urlString.contains($0) }) else {
+                return .listing
+            }
+            return slugLike ? .recipe : .listing
         }
-        if let last = segments.last, last.contains("-"), last.count >= 8 { return .recipe }
-        return segments.count >= 2 ? .recipe : .listing
+        if slugLike, segments.count >= 2 { return .recipe }
+        return .listing
     }
 
     nonisolated static func matchesDomain(_ urlString: String, source: SourceProfile) -> Bool {
@@ -1064,7 +1076,66 @@ nonisolated struct NativeRecipeParser {
                 return try buildResult(from: dict, url: url, html: html)
             }
         }
+        // Build 96: hydration payloads (Next.js and friends) carry the identical
+        // schema.org object inside plain <script> tags. Scan any script body that
+        // mentions a Recipe type and pull the first balanced JSON object out of it.
+        for candidate in extractRecipeScriptJSON(from: html) {
+            if let dict = findRecipeDict(in: candidate) {
+                return try buildResult(from: dict, url: url, html: html)
+            }
+        }
         throw CompanionError.parseFailed("No schema.org/Recipe JSON-LD found")
+    }
+
+    /// JSON slices from ordinary <script> bodies that look like they hold a Recipe.
+    private func extractRecipeScriptJSON(from html: String) -> [String] {
+        guard html.contains("Recipe") else { return [] }
+        guard let regex = try? NSRegularExpression(
+            pattern: #"<script[^>]*>([\s\S]*?)</script>"#,
+            options: .caseInsensitive
+        ) else { return [] }
+        let nsHTML = html as NSString
+        let range = NSRange(location: 0, length: nsHTML.length)
+        var out: [String] = []
+        for match in regex.matches(in: html, range: range) where match.numberOfRanges > 1 {
+            let body = nsHTML.substring(with: match.range(at: 1))
+            guard body.contains("@type"), body.contains("Recipe") else { continue }
+            let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
+                out.append(trimmed)
+            } else if let slice = Self.balancedJSONObject(in: body) {
+                out.append(slice)
+            }
+            if out.count >= 6 { break }
+        }
+        return out
+    }
+
+    /// The first balanced `{ … }` in the text, ignoring braces inside string literals.
+    static func balancedJSONObject(in text: String) -> String? {
+        guard let start = text.firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var index = start
+        while index < text.endIndex {
+            let character = text[index]
+            if escaped {
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else if character == "\"" {
+                inString.toggle()
+            } else if !inString {
+                if character == "{" { depth += 1 }
+                else if character == "}" {
+                    depth -= 1
+                    if depth == 0 { return String(text[start...index]) }
+                }
+            }
+            index = text.index(after: index)
+        }
+        return nil
     }
 
     func servings(from yieldText: String?) -> Double? {

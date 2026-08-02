@@ -1,10 +1,10 @@
-// MacBrowserPanel.swift — the visible in-app browser (Build 95).
+// MacBrowserPanel.swift — the visible in-app browser (Build 95, embedded in Build 96).
 //
-// A real WebKit view over https with an address bar, so any site — including one that
-// blocks the crawler — can be read by eye and imported from exactly the page on screen.
-// "Import this page" runs the same pipeline as every other import; "Add to queue" just
-// files the URL. Opened from the Browse toolbar, from failure rows, and with a URL
-// pre-filled when jumping in from a specific link.
+// A real WebKit view over https with an address bar, shown INSIDE the Browse window's
+// right pane — no sheet, no separate window. Any site, including one that blocks the
+// crawler, can be read by eye and imported from exactly the page on screen. "Import
+// this page" runs the normal pipeline; the ⌄ menu can force-import a page the
+// category detector reads wrong; "Add to queue" just files the URL.
 
 import AppKit
 import SwiftUI
@@ -15,6 +15,8 @@ struct MacBrowserPanel: View {
     @Environment(\.dismiss) private var dismiss
 
     @State var address: String
+    /// Set when embedded (Build 96); nil means presented as a sheet.
+    var onClose: (() -> Void)? = nil
     @State private var currentURL: URL?
     @State private var pendingLoad: URL?
     @State private var status: String?
@@ -37,12 +39,26 @@ struct MacBrowserPanel: View {
                 .disabled(activeURLString == nil)
                 Button("Import this page") {
                     guard let url = activeURLString else { return }
-                    harvest.importDirect([url])
-                    status = "Importing — watch Activity in Browse."
+                    harvest.importPage(url)
+                    status = "Importing — the result lands in Harvest."
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(activeURLString == nil || harvest.isImporting)
-                Button("Done") { dismiss() }
+                Menu {
+                    Button("Import even if it looks like a category page") {
+                        guard let url = activeURLString else { return }
+                        harvest.importPage(url, force: true)
+                        status = "Importing (forced) — the result lands in Harvest."
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 24)
+                .disabled(activeURLString == nil || harvest.isImporting)
+                Button("Close") {
+                    if let onClose { onClose() } else { dismiss() }
+                }
             }
             .padding(10)
 
@@ -67,7 +83,7 @@ struct MacBrowserPanel: View {
                 )
             }
         }
-        .frame(minWidth: 860, minHeight: 620)
+        .frame(minWidth: 560, minHeight: 400)
         .onAppear {
             if !address.trimmingCharacters(in: .whitespaces).isEmpty { go() }
         }
