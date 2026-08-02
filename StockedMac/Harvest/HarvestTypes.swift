@@ -734,7 +734,19 @@ nonisolated enum CrawlAggressiveness: String, Codable, Sendable, CaseIterable, I
         }
     }
 
-    /// Sitemap files / feed URLs / seed listing pages fetched per run.
+    /// TOTAL sitemap files a run may fetch, children of sitemap indexes included.
+    /// Build 94 — the old engine recursed through EVERY child of a sitemap index
+    /// (Food Network's has hundreds), which read as "stuck on Reading sitemaps".
+    var sitemapFileCap: Int {
+        switch self {
+        case .gentle:     return 6
+        case .balanced:   return 15
+        case .aggressive: return 40
+        case .maximum:    return 100
+        }
+    }
+
+    /// Seed feed URLs / seed listing pages fetched per run.
     var seedPageCap: Int {
         switch self {
         case .gentle:     return 3

@@ -24,14 +24,14 @@ nonisolated enum MacBuildConfig {
     /// A separate product from the iOS app — separate project, separate bundle
     /// identifier — but the version line tracks the shared build history (the project file
     /// carries the real numbers; these are only the fallback if Info.plist is unreadable).
-    private static let fallbackVersion     = "4.33"
-    private static let fallbackBuildNumber = 93
+    private static let fallbackVersion     = "4.34"
+    private static let fallbackBuildNumber = 94
 
     /// When the shared model layer was last checked against the phone's copy. Models.swift
     /// and KitchenMetrics.swift are byte-for-byte identical to the iOS tree as of this
     /// check; re-run the diff and update this string whenever either side moves, so the
     /// provenance stays honest rather than decorative.
-    static let sharedModelLineage = "Shared models verified identical to iOS — Build 93, August 2026"
+    static let sharedModelLineage = "Shared models verified identical to iOS — Build 94, August 2026"
 
     static var buildNumber: Int {
         Int(bundleString("CFBundleVersion") ?? "") ?? fallbackBuildNumber
@@ -44,20 +44,18 @@ nonisolated enum MacBuildConfig {
 
     static let buildDate = "August 2026"
     static let buildName = """
-        The crawler grew judgment, options, and manners you can adjust. Browsing now \
-        has three engines \u{2014} sitemaps, category pages, and feeds \u{2014} pickable per run, \
-        with a speed dial from Gentle to Maximum that scales delays, page budgets and \
-        candidate caps while robots.txt and daily limits stay sacred. Sitemap results \
-        are no longer taken at face value: hub pages like Birthdays and Holidays are \
-        recognized, opened, and mined for the actual recipes they link to instead of \
-        being queued as if they were dinner. Feeds bring in communities \u{2014} ten reddit \
-        cooking subreddits ship in the catalog \u{2014} where the outbound link, not the \
-        post, is the candidate, and every one still faces the full recipe check at \
-        import. A Stocked-standards checklist now sits in every draft's detail view \
-        and gates auto-approval: real title, three ingredients, two steps, an image \
-        on disk, a source URL, and honest attribution \u{2014} which is now guaranteed, \
-        because what Stocked shows as the source is the site's real name or the \
-        author, never "Sowens" or an internal handle, with the URL alongside.
+        Sitemaps stopped being a place runs go to die. The crawler now walks sitemap \
+        files breadth-first against one budget \u{2014} children of giant sitemap indexes \
+        included \u{2014} visiting the recipe-smelling ones first, inflating the gzipped \
+        ones big sites actually ship, timing out any request after twenty seconds \
+        instead of a minute, and stopping early once it has enough candidates. When a \
+        site's sitemap still yields nothing, the run no longer ends at zero: on Auto \
+        the engines chain, sitemap to category pages to feeds, until one of them finds \
+        recipes, and the report says which engine won. The Browse screen was redesigned \
+        around it: every control group in its own card with labels above controls so \
+        nothing overlaps at any width, a pause banner instead of a cramped bar, a real \
+        progress card with a bar, pages-read and recipes-found counts on the right, and \
+        an honest empty state where the vacancy used to be.
         """
 
     // MARK: - Environment

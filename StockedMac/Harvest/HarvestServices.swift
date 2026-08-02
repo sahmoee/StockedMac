@@ -1,5 +1,6 @@
 // HarvestServices.swift — Service layer for the Harvester
 
+import Compression
 import Foundation
 import ImageIO
 
@@ -266,64 +267,52 @@ actor DiscoveryEngine {
                                          currentURL: nil, pagesFetched: 0,
                                          queued: 0, confirmed: 0, rejected: 0))
 
-        switch method {
-        case .feed:
-            let result = try await crawlFeeds(source: source, settings: settings,
-                                              level: level, progress: progress)
-            recipeURLs = result.urls
-            notes.append(contentsOf: result.notes)
-            workingSeed = result.workingSeed
-            unverifiedURLs = result.unverified
-
-        case .categories:
-            let result = try await crawlListings(source: source, settings: settings,
-                                                 level: level, progress: progress)
-            recipeURLs = result.urls
-            notes.append(contentsOf: result.notes)
-            workingSeed = result.workingSeed
-
-        case .sitemap:
-            let result = try await crawlSitemaps(source: source, settings: settings,
-                                                 level: level, progress: progress)
-            recipeURLs = result.recipeURLs
-            listingURLs = result.listingURLs
-            notes.append(contentsOf: result.notes)
-            workingSeed = result.workingSeed
-            unverifiedURLs = result.unverified
+        // Build 94: engines run as a CHAIN. The picked engine goes first; if it (plus
+        // category expansion) produces nothing, the next engine gets a turn — so a site
+        // whose sitemap is blocked, gzip-only, or junk no longer ends the run at zero.
+        // A forced method runs alone; only Auto falls through.
+        let chain: [CrawlMethod]
+        if settings.preferredCrawlMethod == .auto {
+            chain = [method] + [CrawlMethod.sitemap, .categories, .feed].filter { $0 != method }
+        } else {
+            chain = [method]
         }
 
-        // Expand the listing/category pages the sitemap surfaced — "Birthdays",
-        // "Holiday favorites" and friends — into the recipe links they carry.
-        if !listingURLs.isEmpty {
-            let budget = min(listingURLs.count, level.expansionCap)
-            notes.append("\(listingURLs.count) category pages found; expanding \(budget).")
-            var expanded = 0
-            for listing in listingURLs.prefix(budget) {
-                if Task.isCancelled { break }
-                await progress(DiscoveryProgress(phase: "Opening category pages",
-                                                 currentURL: listing,
-                                                 pagesFetched: expanded,
-                                                 queued: budget - expanded,
-                                                 confirmed: recipeURLs.count, rejected: 0))
-                guard let url = URL(string: listing) else { continue }
-                do {
-                    let page = try await fetcher.fetch(
-                        url, source: source, settings: settings,
-                        accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
-                    )
-                    let links = Self.extractLinks(from: page.text, base: page.finalURL)
-                        .filter { Self.classify($0, source: source) == .recipe }
-                    recipeURLs.append(contentsOf: links)
-                    expanded += 1
-                } catch is CancellationError {
-                    break
-                } catch {
-                    notes.append("Category page failed: \(listing)")
-                }
+        for (attempt, engine) in chain.enumerated() {
+            if Task.isCancelled { break }
+            if attempt > 0 {
+                notes.append("\(methodLabel(chain[attempt - 1])) came up empty; trying \(methodLabel(engine).lowercased()).")
             }
-            if listingURLs.count > budget {
-                notes.append("\(listingURLs.count - budget) category pages left for the next run (raise the speed to expand more).")
+            switch engine {
+            case .feed:
+                let result = try await crawlFeeds(source: source, settings: settings,
+                                                  level: level, progress: progress)
+                recipeURLs = result.urls
+                notes.append(contentsOf: result.notes)
+                if workingSeed == nil { workingSeed = result.workingSeed }
+                unverifiedURLs = result.unverified
+
+            case .categories:
+                let result = try await crawlListings(source: source, settings: settings,
+                                                     level: level, progress: progress)
+                recipeURLs = result.urls
+                notes.append(contentsOf: result.notes)
+                if workingSeed == nil { workingSeed = result.workingSeed }
+
+            case .sitemap, .auto:
+                let result = try await crawlSitemaps(source: source, settings: settings,
+                                                     level: level, progress: progress)
+                recipeURLs = result.recipeURLs
+                listingURLs = result.listingURLs
+                notes.append(contentsOf: result.notes)
+                if workingSeed == nil { workingSeed = result.workingSeed }
+                unverifiedURLs = result.unverified
             }
+
+            try await expandListings(&recipeURLs, listingURLs: &listingURLs,
+                                     source: source, settings: settings,
+                                     level: level, notes: &notes, progress: progress)
+            if !recipeURLs.isEmpty { break }
         }
 
         // Dedupe, drop what's already imported, cap to the run budget — loudly.
@@ -351,6 +340,51 @@ actor DiscoveryEngine {
             unverified: unverifiedURLs,
             notes: notes
         )
+    }
+
+    /// Opens listing/category pages — "Birthdays", "Holiday favorites" and friends —
+    /// and mines them for the recipe links they carry, within the speed budget.
+    private func expandListings(
+        _ recipeURLs: inout [String],
+        listingURLs: inout [String],
+        source: SourceProfile,
+        settings: AppSettings,
+        level: CrawlAggressiveness,
+        notes: inout [String],
+        progress: @Sendable @escaping (DiscoveryProgress) async -> Void
+    ) async throws {
+        guard !listingURLs.isEmpty else { return }
+        let budget = min(listingURLs.count, level.expansionCap)
+        notes.append("\(listingURLs.count) category pages found; expanding \(budget).")
+        var expanded = 0
+        for listing in listingURLs.prefix(budget) {
+            if Task.isCancelled { break }
+            await progress(DiscoveryProgress(phase: "Opening category pages (\(expanded + 1)/\(budget))",
+                                             currentURL: listing,
+                                             pagesFetched: expanded,
+                                             queued: budget - expanded,
+                                             confirmed: recipeURLs.count, rejected: 0))
+            guard let url = URL(string: listing) else { continue }
+            do {
+                let page = try await fetcher.fetch(
+                    url, source: source, settings: settings,
+                    accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
+                )
+                let links = Self.extractLinks(from: page.text, base: page.finalURL)
+                    .filter { Self.classify($0, source: source) == .recipe }
+                recipeURLs.append(contentsOf: links)
+                expanded += 1
+            } catch is CancellationError {
+                break
+            } catch {
+                notes.append("Category page failed: \(listing)")
+                expanded += 1
+            }
+        }
+        if listingURLs.count > budget {
+            notes.append("\(listingURLs.count - budget) category pages left for the next run (raise the speed to expand more).")
+        }
+        listingURLs.removeAll()
     }
 
     // MARK: Method resolution
@@ -388,98 +422,153 @@ actor DiscoveryEngine {
         level: CrawlAggressiveness,
         progress: @Sendable @escaping (DiscoveryProgress) async -> Void
     ) async throws -> SitemapResult {
+        // Build 94: breadth-first over sitemap FILES with one budget for the whole
+        // walk, children included. The old engine recursed through every child of a
+        // sitemap index — hundreds of files at 2 s spacing reads as "stuck". Children
+        // that smell like recipes are visited first, gzipped files are inflated, and
+        // the walk stops early once the candidate cap is reached.
         var result = SitemapResult()
-        let sitemapList = source.sitemapURLs.isEmpty
-            ? [(source.baseURL.hasSuffix("/") ? source.baseURL : source.baseURL + "/") + "sitemap.xml"]
+        let base = source.baseURL.hasSuffix("/") ? source.baseURL : source.baseURL + "/"
+        let seeds = source.sitemapURLs.isEmpty
+            ? [base + "sitemap.xml", base + "sitemap_index.xml", base + "wp-sitemap.xml"]
             : source.sitemapURLs
-        let seeds = Array(sitemapList.prefix(level.seedPageCap))
-        var pagesFetched = 0
+        var queue = seeds
+        var visited = Set<String>()
+        let fileBudget = level.sitemapFileCap
+        var fetched = 0
 
-        for sitemapURLString in seeds {
+        while !queue.isEmpty, fetched < fileBudget, result.recipeURLs.count < level.candidateCap {
             if Task.isCancelled {
-                result.unverified = Array(seeds.dropFirst(pagesFetched))
+                result.unverified = queue
+                result.notes.append("Cancelled with \(queue.count) sitemap files unread.")
                 break
             }
-            guard let sitemapURL = URL(string: sitemapURLString) else { continue }
-            await progress(DiscoveryProgress(phase: "Reading sitemaps",
+            let sitemapURLString = queue.removeFirst()
+            guard visited.insert(sitemapURLString).inserted,
+                  let sitemapURL = URL(string: sitemapURLString) else { continue }
+
+            await progress(DiscoveryProgress(phase: "Reading sitemaps (\(fetched + 1)/\(fileBudget))",
                                              currentURL: sitemapURLString,
-                                             pagesFetched: pagesFetched,
-                                             queued: seeds.count - pagesFetched,
+                                             pagesFetched: fetched,
+                                             queued: queue.count,
                                              confirmed: result.recipeURLs.count, rejected: 0))
             do {
-                let (urls, sitemapNotes) = try await crawlSitemap(
-                    url: sitemapURL, source: source, settings: settings, depth: 0
+                let data = try await fetcher.fetchData(
+                    sitemapURL, source: source, settings: settings,
+                    accept: "application/xml,text/xml,application/gzip,*/*"
                 )
-                for urlString in urls {
-                    switch Self.classify(urlString, source: source) {
-                    case .recipe:  result.recipeURLs.append(urlString)
-                    case .listing: result.listingURLs.append(urlString)
-                    case .skip:    break
-                    }
+                fetched += 1
+                let text = Self.decodeSitemapText(data)
+                guard !text.isEmpty else {
+                    result.notes.append("Unreadable sitemap: \(sitemapURLString)")
+                    continue
                 }
-                result.notes.append(contentsOf: sitemapNotes)
-                result.notes.append("\(sitemapURLString): \(urls.count) URLs")
-                if result.workingSeed == nil, !urls.isEmpty { result.workingSeed = sitemapURLString }
-                pagesFetched += 1
+                let isIndex = text.range(of: "<sitemapindex", options: .caseInsensitive) != nil
+                let locs = Self.extractXMLTagContents(named: "loc", from: text)
+                if isIndex {
+                    let children = Self.prioritizeSitemapChildren(locs)
+                    queue.insert(contentsOf: children, at: 0)
+                    result.notes.append("\(sitemapURLString): index with \(locs.count) child sitemaps")
+                } else {
+                    var recipes = 0
+                    for urlString in locs where Self.matchesDomain(urlString, source: source) {
+                        switch Self.classify(urlString, source: source) {
+                        case .recipe:  result.recipeURLs.append(urlString); recipes += 1
+                        case .listing: result.listingURLs.append(urlString)
+                        case .skip:    break
+                        }
+                    }
+                    result.notes.append("\(sitemapURLString): \(locs.count) URLs, \(recipes) recipe-shaped")
+                    if result.workingSeed == nil, recipes > 0 { result.workingSeed = sitemapURLString }
+                }
             } catch is CancellationError {
+                result.unverified = queue
                 result.notes.append("Cancelled at \(sitemapURLString)")
-                result.unverified = Array(seeds.dropFirst(pagesFetched))
                 break
             } catch {
+                fetched += 1
                 result.notes.append("Sitemap failed: \(sitemapURLString) — \(error.localizedDescription)")
-                pagesFetched += 1
             }
         }
-        if sitemapList.count > seeds.count {
-            result.notes.append("\(sitemapList.count - seeds.count) sitemap files skipped at \(level.label) speed.")
+
+        if !queue.isEmpty {
+            if fetched >= fileBudget {
+                result.notes.append("Stopped at the \(level.label) budget of \(fileBudget) sitemap files; \(queue.count) unread. Raise the speed for more.")
+            } else if result.recipeURLs.count >= level.candidateCap {
+                result.notes.append("Candidate cap reached with \(queue.count) sitemap files unread.")
+            }
         }
         return result
     }
 
-    private func crawlSitemap(
-        url: URL,
-        source: SourceProfile,
-        settings: AppSettings,
-        depth: Int
-    ) async throws -> (urls: [String], notes: [String]) {
-        guard depth < 5 else {
-            return ([], ["Max sitemap depth at \(url.absoluteString)"])
+    /// Children that smell like recipe content go first; media, video, category and
+    /// author sitemaps go last, so a small file budget is spent where recipes live.
+    nonisolated static func prioritizeSitemapChildren(_ children: [String]) -> [String] {
+        func score(_ urlString: String) -> Int {
+            let lower = urlString.lowercased()
+            if lower.contains("recipe") { return 0 }
+            if lower.contains("post") || lower.contains("content") || lower.contains("article") { return 1 }
+            if lower.contains("video") || lower.contains("image") || lower.contains("photo")
+                || lower.contains("category") || lower.contains("tag") || lower.contains("author")
+                || lower.contains("shows") || lower.contains("chefs") || lower.contains("news") { return 3 }
+            return 2
         }
-        try Task.checkCancellation()
-
-        let data = try await fetcher.fetchData(
-            url, source: source, settings: settings,
-            accept: "application/xml,text/xml,*/*"
-        )
-
-        let (isSitemapIndex, locs) = parseSitemapData(data)
-
-        if isSitemapIndex {
-            var allURLs: [String] = []
-            var allNotes: [String] = []
-            for childString in locs {
-                try Task.checkCancellation()
-                guard let childURL = URL(string: childString) else { continue }
-                let (childURLs, childNotes) = try await crawlSitemap(
-                    url: childURL, source: source, settings: settings, depth: depth + 1
-                )
-                allURLs.append(contentsOf: childURLs)
-                allNotes.append(contentsOf: childNotes)
-            }
-            return (allURLs, allNotes)
-        } else {
-            let filtered = locs.filter { Self.matchesDomain($0, source: source) }
-            return (filtered, [])
-        }
+        return children.enumerated()
+            .sorted { (score($0.element), $0.offset) < (score($1.element), $1.offset) }
+            .map(\.element)
     }
 
-    private func parseSitemapData(_ data: Data) -> (isSitemapIndex: Bool, locs: [String]) {
-        let text = String(data: data, encoding: .utf8)
-            ?? String(data: data, encoding: .isoLatin1)
+    /// UTF-8 (or Latin-1) text out of a sitemap response, inflating gzip when the file
+    /// arrives as raw .xml.gz bytes — large sites ship most sitemaps that way, which
+    /// is one of the two reasons runs used to end at "0 found".
+    nonisolated static func decodeSitemapText(_ data: Data) -> String {
+        var payload = data
+        let bytes = [UInt8](data.prefix(2))
+        if bytes.count == 2, bytes[0] == 0x1f, bytes[1] == 0x8b, let inflated = gunzip(data) {
+            payload = inflated
+        }
+        return String(data: payload, encoding: .utf8)
+            ?? String(data: payload, encoding: .isoLatin1)
             ?? ""
-        let isSitemapIndex = text.range(of: "<sitemapindex", options: .caseInsensitive) != nil
-        let locs = Self.extractXMLTagContents(named: "loc", from: text)
-        return (isSitemapIndex, locs)
+    }
+
+    /// Minimal gzip container parse + raw-DEFLATE inflate via Compression.
+    nonisolated static func gunzip(_ data: Data) -> Data? {
+        let bytes = [UInt8](data)
+        guard bytes.count > 18, bytes[0] == 0x1f, bytes[1] == 0x8b, bytes[2] == 8 else { return nil }
+        let flags = bytes[3]
+        var index = 10
+        if flags & 0x04 != 0 {                                    // FEXTRA
+            guard index + 2 <= bytes.count else { return nil }
+            let xlen = Int(bytes[index]) | (Int(bytes[index + 1]) << 8)
+            index += 2 + xlen
+        }
+        if flags & 0x08 != 0 {                                    // FNAME
+            while index < bytes.count, bytes[index] != 0 { index += 1 }
+            index += 1
+        }
+        if flags & 0x10 != 0 {                                    // FCOMMENT
+            while index < bytes.count, bytes[index] != 0 { index += 1 }
+            index += 1
+        }
+        if flags & 0x02 != 0 { index += 2 }                       // FHCRC
+        guard index < bytes.count else { return nil }
+        let deflated = Data(bytes[index...])
+
+        let capacity = min(max(deflated.count * 24, 4_000_000), 96_000_000)
+        var output = Data(count: capacity)
+        let written = output.withUnsafeMutableBytes { dst -> Int in
+            deflated.withUnsafeBytes { src -> Int in
+                guard let dstBase = dst.bindMemory(to: UInt8.self).baseAddress,
+                      let srcBase = src.bindMemory(to: UInt8.self).baseAddress else { return 0 }
+                return compression_decode_buffer(dstBase, capacity,
+                                                 srcBase, deflated.count,
+                                                 nil, COMPRESSION_ZLIB)
+            }
+        }
+        guard written > 0 else { return nil }
+        output.removeSubrange(written..<output.count)
+        return output
     }
 
     // MARK: Category-page engine

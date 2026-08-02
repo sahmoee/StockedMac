@@ -8,6 +8,16 @@
 
 ## Applied updates
 
+### Build 94 (4.34) — sitemap fix + Browse redesign — 2026-08-02
+- "Stuck on Reading sitemaps" fixed: 20 s request timeouts, breadth-first sitemap walk
+  with a per-speed file budget (children of sitemap indexes included), recipe-first
+  child prioritization, gzip (.xml.gz) inflation, early stop at the candidate cap.
+- Auto method now chains engines (sitemaps → category pages → feeds) until one finds
+  recipes; report notes say which engine won.
+- Browse UI redesigned: card-based left column (labels above controls — no overlap),
+  pause as toolbar button + banner, progress card with bar and live counts, designed
+  empty state. Worker impact: none. iOS impact: none.
+
 ### Build 93 (4.33) — crawler engines & standards — 2026-08-01
 - Crawl method per run (Auto/Sitemaps/Category pages/Feeds) + aggressiveness dial
   (Gentle→Maximum: delays, page budgets, candidate caps; robots/daily limits sacred).

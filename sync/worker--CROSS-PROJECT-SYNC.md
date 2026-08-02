@@ -28,3 +28,6 @@
 - Crawler engines/aggressiveness, community feeds, standards, attribution — all
   client-side. **No worker change**; 2026-08-01.1 remains current. Harvest-cache
   uploads now carry honest attribution in the `attribution` field.
+
+### 2026-08-02 — note: Mac Build 94
+- Sitemap-engine fixes and Browse UI redesign, all client-side. **No worker change.**

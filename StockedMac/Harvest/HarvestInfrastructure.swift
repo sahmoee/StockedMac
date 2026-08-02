@@ -37,6 +37,11 @@ actor HTTPClient {
         let config = URLSessionConfiguration.default
         config.httpAdditionalHeaders = ["User-Agent": userAgent]
         config.requestCachePolicy = .returnCacheDataElseLoad
+        // Build 94: a request that hangs must fail, not park the whole run. Every
+        // "stuck on Reading sitemaps" report traced back to the default 60 s request
+        // timeout compounding across a sitemap index with hundreds of children.
+        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 45
         
         self.session = URLSession(configuration: config)
         
@@ -52,6 +57,7 @@ actor HTTPClient {
         try Task.checkCancellation()
         var modifiedRequest = request
         modifiedRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        if modifiedRequest.timeoutInterval > 20 { modifiedRequest.timeoutInterval = 20 }
         return try await session.data(for: modifiedRequest)
     }
     

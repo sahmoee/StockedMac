@@ -1,12 +1,10 @@
-// MacBrowseView.swift — the Browse section (Build 91).
+// MacBrowseView.swift — the Browse section, redesigned (Build 94).
 //
-// Everything about getting recipes INTO the app now lives here, in the sidebar under
-// Household: the source catalog (top 50 American sites + top 50 worldwide), the browse
-// controls, the import queue, verification, image recovery, the Worker cloud cache and
-// the session history. Harvest keeps what it was always best at — reviewing what came in.
-//
-// Layout: controls on the left, activity on the right, the same two-pane shape as
-// Harvest so the two sections feel like halves of one pipeline.
+// Build 93 grew controls faster than layout: labels sat beside segmented pickers and
+// overlapped at narrow widths, sections were separated by bare dividers, and the right
+// pane was mostly air. The redesign puts every control group in a card, stacks labels
+// ABOVE their controls so nothing can overlap at any width, gives the activity pane a
+// real progress card with a bar, and shows a proper empty state instead of vacancy.
 
 import AppKit
 import SwiftUI
@@ -64,546 +62,496 @@ struct MacBrowseView: View {
         browsableSources.filter { selectedSourceIDs.contains($0.id) }
     }
 
+    // MARK: - Body
+
     var body: some View {
-        HStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    pauseBar
-                    Divider()
-                    sourcePanel
-                    Divider()
-                    verificationPanel
-                    Divider()
-                    queuePanel
-                    Divider()
-                    imagePanel
-                    Divider()
-                    cloudPanel
+        VStack(spacing: 0) {
+            if harvest.isPaused { pauseBanner }
+            HStack(alignment: .top, spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        sourcesCard
+                        crawlerCard
+                        verificationCard
+                        queueCard
+                        imagesCard
+                        cloudCard
+                    }
+                    .padding(14)
                 }
+                .frame(width: 396)
+
+                Divider()
+
+                activityPane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(minWidth: 320, maxWidth: 400)
-
-            Divider()
-
-            activityPane
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    // MARK: - Pause bar
-
-    private var pauseBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: harvest.isPaused ? "pause.circle.fill" : "globe")
-                .foregroundStyle(harvest.isPaused ? .orange : .secondary)
-            Text(harvest.isPaused ? "Paused" : "Browse & import")
-                .font(.callout.weight(.medium))
-            Spacer(minLength: 0)
-            Button(harvest.isPaused ? "Resume" : "Pause all") {
-                harvest.togglePause()
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    harvest.togglePause()
+                } label: {
+                    Label(harvest.isPaused ? "Resume" : "Pause",
+                          systemImage: harvest.isPaused ? "play.fill" : "pause.fill")
+                }
+                .help("Pause or resume every download — browsing, imports and images")
             }
-            .font(.caption)
-            .tint(harvest.isPaused ? MacTheme.green : nil)
-            .help("Pause or resume every download — browsing, imports and images")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(harvest.isPaused ? Color.orange.opacity(0.08) : Color.clear)
     }
 
-    // MARK: - Sources
+    // MARK: - Pause banner
+
+    private var pauseBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "pause.circle.fill").foregroundStyle(.orange)
+            Text("Paused — in-flight requests finish, nothing new starts.")
+                .font(.callout)
+            Spacer(minLength: 0)
+            Button("Resume") { harvest.togglePause() }
+                .tint(MacTheme.green)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.10))
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    // MARK: - Sources card
 
     @ViewBuilder
-    private var sourcePanel: some View {
+    private var sourcesCard: some View {
         @Bindable var harvest = harvest
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text("Sources").font(.caption.weight(.medium))
-                Spacer(minLength: 0)
-                Text("\(browsableSources.count) sites")
-                    .font(.caption2).foregroundStyle(.secondary)
+        MacCard(title: "Sources", systemImage: "globe",
+                footnote: "\(browsableSources.count) sites") {
+            VStack(alignment: .leading, spacing: 8) {
+                // Dropdown (multi-select checklist)
                 Button {
-                    harvest.importSourcesFromFile()
+                    showSourcePicker.toggle()
                 } label: {
-                    Image(systemName: "square.and.arrow.down").font(.caption)
+                    HStack(spacing: 6) {
+                        Text(selectionLabel)
+                            .font(.callout)
+                            .foregroundStyle(browsableSources.isEmpty ? .secondary : .primary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6)
+                    .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
                 }
-                .buttonStyle(.borderless)
-                .help("Update the source list from a file — JSON, or one URL/domain per line (\"Name | url\" works too)")
-                Button {
-                    harvest.exportSourcesToFile()
-                } label: {
-                    Image(systemName: "square.and.arrow.up").font(.caption)
+                .buttonStyle(.plain)
+                .disabled(browsableSources.isEmpty)
+                .popover(isPresented: $showSourcePicker, arrowEdge: .bottom) {
+                    SourceMultiPicker(
+                        search: $sourceSearch,
+                        selected: $selectedSourceIDs,
+                        american: americanSources,
+                        worldwide: worldwideSources,
+                        feeds: feedSources,
+                        custom: customSources,
+                        recent: harvest.recentSources
+                    )
                 }
-                .buttonStyle(.borderless)
-                .help("Export the source list as JSON for editing")
-                Button {
-                    harvest.repairSources()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise").font(.caption)
-                }
-                .buttonStyle(.borderless)
-                .help("Restore the built-in catalog (keeps custom and imported sources)")
-            }
 
-            // The dropdown: a checklist popover, so several sites can be picked at once.
-            Button {
-                showSourcePicker.toggle()
-            } label: {
+                if browsableSources.isEmpty {
+                    HStack(spacing: 6) {
+                        Text("No sources loaded.").font(.caption).foregroundStyle(.red)
+                        Button("Restore built-in catalog") { harvest.repairSources() }
+                            .font(.caption)
+                    }
+                }
+
+                // Actions
                 HStack(spacing: 6) {
-                    Image(systemName: "globe").font(.caption).foregroundStyle(.secondary)
-                    Text(selectionLabel)
-                        .font(.callout)
-                        .foregroundStyle(browsableSources.isEmpty ? .secondary : .primary)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
-            }
-            .buttonStyle(.plain)
-            .disabled(browsableSources.isEmpty)
-            .popover(isPresented: $showSourcePicker, arrowEdge: .bottom) {
-                SourceMultiPicker(
-                    search: $sourceSearch,
-                    selected: $selectedSourceIDs,
-                    american: americanSources,
-                    worldwide: worldwideSources,
-                    feeds: feedSources,
-                    custom: customSources,
-                    recent: harvest.recentSources
-                )
-            }
-
-            if browsableSources.isEmpty {
-                HStack(spacing: 6) {
-                    Text("No sources loaded.").font(.caption).foregroundStyle(.red)
-                    Button("Restore built-in catalog") { harvest.repairSources() }
-                        .font(.caption)
-                    Spacer(minLength: 0)
-                }
-            }
-
-            // Actions follow the selection: one source, several, or none.
-            HStack(spacing: 6) {
-                if selectedSources.count == 1, let source = selectedSources.first {
-                    Button("Browse & Import") { harvest.discover(source) }
+                    if selectedSources.count == 1, let source = selectedSources.first {
+                        Button("Browse & Import") { harvest.discover(source) }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(harvest.isDiscovering)
+                        Button("Queue only") { harvest.discoverToQueue(source) }
+                            .disabled(harvest.isDiscovering)
+                    } else if selectedSources.count > 1 {
+                        Button("Browse \(selectedSources.count) sources") {
+                            harvest.browseSources(withIDs: selectedSources.map(\.id))
+                        }
                         .buttonStyle(.borderedProminent)
                         .disabled(harvest.isDiscovering)
-                    Button("Queue only") { harvest.discoverToQueue(source) }
+                        Button("Queue from \(selectedSources.count)") {
+                            harvest.browseSources(withIDs: selectedSources.map(\.id), queueOnly: true)
+                        }
                         .disabled(harvest.isDiscovering)
-                } else if selectedSources.count > 1 {
-                    Button("Browse \(selectedSources.count) sources") {
-                        harvest.browseSources(withIDs: selectedSources.map(\.id))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(harvest.isDiscovering)
-                    Button("Queue from \(selectedSources.count)") {
-                        harvest.browseSources(withIDs: selectedSources.map(\.id), queueOnly: true)
-                    }
-                    .disabled(harvest.isDiscovering)
-                } else {
-                    Button("Next in rotation") { harvest.browseNextSource() }
-                        .buttonStyle(.borderedProminent)
+                    } else {
+                        Button("Next in rotation") { harvest.browseNextSource() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(harvest.isDiscovering || browsableSources.isEmpty)
+                        Button("Auto-rotate \(max(1, harvest.settings.autoRotateSourceCount))") {
+                            harvest.autoRotate()
+                        }
                         .disabled(harvest.isDiscovering || browsableSources.isEmpty)
-                    Button("Auto-rotate \(max(1, harvest.settings.autoRotateSourceCount))") {
-                        harvest.autoRotate()
                     }
-                    .disabled(harvest.isDiscovering || browsableSources.isEmpty)
-                    .help("Browse several sources back to back; set the count below")
+                    Spacer(minLength: 0)
+                    if harvest.isDiscovering {
+                        Button("Stop") { harvest.cancelDiscovery() }
+                            .buttonStyle(.borderless).foregroundStyle(.red)
+                    }
                 }
-                Spacer(minLength: 0)
-                if harvest.isDiscovering {
-                    ProgressView().scaleEffect(0.45)
-                    Button("Stop") { harvest.cancelDiscovery() }
-                        .buttonStyle(.borderless).foregroundStyle(.red)
-                }
-            }
-            .font(.callout)
+                .font(.callout)
 
-            if !harvest.sourceRotationQueue.isEmpty {
-                HStack(spacing: 5) {
-                    Image(systemName: "list.number")
-                        .font(.caption2).foregroundStyle(MacTheme.gold)
-                    Text("\(harvest.sourceRotationQueue.count) selected source\(harvest.sourceRotationQueue.count == 1 ? "" : "s") still to visit")
+                if !harvest.sourceRotationQueue.isEmpty || harvest.autoRotateRemaining > 0 {
+                    let remaining = harvest.sourceRotationQueue.count + harvest.autoRotateRemaining
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.caption2).foregroundStyle(MacTheme.gold)
+                        Text("\(remaining) more source\(remaining == 1 ? "" : "s") after this one")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        Button("Stop after this") { harvest.cancelAutoRotate() }
+                            .buttonStyle(.borderless).font(.caption)
+                    }
+                }
+
+                Stepper(value: $harvest.settings.autoRotateSourceCount, in: 1...10) {
+                    Text("Auto-rotate visits \(harvest.settings.autoRotateSourceCount) source\(harvest.settings.autoRotateSourceCount == 1 ? "" : "s")")
                         .font(.caption).foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    Button("Stop after this") { harvest.cancelAutoRotate() }
-                        .buttonStyle(.borderless).font(.caption)
                 }
-            }
-
-            if harvest.autoRotateRemaining > 0 {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.caption2).foregroundStyle(MacTheme.gold)
-                    Text("\(harvest.autoRotateRemaining) more source\(harvest.autoRotateRemaining == 1 ? "" : "s") after this one")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    Button("Stop after this") { harvest.cancelAutoRotate() }
-                        .buttonStyle(.borderless).font(.caption)
+                .onChange(of: harvest.settings.autoRotateSourceCount) {
+                    harvest.scheduleSettingsSave()
                 }
-            }
 
-            Stepper(value: $harvest.settings.autoRotateSourceCount, in: 1...10) {
-                Text("Auto-rotate visits \(harvest.settings.autoRotateSourceCount) source\(harvest.settings.autoRotateSourceCount == 1 ? "" : "s")")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .onChange(of: harvest.settings.autoRotateSourceCount) {
-                harvest.scheduleSettingsSave()
-            }
+                Divider()
 
-            // ── Crawler: how it browses, and how hard ────────────────────
-            HStack(spacing: 6) {
-                Text("Method").font(.caption).foregroundStyle(.secondary)
-                Picker("", selection: $harvest.settings.preferredCrawlMethod) {
-                    ForEach(CrawlMethod.allCases) { method in
-                        Text(method.label).tag(method)
+                // List maintenance
+                HStack(spacing: 10) {
+                    Button {
+                        harvest.importSourcesFromFile()
+                    } label: {
+                        Label("Update from file", systemImage: "square.and.arrow.down")
                     }
-                }
-                .labelsHidden()
-                .frame(maxWidth: 160)
-                Spacer(minLength: 0)
-            }
-            .onChange(of: harvest.settings.preferredCrawlMethod) {
-                harvest.scheduleSettingsSave()
-            }
-            Text(harvest.settings.preferredCrawlMethod.explanation)
-                .font(.caption2).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 6) {
-                Text("Speed").font(.caption).foregroundStyle(.secondary)
-                Picker("", selection: $harvest.settings.crawlAggressiveness) {
-                    ForEach(CrawlAggressiveness.allCases) { level in
-                        Text(level.label).tag(level)
+                    .help("JSON, or one URL/domain per line (\"Name | url\" works too)")
+                    Button {
+                        harvest.exportSourcesToFile()
+                    } label: {
+                        Label("Export", systemImage: "square.and.arrow.up")
                     }
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 240)
-                Spacer(minLength: 0)
-            }
-            .onChange(of: harvest.settings.crawlAggressiveness) {
-                harvest.scheduleSettingsSave()
-            }
-            Text(harvest.settings.crawlAggressiveness.explanation)
-                .font(.caption2).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if harvest.isDiscovering {
-                Text(harvest.discoveryProgress.phase)
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-            }
-
-            if let failure = harvest.discoveryFailure {
-                HStack(alignment: .top, spacing: 5) {
-                    Image(systemName: "exclamationmark.circle")
-                        .font(.caption2).foregroundStyle(.red)
-                    Text(failure).font(.caption).foregroundStyle(.red).lineLimit(3)
                     Spacer(minLength: 0)
-                    Button("Retry") { harvest.clearPauseAndRetry() }
-                        .buttonStyle(.borderless).font(.caption)
-                    Button("\u{2715}") { harvest.discoveryFailure = nil }
-                        .buttonStyle(.borderless).font(.caption)
+                    Button {
+                        harvest.repairSources()
+                    } label: {
+                        Label("Restore", systemImage: "arrow.counterclockwise")
+                    }
+                    .help("Restore the built-in catalog (keeps custom and imported sources)")
                 }
+                .buttonStyle(.borderless)
+                .font(.caption)
+                .labelStyle(.titleAndIcon)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
     }
 
     private var selectionLabel: String {
         if browsableSources.isEmpty { return "No sources loaded" }
         let picked = selectedSources
         switch picked.count {
-        case 0:  return "Choose sources\u{2026}"
+        case 0:  return "Choose sources…"
         case 1:  return picked[0].name
-        case 2:  return "\(picked[0].name) + 1 more"
         default: return "\(picked[0].name) + \(picked.count - 1) more"
         }
     }
 
-    // MARK: - Verification
+    // MARK: - Crawler card
 
     @ViewBuilder
-    private var verificationPanel: some View {
+    private var crawlerCard: some View {
         @Bindable var harvest = harvest
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Verification").font(.caption.weight(.medium))
-
-            HStack(spacing: 8) {
-                Toggle("Auto-verify & approve at", isOn: $harvest.settings.autoImportVerified)
-                    .toggleStyle(.checkbox).font(.caption)
-                if harvest.settings.autoImportVerified {
-                    Slider(value: $harvest.settings.autoApproveConfidence, in: 0.50...1.0, step: 0.05)
-                        .frame(width: 70)
-                    Text("\(Int(harvest.settings.autoApproveConfidence * 100))%")
-                        .font(.caption.monospacedDigit())
-                        .frame(width: 32, alignment: .trailing)
+        MacCard(title: "Crawler", systemImage: "gearshape.2") {
+            VStack(alignment: .leading, spacing: 10) {
+                // Labels sit ABOVE their controls — nothing to overlap at any width.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Method").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    Picker("", selection: $harvest.settings.preferredCrawlMethod) {
+                        ForEach(CrawlMethod.allCases) { method in
+                            Text(method.label).tag(method)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+                    Text(harvest.settings.preferredCrawlMethod.explanation)
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer(minLength: 0)
-            }
-
-            Toggle("Verify queued URLs before importing", isOn: $harvest.settings.verifyBeforeImport)
-                .toggleStyle(.checkbox).font(.caption)
-            Toggle("Only auto-approve recipes that meet Stocked standards", isOn: $harvest.settings.requireStandardsForAutoApprove)
-                .toggleStyle(.checkbox).font(.caption)
-                .help("Title, 3+ ingredients, 2+ steps, image on disk, source URL, honest attribution")
-
-            HStack(spacing: 6) {
-                if harvest.isBulkVerifying {
-                    ProgressView().scaleEffect(0.45)
-                    Text("\(harvest.bulkVerifyProgress.completed)/\(harvest.bulkVerifyProgress.total)")
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    Button("Stop") { harvest.cancelBulkVerify() }
-                        .buttonStyle(.borderless).foregroundStyle(.red).font(.caption)
-                } else {
-                    Button("Bulk verify queue") { harvest.bulkVerifyQueue() }
-                        .font(.caption)
-                        .disabled(harvest.queuedURLCount == 0 || harvest.isImporting)
-                        .help("Check every queued URL is a recipe page; remove the ones that aren't")
+                .onChange(of: harvest.settings.preferredCrawlMethod) {
+                    harvest.scheduleSettingsSave()
                 }
-                Spacer(minLength: 0)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Speed").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    Picker("", selection: $harvest.settings.crawlAggressiveness) {
+                        ForEach(CrawlAggressiveness.allCases) { level in
+                            Text(level.label).tag(level)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+                    Text(harvest.settings.crawlAggressiveness.explanation)
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .onChange(of: harvest.settings.crawlAggressiveness) {
+                    harvest.scheduleSettingsSave()
+                }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+    }
+
+    // MARK: - Verification card
+
+    @ViewBuilder
+    private var verificationCard: some View {
+        @Bindable var harvest = harvest
+        MacCard(title: "Verification", systemImage: "checkmark.shield") {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Toggle("Auto-verify & approve at", isOn: $harvest.settings.autoImportVerified)
+                        .toggleStyle(.checkbox).font(.caption)
+                    if harvest.settings.autoImportVerified {
+                        Slider(value: $harvest.settings.autoApproveConfidence, in: 0.50...1.0, step: 0.05)
+                            .frame(width: 80)
+                        Text("\(Int(harvest.settings.autoApproveConfidence * 100))%")
+                            .font(.caption.monospacedDigit())
+                            .frame(width: 32, alignment: .trailing)
+                    }
+                    Spacer(minLength: 0)
+                }
+                Toggle("Verify queued URLs before importing", isOn: $harvest.settings.verifyBeforeImport)
+                    .toggleStyle(.checkbox).font(.caption)
+                Toggle("Only auto-approve recipes that meet Stocked standards",
+                       isOn: $harvest.settings.requireStandardsForAutoApprove)
+                    .toggleStyle(.checkbox).font(.caption)
+                    .help("Title, 3+ ingredients, 2+ steps, image on disk, source URL, honest attribution")
+
+                HStack(spacing: 6) {
+                    if harvest.isBulkVerifying {
+                        ProgressView().scaleEffect(0.45)
+                        Text("\(harvest.bulkVerifyProgress.completed)/\(harvest.bulkVerifyProgress.total)")
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        Button("Stop") { harvest.cancelBulkVerify() }
+                            .buttonStyle(.borderless).foregroundStyle(.red).font(.caption)
+                    } else {
+                        Button("Bulk verify queue") { harvest.bulkVerifyQueue() }
+                            .font(.caption)
+                            .disabled(harvest.queuedURLCount == 0 || harvest.isImporting)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
         .onChange(of: harvest.settings.autoImportVerified) { harvest.scheduleSettingsSave() }
         .onChange(of: harvest.settings.autoApproveConfidence) { harvest.scheduleSettingsSave() }
         .onChange(of: harvest.settings.verifyBeforeImport) { harvest.scheduleSettingsSave() }
         .onChange(of: harvest.settings.requireStandardsForAutoApprove) { harvest.scheduleSettingsSave() }
     }
 
-    // MARK: - Queue
+    // MARK: - Queue card
 
     @ViewBuilder
-    private var queuePanel: some View {
+    private var queueCard: some View {
         @Bindable var harvest = harvest
         let queued = harvest.queuedURLCount
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
-                Text("Queue").font(.caption.weight(.medium))
-                if queued > 0 {
-                    Text("· \(queued) URL\(queued == 1 ? "" : "s")")
-                        .font(.caption).foregroundStyle(MacTheme.gold)
-                }
-                Spacer(minLength: 0)
-                Button("Paste") { harvest.pasteURLsFromClipboard() }
-                    .buttonStyle(.borderless).font(.caption)
-                if queued > 0 {
-                    Button("Clear") { harvest.importText = "" }
-                        .buttonStyle(.borderless).font(.caption).foregroundStyle(.red)
-                }
-                Button { showURLEditor.toggle() } label: {
-                    Image(systemName: "square.and.pencil").font(.caption2)
-                }
-                .buttonStyle(.borderless).foregroundStyle(.secondary)
-                .help("Paste / edit URLs directly")
-            }
-
-            if showURLEditor {
-                TextEditor(text: $harvest.importText)
-                    .font(.system(size: 11, design: .monospaced))
-                    .frame(height: 64)
-                    .overlay(RoundedRectangle(cornerRadius: 5)
-                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1))
-            }
-
-            if queued > 0 || harvest.isImporting {
-                HStack(spacing: 6) {
-                    Button("Import \(queued) URL\(queued == 1 ? "" : "s")") { harvest.importURLs() }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(harvest.isImporting || harvest.isBulkVerifying || queued == 0)
-                    if harvest.isImporting {
-                        ProgressView().scaleEffect(0.45)
-                        Text("\(harvest.importProgress.completed)/\(harvest.importProgress.total)")
-                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                        Button("Stop") { harvest.cancelImport() }
-                            .buttonStyle(.borderless).foregroundStyle(.red)
+        MacCard(title: "Queue", systemImage: "tray.full",
+                footnote: queued > 0 ? "\(queued) URLs" : nil) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Button("Paste URLs") { harvest.pasteURLsFromClipboard() }
+                        .font(.caption)
+                    Button(showURLEditor ? "Hide editor" : "Edit") { showURLEditor.toggle() }
+                        .font(.caption)
+                    Spacer(minLength: 0)
+                    if queued > 0 {
+                        Button("Clear") { harvest.importText = "" }
+                            .font(.caption).foregroundStyle(.red)
                     }
-                    Spacer(minLength: 0)
                 }
-                .font(.callout)
-            }
+                .buttonStyle(.borderless)
 
-            if let report = harvest.discoveryReport, !report.unverified.isEmpty {
-                HStack(spacing: 5) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.caption2).foregroundStyle(MacTheme.gold)
-                    Text("\(report.unverified.count) more from \(report.sourceName)")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    Spacer(minLength: 0)
-                    Button("Resume") { harvest.verifyRemaining() }
-                        .buttonStyle(.borderless).font(.caption)
-                    Button("✕") { harvest.discoveryReport = nil }
-                        .buttonStyle(.borderless).font(.caption).foregroundStyle(.red)
+                if showURLEditor {
+                    TextEditor(text: $harvest.importText)
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(height: 70)
+                        .overlay(RoundedRectangle(cornerRadius: 5)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1))
                 }
-            }
 
-            if queued == 0 && !harvest.isImporting && !showURLEditor {
-                Text("Browse a source or paste URLs to fill the queue.")
-                    .font(.caption).foregroundStyle(.secondary)
+                if queued > 0 || harvest.isImporting {
+                    HStack(spacing: 6) {
+                        Button("Import \(queued) URL\(queued == 1 ? "" : "s")") { harvest.importURLs() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(harvest.isImporting || harvest.isBulkVerifying || queued == 0)
+                        if harvest.isImporting {
+                            ProgressView().scaleEffect(0.45)
+                            Text("\(harvest.importProgress.completed)/\(harvest.importProgress.total)")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            Button("Stop") { harvest.cancelImport() }
+                                .buttonStyle(.borderless).foregroundStyle(.red)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .font(.callout)
+                }
+
+                if let report = harvest.discoveryReport, !report.unverified.isEmpty {
+                    HStack(spacing: 5) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.caption2).foregroundStyle(MacTheme.gold)
+                        Text("\(report.unverified.count) more from \(report.sourceName)")
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Spacer(minLength: 0)
+                        Button("Resume") { harvest.verifyRemaining() }
+                            .buttonStyle(.borderless).font(.caption)
+                    }
+                }
+
+                if queued == 0 && !harvest.isImporting && !showURLEditor {
+                    Text("Browse a source or paste URLs to fill the queue.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
     }
 
-    // MARK: - Images
+    // MARK: - Images card
 
     @ViewBuilder
-    private var imagePanel: some View {
+    private var imagesCard: some View {
         @Bindable var harvest = harvest
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Images").font(.caption.weight(.medium))
-
-            Toggle("Require an image before a recipe reaches the kitchen",
-                   isOn: $harvest.settings.requireImageForImport)
-                .toggleStyle(.checkbox).font(.caption)
-            Toggle("Retry failed image downloads after each run",
-                   isOn: $harvest.settings.autoFetchMissingImages)
-                .toggleStyle(.checkbox).font(.caption)
-
-            HStack(spacing: 6) {
+        MacCard(title: "Images", systemImage: "photo") {
+            VStack(alignment: .leading, spacing: 7) {
+                Toggle("Require an image before a recipe reaches the kitchen",
+                       isOn: $harvest.settings.requireImageForImport)
+                    .toggleStyle(.checkbox).font(.caption)
+                Toggle("Retry failed image downloads after each run",
+                       isOn: $harvest.settings.autoFetchMissingImages)
+                    .toggleStyle(.checkbox).font(.caption)
                 let missing = harvest.imagelessCount
-                Button(missing > 0 ? "Fetch \(missing) missing image\(missing == 1 ? "" : "s")" : "No images missing") {
-                    harvest.fetchMissingImages()
+                HStack {
+                    Button(missing > 0 ? "Fetch \(missing) missing image\(missing == 1 ? "" : "s")" : "No images missing") {
+                        harvest.fetchMissingImages()
+                    }
+                    .font(.caption)
+                    .disabled(missing == 0 || harvest.isImporting)
+                    Spacer(minLength: 0)
                 }
-                .font(.caption)
-                .disabled(missing == 0 || harvest.isImporting)
-                Spacer(minLength: 0)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
         .onChange(of: harvest.settings.requireImageForImport) { harvest.scheduleSettingsSave() }
         .onChange(of: harvest.settings.autoFetchMissingImages) { harvest.scheduleSettingsSave() }
     }
 
-    // MARK: - Cloud cache
+    // MARK: - Cloud card
 
     @ViewBuilder
-    private var cloudPanel: some View {
+    private var cloudCard: some View {
         @Bindable var harvest = harvest
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Cloud cache").font(.caption.weight(.medium))
-
-            Toggle("Sync approved recipes to the Worker automatically",
-                   isOn: $harvest.settings.cloudSyncEnabled)
-                .toggleStyle(.checkbox).font(.caption)
-
-            HStack(spacing: 6) {
-                if harvest.isCloudSyncing {
-                    ProgressView().scaleEffect(0.45)
-                    Text("Syncing…").font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Button("Sync now") { harvest.syncApprovedToCloud() }
-                        .font(.caption)
-                        .disabled(harvest.approvedRecipes.isEmpty)
+        MacCard(title: "Cloud cache", systemImage: "icloud.and.arrow.up") {
+            VStack(alignment: .leading, spacing: 7) {
+                Toggle("Sync approved recipes to the Worker automatically",
+                       isOn: $harvest.settings.cloudSyncEnabled)
+                    .toggleStyle(.checkbox).font(.caption)
+                HStack(spacing: 6) {
+                    if harvest.isCloudSyncing {
+                        ProgressView().scaleEffect(0.45)
+                        Text("Syncing…").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Button("Sync now") { harvest.syncApprovedToCloud() }
+                            .font(.caption)
+                            .disabled(harvest.approvedRecipes.isEmpty)
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
-            }
-
-            if let status = harvest.cloudSyncStatus {
-                Text(status)
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let status = harvest.cloudSyncStatus {
+                    Text(status)
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
         .onChange(of: harvest.settings.cloudSyncEnabled) { harvest.scheduleSettingsSave() }
     }
 
-    // MARK: - Right pane: activity
+    // MARK: - Right pane
 
+    private var isIdle: Bool {
+        !harvest.isDiscovering && !harvest.isImporting && !harvest.isBulkVerifying
+    }
+
+    @ViewBuilder
     private var activityPane: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                statsRow
+        if isIdle, harvest.recipes.isEmpty, harvest.sessionHistory.isEmpty, harvest.discoveryReport == nil {
+            MacEmpty(
+                title: "Ready to browse",
+                message: "Pick a source on the left — or several — and press Browse & Import. Found recipes land in Harvest for review.",
+                systemImage: "globe"
+            )
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    statsRow
 
-                if harvest.isDiscovering {
-                    MacCard(title: "Browsing", systemImage: "globe") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(harvest.discoveryProgress.phase).font(.callout)
-                            if let url = harvest.discoveryProgress.currentURL {
-                                Text(url).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    if harvest.isDiscovering { browsingCard }
+
+                    if let failure = harvest.discoveryFailure {
+                        MacCard(title: "Browse failed", systemImage: "exclamationmark.triangle") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(failure).font(.callout).foregroundStyle(.red)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                HStack(spacing: 8) {
+                                    Button("Retry") { harvest.clearPauseAndRetry() }
+                                    Button("Dismiss") { harvest.discoveryFailure = nil }
+                                }
+                                .font(.caption)
                             }
-                            Text("\(harvest.discoveryProgress.pagesFetched) pages · \(harvest.discoveryProgress.confirmed) found")
-                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                }
 
-                if let report = harvest.discoveryReport {
-                    MacCard(title: "Last session — \(report.sourceName)", systemImage: "doc.text") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(report.summary).font(.callout)
-                            HStack(spacing: 8) {
-                                Button("Queue verified links") { harvest.queue(report.confirmed) }
-                                    .disabled(report.confirmed.isEmpty)
-                                if !report.unverified.isEmpty {
-                                    Button("Finish \(report.unverified.count) unchecked") {
-                                        harvest.verifyRemaining()
+                    if let report = harvest.discoveryReport, !harvest.isDiscovering {
+                        MacCard(title: "Last session — \(report.sourceName)", systemImage: "doc.text") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(report.summary).font(.callout)
+                                if let note = report.notes.first {
+                                    Text(note).font(.caption).foregroundStyle(.secondary)
+                                }
+                                HStack(spacing: 8) {
+                                    Button("Queue verified links") { harvest.queue(report.confirmed) }
+                                        .disabled(report.confirmed.isEmpty)
+                                    if !report.unverified.isEmpty {
+                                        Button("Finish \(report.unverified.count) unchecked") {
+                                            harvest.verifyRemaining()
+                                        }
                                     }
-                                }
-                            }
-                            .font(.caption)
-                        }
-                    }
-                }
-
-                if !harvest.sessionHistory.isEmpty {
-                    MacCard(title: "Session history", systemImage: "clock.arrow.circlepath") {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(Array(harvest.sessionHistory.prefix(8).enumerated()), id: \.offset) { _, report in
-                                HStack(spacing: 6) {
-                                    Text(report.sourceName).font(.caption.weight(.medium)).lineLimit(1)
-                                    Text(report.finishedAt, style: .relative)
-                                        .font(.caption2).foregroundStyle(.secondary)
-                                    Text("· \(report.confirmed.count) verified")
-                                        .font(.caption2).foregroundStyle(.secondary)
                                     Spacer(minLength: 0)
-                                    Button("Restore") { harvest.restoreSession(report) }
-                                        .buttonStyle(.borderless).font(.caption)
+                                    Button("Dismiss") { harvest.discoveryReport = nil }
+                                        .foregroundStyle(.secondary)
                                 }
+                                .font(.caption)
                             }
                         }
                     }
-                }
 
-                MacCard(title: "Activity", systemImage: "list.bullet.rectangle") {
-                    if harvest.logs.isEmpty {
-                        Text("Nothing yet. Browse a source to get started.")
-                            .font(.callout).foregroundStyle(.secondary)
-                    } else {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(harvest.logs.prefix(14)) { entry in
-                                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                    Circle()
-                                        .fill(logTint(entry.level))
-                                        .frame(width: 5, height: 5)
-                                        .padding(.top, 4)
-                                    Text(entry.message)
-                                        .font(.caption)
-                                        .foregroundStyle(entry.level == .error ? .red : .secondary)
-                                        .lineLimit(2)
-                                }
-                            }
-                        }
-                    }
+                    if !harvest.sessionHistory.isEmpty { historyCard }
+
+                    activityCard
                 }
+                .padding(16)
             }
-            .padding(16)
         }
     }
 
     private var statsRow: some View {
         let dashboard = harvest.dashboard
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 130))], spacing: 10) {
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 132))], spacing: 10) {
             stat("Imported", "\(dashboard.recipes)", "tray.and.arrow.down")
             stat("Awaiting review", "\(dashboard.needsReview)", "eye")
             stat("Approved", "\(dashboard.approved)", "checkmark.circle")
@@ -618,18 +566,76 @@ struct MacBrowseView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Helpers
-
-    private func healthDot(_ health: SourceHealth) -> some View {
-        let color: Color
-        switch health {
-        case .healthy: color = MacTheme.green
-        case .limited: color = .orange
-        case .paused:  color = .orange
-        case .blocked: color = .red
-        case .unknown: color = .secondary
+    private var browsingCard: some View {
+        MacCard(title: "Browsing", systemImage: "globe") {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(harvest.discoveryProgress.phase).font(.callout.weight(.medium))
+                    Spacer(minLength: 0)
+                    Button("Stop") { harvest.cancelDiscovery() }
+                        .buttonStyle(.borderless).foregroundStyle(.red).font(.caption)
+                }
+                if let url = harvest.discoveryProgress.currentURL {
+                    Text(url).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                let fetched = harvest.discoveryProgress.pagesFetched
+                let queuedPages = harvest.discoveryProgress.queued
+                let total = max(1, fetched + queuedPages)
+                ProgressView(value: Double(min(fetched, total)), total: Double(total))
+                    .progressViewStyle(.linear)
+                HStack(spacing: 12) {
+                    Label("\(fetched) pages read", systemImage: "doc.plaintext").font(.caption)
+                    Label("\(queuedPages) queued", systemImage: "tray").font(.caption)
+                    Label("\(harvest.discoveryProgress.confirmed) recipes found", systemImage: "fork.knife")
+                        .font(.caption).foregroundStyle(MacTheme.green)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.secondary)
+            }
         }
-        return Circle().fill(color).frame(width: 6, height: 6)
+    }
+
+    private var historyCard: some View {
+        MacCard(title: "Session history", systemImage: "clock.arrow.circlepath") {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(harvest.sessionHistory.prefix(8).enumerated()), id: \.offset) { _, report in
+                    HStack(spacing: 8) {
+                        Text(report.sourceName).font(.caption.weight(.medium)).lineLimit(1)
+                        Text(report.finishedAt, style: .relative)
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Text("· \(report.confirmed.count) verified")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        Button("Restore") { harvest.restoreSession(report) }
+                            .buttonStyle(.borderless).font(.caption)
+                    }
+                }
+            }
+        }
+    }
+
+    private var activityCard: some View {
+        MacCard(title: "Activity", systemImage: "list.bullet.rectangle") {
+            if harvest.logs.isEmpty {
+                Text("Nothing yet. Browse a source to get started.")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(harvest.logs.prefix(14)) { entry in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Circle()
+                                .fill(logTint(entry.level))
+                                .frame(width: 5, height: 5)
+                                .padding(.top, 4)
+                            Text(entry.message)
+                                .font(.caption)
+                                .foregroundStyle(entry.level == .error ? .red : .secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func logTint(_ level: CrawlLogEntry.Level) -> Color {
@@ -642,7 +648,7 @@ struct MacBrowseView: View {
     }
 }
 
-// MARK: - Multi-select source picker (Build 92)
+// MARK: - Multi-select source picker
 
 /// The checklist behind the sources dropdown: search, group headers with select-all,
 /// health dots, and a running count. Selection lives in the parent so the action
@@ -664,7 +670,7 @@ private struct SourceMultiPicker: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 5) {
                 Image(systemName: "magnifyingglass").font(.caption2).foregroundStyle(.secondary)
-                TextField("Filter by name, tag or domain\u{2026}", text: $search)
+                TextField("Filter by name, tag or domain…", text: $search)
                     .textFieldStyle(.plain).font(.callout)
                 if !search.isEmpty {
                     Button { search = "" } label: {
@@ -682,8 +688,8 @@ private struct SourceMultiPicker: View {
                     if !recent.isEmpty && search.isEmpty {
                         group("Recent", recent)
                     }
-                    group("American \u{2014} Top 50", american)
-                    group("Worldwide \u{2014} Top 50", worldwide)
+                    group("American — Top 50", american)
+                    group("Worldwide — Top 50", worldwide)
                     if !feeds.isEmpty {
                         group("Communities & feeds", feeds)
                     }
@@ -693,7 +699,7 @@ private struct SourceMultiPicker: View {
                 }
                 .padding(.vertical, 6)
             }
-            .frame(width: 320, height: 360)
+            .frame(width: 330, height: 380)
 
             Divider()
 
@@ -766,8 +772,8 @@ private struct SourceMultiPicker: View {
     private func healthDot(_ health: SourceHealth) -> some View {
         let color: Color
         switch health {
+        case .limited, .paused: return Circle().fill(Color.orange).frame(width: 6, height: 6)
         case .healthy: color = MacTheme.green
-        case .limited, .paused: color = .orange
         case .blocked: color = .red
         case .unknown: color = .secondary
         }

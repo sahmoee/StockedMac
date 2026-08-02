@@ -28,3 +28,6 @@
 - **No iOS change required.** Recipes arriving from the Mac now always carry honest
   attribution in their notes ("Source: <site or author> — <url>"), never "Sowens" or
   an internal handle. Reddit-found recipes are attributed to the hosting site.
+
+### 2026-08-02 — note: Mac Build 94
+- Mac crawler/UI fixes only. **No iOS change required.**
