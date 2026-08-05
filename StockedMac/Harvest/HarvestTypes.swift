@@ -280,6 +280,12 @@ nonisolated struct AppSettings: Codable, Sendable {
     /// only kicks in as a fallback when direct discovery comes up short. When recipes
     /// ARE mined, they jump to the front of the queue and are verified/imported first.
     var preferDirectRecipes: Bool
+    // ── Build 101 (Autonomy) ─────────────────────────────────────────────
+    /// Fully hands-off. One Start discovers, mines + caches each category, imports, and
+    /// auto-approves qualifying recipes straight through, rotating across sources on its
+    /// own until stopped. Sub-standard recipes (missing image / failed standards) still
+    /// wait in Review. Turning this off restores the step-by-step, review-first flow.
+    var autopilot: Bool
 
     static var defaults: AppSettings {
         AppSettings(
@@ -312,7 +318,7 @@ nonisolated struct AppSettings: Codable, Sendable {
             requireStandardsForAutoApprove: true,
             useWebKitFallback: true,
             importSpacingSeconds: 0,
-            settingsRevision: 4,
+            settingsRevision: 5,
             queueCap: 500,
             bulkVerifyBatchSize: 100,
             importBatchSize: 0,
@@ -320,7 +326,8 @@ nonisolated struct AppSettings: Codable, Sendable {
             lastSelectedSourceIDs: [],
             selectedBrowseCategoryIDs: [],
             reuseCachedDiscoveryResults: true,
-            preferDirectRecipes: true
+            preferDirectRecipes: true,
+            autopilot: true
         )
     }
 
@@ -353,7 +360,7 @@ nonisolated extension AppSettings {
         case bulkVerifyBatchSize, importBatchSize
         case favoriteSourceIDs, lastSelectedSourceIDs
         case selectedBrowseCategoryIDs, reuseCachedDiscoveryResults
-        case preferDirectRecipes
+        case preferDirectRecipes, autopilot
     }
 
     init(from decoder: Decoder) throws {
@@ -394,6 +401,7 @@ nonisolated extension AppSettings {
         selectedBrowseCategoryIDs = (try? c.decodeIfPresent([String].self, forKey: .selectedBrowseCategoryIDs)) ?? []
         reuseCachedDiscoveryResults = (try? c.decodeIfPresent(Bool.self, forKey: .reuseCachedDiscoveryResults)) ?? true
         preferDirectRecipes     = (try? c.decodeIfPresent(Bool.self, forKey: .preferDirectRecipes)) ?? d.preferDirectRecipes
+        autopilot               = (try? c.decodeIfPresent(Bool.self, forKey: .autopilot)) ?? d.autopilot
     }
 }
 
@@ -560,6 +568,49 @@ nonisolated struct DiscoveredLink: Codable, Sendable {
     var url: String
     var title: String?
     var imageURL: String?
+}
+
+// MARK: - Category catalog (Build 101)
+
+/// A category / hub page discovered on a source, cached so it becomes a first-class
+/// browseable option. The recipes mined from it live in the mining cache
+/// (`MinedPageCacheRecord`); this record carries the count so the UI can show "ready".
+nonisolated struct SourceCategory: Codable, Sendable, Identifiable, Hashable {
+    var id: String            // stable per source + normalized url
+    var sourceID: String
+    var sourceName: String
+    var url: String
+    var name: String          // human name derived from the slug
+    var group: String?        // matched fixed-taxonomy group, if any
+    var recipeCount: Int      // recipes cached and ready to import
+    var minedAt: Date?        // nil = discovered but not yet mined
+    var lastImportedAt: Date?
+
+    var isReady: Bool { recipeCount > 0 }
+}
+
+/// Per-source catalog of discovered categories, persisted as one JSON file per source.
+nonisolated struct SourceCategoryCatalog: Codable, Sendable {
+    var sourceID: String
+    var sourceName: String
+    var updatedAt: Date
+    var categories: [SourceCategory]
+}
+
+/// One category mined during a discovery run: its identity plus the recipe links found
+/// on it, so the model can cache them for instant, no-refetch import later.
+nonisolated struct MinedCategory: Sendable {
+    var url: String
+    var name: String
+    var group: String?
+    var recipeURLs: [String]
+}
+
+/// What a discovery run returns: the recipe report (unchanged, still persisted on its
+/// own) plus the categories it surfaced and mined this pass.
+nonisolated struct DiscoveryOutcome: Sendable {
+    var report: DiscoveryReport
+    var categories: [MinedCategory]
 }
 
 nonisolated struct DiscoveryProgress: Sendable {

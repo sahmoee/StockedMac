@@ -79,11 +79,17 @@ final class HarvestModel {
     var sourceCacheSummaries: [String: SourceDiscoveryCacheSummary] = [:]
     /// Number of category/listing pages whose mined recipe links can be reused offline.
     var cachedMinedPageCount = 0
+    /// Build 101: the category catalog — one entry per source, each holding the categories
+    /// discovered on it (organized, with a cached-recipe count). Browseable and cached.
+    var sourceCategories: [String: SourceCategoryCatalog] = [:]
     /// Sources still to visit in the current auto-rotate run.
     var autoRotateRemaining = 0
     /// Explicitly selected sources still waiting their turn (multi-select browsing).
     var sourceRotationQueue: [String] = []
     @ObservationIgnored private var rotationQueueOnly = false
+    /// Build 101: set when the user presses Stop during autopilot, so the rotation and
+    /// mined-import continuation halt instead of rolling on to the next source.
+    @ObservationIgnored private var autopilotStopRequested = false
     @ObservationIgnored private var activeRawDiscoveryReport: DiscoveryReport?
     @ObservationIgnored private var activeReportCameFromCache = false
     // ── Build 95 (Importing) ────────────────────────────────────────────
@@ -229,6 +235,7 @@ final class HarvestModel {
             logs = await logStore.recent(limit: 200)
             loadSessionHistory()
             reloadMiningCacheCount()
+            loadCategoryCatalog()
             await reload()
             // Bring back the last browse and apply today's category selection to the
             // unfiltered saved report. Changing filters never destroys cached links.
@@ -730,17 +737,18 @@ final class HarvestModel {
         // the queue, and this drains them before we move on to the next source. Safe to
         // loop on: imported URLs leave the queue text (it strictly shrinks) and mining is
         // one-generation + session-deduped + capped, so it converges instead of running away.
-        if settings.autoImportVerified, minedQueuedThisPass, !isDiscovering, queuedURLCount > 0 {
+        if (settings.autoImportVerified || settings.autopilot), !autopilotStopRequested,
+           minedQueuedThisPass, !isDiscovering, queuedURLCount > 0 {
             log(.info, "Automatic: importing the mined recipes now.")
             importURLs()
             return
         }
 
         // Selected sources first, then auto-rotate, until both runs are used up.
-        if !isDiscovering, advanceSourceRotation() {
+        if !autopilotStopRequested, !isDiscovering, advanceSourceRotation() {
             return
         }
-        if autoRotateRemaining > 0, !isDiscovering {
+        if autoRotateRemaining > 0, !isDiscovering, !autopilotStopRequested {
             autoRotateRemaining -= 1
             browseNextSource()
             return
@@ -838,6 +846,7 @@ final class HarvestModel {
         isDiscovering = true
         discoveryReport = nil
         discoveryFailure = nil
+        autopilotStopRequested = false
         rememberSource(source.id)
         let activeSettings = settings
         let reusableReport = activeSettings.reuseCachedDiscoveryResults && !forceRefresh
@@ -870,7 +879,7 @@ final class HarvestModel {
                         rejected: reusableReport.rejected.count
                     )
                 } else {
-                    rawReport = try await coordinator.discoverRecipeURLs(
+                    let outcome = try await coordinator.discoverRecipeURLs(
                         source: source,
                         settings: activeSettings,
                         manual: true,
@@ -879,7 +888,11 @@ final class HarvestModel {
                             await self.updateDiscoveryProgress(update)
                         }
                     )
+                    rawReport = outcome.report
                     fromCache = false
+                    // Build 101: fold the categories this run surfaced into the source's
+                    // catalog and cache each one's recipes, so they're instantly browseable.
+                    self?.recordCategories(outcome.categories, for: source)
                 }
                 guard let self else { return }
                 self.activeRawDiscoveryReport = rawReport
@@ -889,7 +902,8 @@ final class HarvestModel {
                 // Save the complete, unfiltered source result. Category selections can
                 // change later without forcing another crawl or losing any links.
                 if !fromCache { await self.persistReport(rawReport) }
-                let shouldAutoImport = !addToQueueOnly && self.settings.autoImportVerified
+                let shouldAutoImport = !addToQueueOnly
+                    && (self.settings.autoImportVerified || self.settings.autopilot)
                 if shouldAutoImport, !report.confirmed.isEmpty {
                     self.importDirect(report.confirmed.map(\.url))
                 } else if shouldAutoImport,
@@ -956,7 +970,12 @@ final class HarvestModel {
                     self.notifyIfBackgrounded()
                 }
             } catch is CancellationError {
-                self?.statusMessage = "Browse canceled"
+                // Build 102: DiscoveryEngine now absorbs cancellation internally and
+                // returns whatever it found instead of throwing, so this branch should
+                // be effectively unreachable in normal use. It stays as a backstop for
+                // an unexpected cancellation elsewhere (e.g. the known-URLs lookup)
+                // that happens before any report exists to import from.
+                self?.statusMessage = "Stopped — nothing was found yet to import."
             } catch {
                 guard let self else { return }
                 // Shown inline on the Browse screen — a modal alert here could
@@ -1132,6 +1151,125 @@ final class HarvestModel {
             includingPropertiesForKeys: nil
         )) ?? []
         cachedMinedPageCount = files.filter { $0.pathExtension == "json" }.count
+    }
+
+    // MARK: - Category catalog (Build 101)
+
+    private func categoryCatalogURL(for sourceID: String) -> URL {
+        paths.categoryCatalog
+            .appendingPathComponent(String(Hashing.sha256(sourceID).prefix(24)))
+            .appendingPathExtension("json")
+    }
+
+    /// Every discovered category across sources, most-ready first — for the browser.
+    var allCategories: [SourceCategory] {
+        sourceCategories.values.flatMap(\.categories).sorted { lhs, rhs in
+            if lhs.recipeCount != rhs.recipeCount { return lhs.recipeCount > rhs.recipeCount }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    /// Categories with recipes cached and ready to import right now.
+    var readyCategoryCount: Int { allCategories.filter(\.isReady).count }
+
+    /// Folds a run's mined categories into the source's catalog: caches each category's
+    /// recipes (so drill-in import is instant), derives its ready count, organizes and
+    /// persists. Called after every fresh discovery.
+    func recordCategories(_ mined: [MinedCategory], for source: SourceProfile) {
+        guard !mined.isEmpty else { return }
+        var byID: [String: SourceCategory] = Dictionary(
+            uniqueKeysWithValues: (sourceCategories[source.id]?.categories ?? []).map { ($0.id, $0) }
+        )
+        for cat in mined {
+            guard let valid = try? URLSafety.validatedRemoteURL(cat.url) else { continue }
+            let url = URLSafety.normalized(valid).absoluteString
+            let id = String(Hashing.sha256(source.id + "|" + url).prefix(24))
+            if !cat.recipeURLs.isEmpty { persistMinedLinks(cat.recipeURLs, for: url) }
+            let cachedCount = cachedMinedLinks(for: url)?.count ?? cat.recipeURLs.count
+            var record = byID[id] ?? SourceCategory(
+                id: id, sourceID: source.id, sourceName: source.name,
+                url: url, name: cat.name, group: cat.group,
+                recipeCount: 0, minedAt: nil, lastImportedAt: nil
+            )
+            record.name = cat.name
+            if let group = cat.group { record.group = group }
+            record.recipeCount = max(record.recipeCount, cachedCount)
+            if !cat.recipeURLs.isEmpty { record.minedAt = Date() }
+            byID[id] = record
+        }
+        let organized = byID.values.sorted { lhs, rhs in
+            if lhs.recipeCount != rhs.recipeCount { return lhs.recipeCount > rhs.recipeCount }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+        let catalog = SourceCategoryCatalog(
+            sourceID: source.id, sourceName: source.name,
+            updatedAt: Date(), categories: organized
+        )
+        sourceCategories[source.id] = catalog
+        persistCategoryCatalog(catalog)
+        let ready = organized.filter(\.isReady).count
+        log(.success, "\(source.name): \(organized.count) categories organized, \(ready) ready to import.",
+            url: source.baseURL)
+    }
+
+    private func persistCategoryCatalog(_ catalog: SourceCategoryCatalog) {
+        guard let data = try? JSONCoding.encoder().encode(catalog) else { return }
+        try? data.write(to: categoryCatalogURL(for: catalog.sourceID), options: .atomic)
+    }
+
+    private func loadCategoryCatalog() {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: paths.categoryCatalog, includingPropertiesForKeys: nil
+        )) ?? []
+        var loaded: [String: SourceCategoryCatalog] = [:]
+        let decoder = JSONCoding.decoder()
+        for file in files where file.pathExtension == "json" {
+            if let data = try? Data(contentsOf: file),
+               let catalog = try? decoder.decode(SourceCategoryCatalog.self, from: data) {
+                loaded[catalog.sourceID] = catalog
+            }
+        }
+        sourceCategories = loaded
+    }
+
+    private func markCategoryImported(_ category: SourceCategory) {
+        guard var catalog = sourceCategories[category.sourceID],
+              let idx = catalog.categories.firstIndex(where: { $0.id == category.id }) else { return }
+        catalog.categories[idx].lastImportedAt = Date()
+        sourceCategories[category.sourceID] = catalog
+        persistCategoryCatalog(catalog)
+    }
+
+    /// Import a category's recipes. Cached ones import instantly with no refetch; an
+    /// unmined category is queued so the importer mines and imports it autonomously.
+    func importCategory(_ category: SourceCategory) {
+        markCategoryImported(category)
+        if let recipes = cachedMinedLinks(for: category.url), !recipes.isEmpty {
+            statusMessage = "Importing \(recipes.count) recipe\(recipes.count == 1 ? "" : "s") from \(category.name)…"
+            importDirect(recipes)
+        } else {
+            statusMessage = "Mining \(category.name) and importing what it holds…"
+            importDirect([category.url])
+        }
+    }
+
+    /// Cached recipe URLs known for a category, if any (used by the browser for counts).
+    func cachedRecipes(for category: SourceCategory) -> [String] {
+        cachedMinedLinks(for: category.url) ?? []
+    }
+
+    /// Import every ready (already-mined) category's recipes in one press — no refetch.
+    func importAllReadyCategories() {
+        let ready = allCategories.filter(\.isReady)
+        var seen = Set<String>()
+        let urls = ready.flatMap { cachedRecipes(for: $0) }.filter { seen.insert($0).inserted }
+        guard !urls.isEmpty else {
+            statusMessage = "No cached category recipes to import yet."
+            return
+        }
+        ready.forEach { markCategoryImported($0) }
+        statusMessage = "Importing \(urls.count) recipe\(urls.count == 1 ? "" : "s") from \(ready.count) ready categor\(ready.count == 1 ? "y" : "ies")…"
+        importDirect(urls)
     }
 
     private func cachedReport(for sourceID: String) -> DiscoveryReport? {
@@ -1610,7 +1748,7 @@ final class HarvestModel {
     /// guided flow safe by default: pasted/listing pages are verified and mined before
     /// import, while Automatic remains an explicit choice in Browse.
     private func migrateSettingsIfNeeded() {
-        guard settings.settingsRevision < 4 else { return }
+        guard settings.settingsRevision < 5 else { return }
         var changes: [String] = []
         if settings.settingsRevision < 2 {
             if settings.userAgent == AppSettings.legacyUserAgent {
@@ -1629,7 +1767,11 @@ final class HarvestModel {
             settings.preferDirectRecipes = true
             changes.append("Browse now prefers direct recipe links and mines only when needed; mined recipes are imported first")
         }
-        settings.settingsRevision = 4
+        if settings.settingsRevision < 5 {
+            settings.autopilot = true
+            changes.append("Autopilot is on — one press finds, mines + caches categories, imports and auto-approves hands-off")
+        }
+        settings.settingsRevision = 5
         scheduleSettingsSave()
         log(.info, "New Browse flow defaults applied: \(changes.joined(separator: "; ")).")
     }
@@ -2202,6 +2344,52 @@ final class HarvestModel {
             log(.info, "Browsing \(eligible.count) selected sources, starting with \(first.name).")
         }
         discover(first, addToQueueOnly: queueOnly)
+    }
+
+    // MARK: - Autopilot (Build 101)
+
+    /// True whenever a hands-off run is in flight — discovering, mining, importing, or
+    /// waiting to roll on to the next source.
+    var isAutopilotRunning: Bool {
+        isDiscovering || isImporting || isBulkVerifying || !sourceRotationQueue.isEmpty
+    }
+
+    /// The one hands-off entry point. Runs the chosen sources — or the whole catalog when
+    /// none are given — end to end: discover, mine + cache categories, import, and
+    /// auto-approve qualifying recipes, rolling across sources on its own until it runs out
+    /// or you press Stop. Reuses the existing rotation + auto-import chain.
+    func startAutopilot(sourceIDs: [String] = []) {
+        guard !isDiscovering, !isImporting, !isBulkVerifying else { return }
+        let eligible = sources.filter { $0.enabled && $0.discoveryMode.supportsDiscovery }
+        guard !eligible.isEmpty else {
+            discoveryFailure = "No enabled source supports browsing."
+            return
+        }
+        let chosen: [String] = sourceIDs.isEmpty
+            ? eligible.map(\.id)
+            : eligible.map(\.id).filter { sourceIDs.contains($0) }
+        guard !chosen.isEmpty else {
+            discoveryFailure = "None of the selected sources can browse."
+            return
+        }
+        autopilotStopRequested = false
+        autoRotateRemaining = 0
+        log(.info, "Autopilot: \(chosen.count) source\(chosen.count == 1 ? "" : "s"), hands-off.")
+        // queueOnly:false → discover imports and auto-approves; rotation chains the rest.
+        browseSources(withIDs: chosen, queueOnly: false)
+    }
+
+    /// One Stop for the whole thing: cancels the active discovery/import/verify, clears
+    /// the remaining rotation, and keeps everything already imported.
+    func stopAutopilot() {
+        autopilotStopRequested = true
+        sourceRotationQueue.removeAll()
+        autoRotateRemaining = 0
+        discoveryTask?.cancel()
+        importTask?.cancel()
+        bulkVerifyTask?.cancel()
+        statusMessage = "Autopilot stopping — the active request finishes, nothing new starts."
+        log(.info, "Autopilot stopped. Everything imported so far is kept.")
     }
 
     /// Starts the next explicitly selected source, if any. Returns whether it did.

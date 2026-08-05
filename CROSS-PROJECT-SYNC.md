@@ -8,6 +8,62 @@
 
 ## Applied updates
 
+### Build 102 (4.42) — Never empty-handed — 2026-08-05
+- **Interruptions no longer erase progress.** `DiscoveryEngine.discover` (Harvest
+  Services) used to let a failure on any one engine (429, robots block, network error) or
+  a mid-fetch cancellation throw the whole run away, discarding recipes an earlier engine
+  or earlier mining had already found. Each engine attempt in the chain is now wrapped in
+  its own do/catch: a real error logs a note and the chain tries the next engine; a
+  cancellation stops the chain immediately but keeps whatever is already gathered.
+  `discover()` effectively never throws in normal operation now — it always returns a
+  report built from what it has.
+- **A real recipe is always the target, not just a cached category.** If the whole chain
+  (plus its speed-budgeted mining) still ends with nothing confirmed and nothing
+  unverified, the engine keeps opening the categories it already knows about — one hub at
+  a time — until a real recipe link turns up or every known hub has been tried.
+- **Stop/rate-limit now imports what was found.** Because `discover()` returns instead of
+  throwing, `HarvestModel`'s existing confirmed → unverified → queue fallback chain runs
+  normally after a stop or a 429, so autopilot imports whatever was gathered up to that
+  point instead of just showing "Browse canceled."
+- **Import from a URL, always.** Find & Import has a direct URL field wired to
+  `importDirect` — importing a single link no longer requires picking a source or
+  category first.
+- Files changed vs Build 101: `Harvest/HarvestServices.swift` (`DiscoveryEngine.discover`
+  per-engine error/cancellation handling + guaranteed-recipe fallback mining),
+  `Harvest/HarvestModel.swift` (`discover()` cancellation-catch message),
+  `Views/MacBrowseView.swift` (direct URL import field), `Core/MacBuildConfig.swift`.
+- No settings migration (no new persisted keys; revision stays 5).
+- Worker impact: none. iOS impact: none.
+
+### Build 101 (4.41) — Autonomy + category catalog — 2026-08-05
+- **Autopilot** (default on, `settings.autopilot`, revision 5): one Start runs discover →
+  mine + cache categories → import → auto-approve, rotating across the selected sources
+  (or the whole catalog) on its own until it runs out or Stop is pressed. Reuses the
+  existing rotation + auto-import chain; `startAutopilot(sourceIDs:)` / `stopAutopilot()` /
+  `isAutopilotRunning`. Sub-standard recipes still wait in Review. One Stop cancels the
+  active discovery/import/verify, clears rotation, keeps everything imported
+  (`autopilotStopRequested` guards the mined-import continuation and rotation).
+- **Category catalog** (new): every category/hub a run surfaces becomes a first-class,
+  browseable `SourceCategory` — named from its slug, organized by taxonomy group, with a
+  cached-recipe count. `DiscoveryEngine.discover` now returns `DiscoveryOutcome` (report +
+  `[MinedCategory]`); `mineCategories` replaces `expandListings`, opening hubs within the
+  speed budget and mining each one's recipes. The model persists a per-source catalog
+  (`CategoryCatalog/` dir) and caches each category's recipes (`MinedPageCacheRecord`), so
+  drill-in import is instant with no refetch. New model API: `recordCategories`,
+  `allCategories`, `readyCategoryCount`, `importCategory`, `importAllReadyCategories`.
+- **Categories tab** in Browse: grouped list with per-category "N ready" counts, "Import
+  all ready", per-row Import / Mine & Import / Preview, and a source filter.
+- **Simplify**: the Find flow leads with an **Autopilot** switch + one adaptive Start/Stop;
+  the old Review-first/Automatic picker and multi-variant Start buttons are gone (manual
+  controls remain when Autopilot is off). Verify is folded into import as before.
+- Files changed vs Build 100: `Harvest/HarvestTypes.swift` (category types, `autopilot`,
+  revision 5), `Harvest/RecipeBrowseTaxonomy.swift` (`categoryName`, `group(matchingURL:)`),
+  `Harvest/HarvestServices.swift` (`DiscoveryOutcome`, `mineCategories`),
+  `Harvest/CrawlCoordinator.swift` (return type), `Harvest/HarvestInfrastructure.swift`
+  (`categoryCatalog` path), `Harvest/HarvestModel.swift` (catalog + autopilot),
+  `Views/MacBrowseView.swift` (Categories pane + autopilot Start), `Core/MacBuildConfig.swift`.
+- Worker impact: none. iOS impact: none.
+
 ### Build 100 (4.40) — Harvest + Browse combined; avoid mining — 2026-08-05
 - **Harvest folded into Browse.** The separate Harvest sidebar item is gone; Browse is
   now the one place recipes are found, imported AND approved. A segmented switch toggles

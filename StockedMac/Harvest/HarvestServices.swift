@@ -253,7 +253,7 @@ actor DiscoveryEngine {
         manual: Bool,
         knownSourceURLs: Set<String>,
         progress: @Sendable @escaping (DiscoveryProgress) async -> Void
-    ) async throws -> DiscoveryReport {
+    ) async throws -> DiscoveryOutcome {
         let startedAt = Date()
         let level = settings.crawlAggressiveness
         let method = resolveMethod(settings.preferredCrawlMethod, source: source)
@@ -261,6 +261,7 @@ actor DiscoveryEngine {
         var recipeURLs: [String] = []
         var listingURLs: [String] = []
         var unverifiedURLs: [String] = []
+        var minedCategories: [MinedCategory] = []
         var workingSeed: String?
 
         await progress(DiscoveryProgress(phase: "Starting (\(methodLabel(method)))",
@@ -283,49 +284,99 @@ actor DiscoveryEngine {
             if attempt > 0 {
                 notes.append("\(methodLabel(chain[attempt - 1])) came up empty; trying \(methodLabel(engine).lowercased()).")
             }
-            switch engine {
-            case .feed:
-                let result = try await crawlFeeds(source: source, settings: settings,
-                                                  level: level, progress: progress)
-                recipeURLs = result.urls
-                notes.append(contentsOf: result.notes)
-                if workingSeed == nil { workingSeed = result.workingSeed }
-                unverifiedURLs = result.unverified
+            // Build 102: a stall on one engine — a 429, a robots block, a network drop,
+            // or the run being stopped mid-fetch — must never erase what an earlier
+            // engine (or earlier mining) already found. Cancellation stops the chain
+            // outright and keeps whatever is in hand; any other failure just skips to
+            // the next engine instead of throwing the whole run away.
+            do {
+                switch engine {
+                case .feed:
+                    let result = try await crawlFeeds(source: source, settings: settings,
+                                                      level: level, progress: progress)
+                    recipeURLs = result.urls
+                    notes.append(contentsOf: result.notes)
+                    if workingSeed == nil { workingSeed = result.workingSeed }
+                    unverifiedURLs = result.unverified
 
-            case .categories:
-                let result = try await crawlListings(source: source, settings: settings,
-                                                     level: level, progress: progress)
-                recipeURLs = result.urls
-                notes.append(contentsOf: result.notes)
-                if workingSeed == nil { workingSeed = result.workingSeed }
+                case .categories:
+                    let result = try await crawlListings(source: source, settings: settings,
+                                                         level: level, progress: progress)
+                    recipeURLs = result.urls
+                    notes.append(contentsOf: result.notes)
+                    if workingSeed == nil { workingSeed = result.workingSeed }
 
-            case .sitemap, .auto:
-                let result = try await crawlSitemaps(source: source, settings: settings,
-                                                     level: level, progress: progress)
-                recipeURLs = result.recipeURLs
-                listingURLs = result.listingURLs
-                notes.append(contentsOf: result.notes)
-                if workingSeed == nil { workingSeed = result.workingSeed }
-                unverifiedURLs = result.unverified
+                case .sitemap, .auto:
+                    let result = try await crawlSitemaps(source: source, settings: settings,
+                                                         level: level, progress: progress)
+                    recipeURLs = result.recipeURLs
+                    listingURLs = result.listingURLs
+                    notes.append(contentsOf: result.notes)
+                    if workingSeed == nil { workingSeed = result.workingSeed }
+                    unverifiedURLs = result.unverified
+                }
+            } catch is CancellationError {
+                notes.append("\(methodLabel(engine)) stopped early — importing what it found before stopping.")
+                break
+            } catch {
+                let detail = (error as? CompanionError)?.errorDescription ?? error.localizedDescription
+                notes.append("\(methodLabel(engine)) failed (\(detail)); trying the next engine.")
+                continue
             }
 
-            // Build 100: avoid mining when direct discovery already delivered. A site's
-            // category/listing pages are only opened and expanded as a FALLBACK — when the
-            // direct engine (sitemaps/feeds) came up short — so a healthy sitemap or feed
-            // never triggers a crawl. When mining IS the only thing that found recipes,
-            // those links lead the queue and are verified/imported first (see HarvestModel).
-            let directRecipeFloor = 12
-            if settings.preferDirectRecipes, recipeURLs.count >= directRecipeFloor {
-                if !listingURLs.isEmpty {
-                    notes.append("\(listingURLs.count) category page\(listingURLs.count == 1 ? "" : "s") skipped — \(recipeURLs.count) direct recipe links already found (mining avoided).")
-                    listingURLs.removeAll()
-                }
-            } else {
-                try await expandListings(&recipeURLs, listingURLs: &listingURLs,
-                                         source: source, settings: settings,
-                                         level: level, notes: &notes, progress: progress)
+            // Build 101: every category/hub page a run surfaces becomes a first-class,
+            // browseable record, and the ones within the speed budget are mined right away
+            // so browsing a category is instant. Direct recipe links were appended first,
+            // so they still lead the queue (preferDirectRecipes ordering). The model caches
+            // each category's recipes for no-refetch import later.
+            do {
+                try await mineCategories(listingURLs: &listingURLs, recipeURLs: &recipeURLs,
+                                         categories: &minedCategories, source: source,
+                                         settings: settings, level: level, notes: &notes,
+                                         progress: progress)
+            } catch {
+                // mineCategories already swallows cancellation and per-hub failures
+                // internally; anything surfacing here is unexpected. Keep whatever was
+                // gathered rather than losing the run over it.
+                notes.append("Category mining stopped early: \(error.localizedDescription)")
             }
             if !recipeURLs.isEmpty { break }
+        }
+
+        // Build 102: a recipe — not just a cached category — must always be the goal.
+        // If the whole chain (plus its budgeted mining) still found nothing to confirm
+        // or even check, keep opening the categories it already knows about, one at a
+        // time, until a real recipe turns up or every known hub has been tried. This is
+        // what guarantees a run always ends with something importable instead of just a
+        // list of browseable, unmined hub pages.
+        if recipeURLs.isEmpty, unverifiedURLs.isEmpty, !minedCategories.isEmpty {
+            let unmined = minedCategories.indices.filter { minedCategories[$0].recipeURLs.isEmpty }
+            if !unmined.isEmpty {
+                notes.append("Nothing confirmed yet; opening more of the \(minedCategories.count) known categories to find a real recipe.")
+            }
+            for index in unmined {
+                if Task.isCancelled { break }
+                guard let url = URL(string: minedCategories[index].url) else { continue }
+                do {
+                    let page = try await fetcher.fetch(
+                        url, source: source, settings: settings,
+                        accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
+                    )
+                    var recSeen = Set<String>()
+                    let recipes = Self.extractLinks(from: page.text, base: page.finalURL)
+                        .filter { Self.classify($0, source: source) == .recipe && recSeen.insert($0).inserted }
+                    if !recipes.isEmpty {
+                        minedCategories[index].recipeURLs = recipes
+                        recipeURLs.append(contentsOf: recipes)
+                        notes.append("Found \(recipes.count) recipe(s) on \(minedCategories[index].name) — a run never ends with only cached categories.")
+                        break
+                    }
+                } catch is CancellationError {
+                    break
+                } catch {
+                    continue
+                }
+            }
         }
 
         // Dedupe, drop what's already imported, cap to the run budget — loudly.
@@ -341,7 +392,7 @@ actor DiscoveryEngine {
 
         let confirmed = deduplicated.map { DiscoveredLink(url: $0, title: nil, imageURL: nil) }
 
-        return DiscoveryReport(
+        let report = DiscoveryReport(
             sourceID: source.id,
             sourceName: source.name,
             startedAt: startedAt,
@@ -353,13 +404,18 @@ actor DiscoveryEngine {
             unverified: unverifiedURLs,
             notes: notes
         )
+        return DiscoveryOutcome(report: report, categories: minedCategories)
     }
 
-    /// Opens listing/category pages — "Birthdays", "Holiday favorites" and friends —
-    /// and mines them for the recipe links they carry, within the speed budget.
-    private func expandListings(
-        _ recipeURLs: inout [String],
+    /// Build 101: turns the category/hub pages a run surfaced ("Birthdays", "Weeknight
+    /// dinners", …) into first-class, browseable records. Every hub becomes a named
+    /// `MinedCategory` (organized by taxonomy group), and up to the speed budget are opened
+    /// right away and mined for their recipe links — so browsing a category is instant and
+    /// its recipes are cached and ready. Mined recipes also flow into the run's queue.
+    private func mineCategories(
         listingURLs: inout [String],
+        recipeURLs: inout [String],
+        categories: inout [MinedCategory],
         source: SourceProfile,
         settings: AppSettings,
         level: CrawlAggressiveness,
@@ -367,35 +423,42 @@ actor DiscoveryEngine {
         progress: @Sendable @escaping (DiscoveryProgress) async -> Void
     ) async throws {
         guard !listingURLs.isEmpty else { return }
-        let budget = min(listingURLs.count, level.expansionCap)
-        notes.append("\(listingURLs.count) category pages found; expanding \(budget).")
-        var expanded = 0
-        for listing in listingURLs.prefix(budget) {
+        var hubSeen = Set<String>()
+        let hubs = listingURLs.filter { hubSeen.insert($0).inserted }
+        let budget = min(hubs.count, level.expansionCap)
+        notes.append("\(hubs.count) categor\(hubs.count == 1 ? "y" : "ies") found; mining \(budget) now, the rest are browseable.")
+        var mined = 0
+        for (index, listing) in hubs.enumerated() {
             if Task.isCancelled { break }
-            await progress(DiscoveryProgress(phase: "Opening category pages (\(expanded + 1)/\(budget))",
-                                             currentURL: listing,
-                                             pagesFetched: expanded,
-                                             queued: budget - expanded,
-                                             confirmed: recipeURLs.count, rejected: 0))
-            guard let url = URL(string: listing) else { continue }
-            do {
-                let page = try await fetcher.fetch(
-                    url, source: source, settings: settings,
-                    accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
-                )
-                let links = Self.extractLinks(from: page.text, base: page.finalURL)
-                    .filter { Self.classify($0, source: source) == .recipe }
-                recipeURLs.append(contentsOf: links)
-                expanded += 1
-            } catch is CancellationError {
-                break
-            } catch {
-                notes.append("Category page failed: \(listing)")
-                expanded += 1
+            let name = RecipeBrowseTaxonomy.categoryName(fromURL: listing)
+            let group = RecipeBrowseTaxonomy.group(matchingURL: listing)
+            var recipes: [String] = []
+            if index < budget, let url = URL(string: listing) {
+                await progress(DiscoveryProgress(phase: "Mining categories (\(mined + 1)/\(budget))",
+                                                 currentURL: listing,
+                                                 pagesFetched: mined,
+                                                 queued: budget - mined,
+                                                 confirmed: recipeURLs.count, rejected: 0))
+                do {
+                    let page = try await fetcher.fetch(
+                        url, source: source, settings: settings,
+                        accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
+                    )
+                    var recSeen = Set<String>()
+                    recipes = Self.extractLinks(from: page.text, base: page.finalURL)
+                        .filter { Self.classify($0, source: source) == .recipe && recSeen.insert($0).inserted }
+                    recipeURLs.append(contentsOf: recipes)
+                    mined += 1
+                } catch is CancellationError {
+                    break
+                } catch {
+                    notes.append("Category page failed: \(listing)")
+                }
             }
+            categories.append(MinedCategory(url: listing, name: name, group: group, recipeURLs: recipes))
         }
-        if listingURLs.count > budget {
-            notes.append("\(listingURLs.count - budget) category pages left for the next run (raise the speed to expand more).")
+        if hubs.count > budget {
+            notes.append("\(hubs.count - budget) categories captured for browsing; mine them anytime (raise the speed to mine more per run).")
         }
         listingURLs.removeAll()
     }

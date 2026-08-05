@@ -240,7 +240,7 @@ actor CrawlCoordinator {
         settings: AppSettings,
         manual: Bool = false,
         progress: @Sendable @escaping (DiscoveryProgress) async -> Void
-    ) async throws -> DiscoveryReport {
+    ) async throws -> DiscoveryOutcome {
         let known = settings.skipAlreadyImported
             ? try await store.knownSourceURLs()
             : []

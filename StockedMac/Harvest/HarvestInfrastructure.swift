@@ -354,6 +354,7 @@ nonisolated struct AppPaths: Sendable {
     let discoveryReports: URL
     let sourceDiscoveryCache: URL
     let miningResultCache: URL
+    let categoryCatalog: URL
     let lastDiscoveryReport: URL
     
     static func liveOrTemporary() -> (paths: AppPaths, warning: String?) {
@@ -382,12 +383,13 @@ nonisolated struct AppPaths: Sendable {
         let discoveryReports = root.appendingPathComponent("DiscoveryReports", isDirectory: true)
         let sourceDiscoveryCache = root.appendingPathComponent("SourceDiscoveryCache", isDirectory: true)
         let miningResultCache = root.appendingPathComponent("MiningResultCache", isDirectory: true)
-        
+        let categoryCatalog = root.appendingPathComponent("CategoryCatalog", isDirectory: true)
+
         // Create subdirectories
-        for directory in [httpCache, imageCache, discoveryReports, sourceDiscoveryCache, miningResultCache] {
+        for directory in [httpCache, imageCache, discoveryReports, sourceDiscoveryCache, miningResultCache, categoryCatalog] {
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
-        
+
         return AppPaths(
             root: root,
             recipesFile: root.appendingPathComponent("recipes.json"),
@@ -399,6 +401,7 @@ nonisolated struct AppPaths: Sendable {
             discoveryReports: discoveryReports,
             sourceDiscoveryCache: sourceDiscoveryCache,
             miningResultCache: miningResultCache,
+            categoryCatalog: categoryCatalog,
             lastDiscoveryReport: root.appendingPathComponent("last-discovery.json")
         )
     }

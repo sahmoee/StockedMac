@@ -24,14 +24,14 @@ nonisolated enum MacBuildConfig {
     /// A separate product from the iOS app — separate project, separate bundle
     /// identifier — but the version line tracks the shared build history (the project file
     /// carries the real numbers; these are only the fallback if Info.plist is unreadable).
-    private static let fallbackVersion     = "4.40"
-    private static let fallbackBuildNumber = 100
+    private static let fallbackVersion     = "4.42"
+    private static let fallbackBuildNumber = 102
 
     /// When the shared model layer was last checked against the phone's copy. Models.swift
     /// and KitchenMetrics.swift are byte-for-byte identical to the iOS tree as of this
     /// check; re-run the diff and update this string whenever either side moves, so the
     /// provenance stays honest rather than decorative.
-    static let sharedModelLineage = "Shared models verified identical to iOS — Build 100, August 2026"
+    static let sharedModelLineage = "Shared models verified identical to iOS — Build 101, August 2026"
 
     static var buildNumber: Int {
         Int(bundleString("CFBundleVersion") ?? "") ?? fallbackBuildNumber
@@ -44,17 +44,14 @@ nonisolated enum MacBuildConfig {
 
     static let buildDate = "August 2026"
     static let buildName = """
-        Harvest and Browse are one place now. There is a single Browse section with a \
-        Find & Import / Review switch: pick a source, pick a category, press Start \u{2014} \
-        one button runs the whole thing, and the drafts land in the Review pane right \
-        beside it, no hunting for a second screen. Every power control \u{2014} crawler \
-        engine, speed, user-agent, queue cap, batch sizes, confidence, delivery \u{2014} \
-        moved behind one collapsed "Advanced" panel, so the default screen is three \
-        choices and a button instead of four numbered cards. And Browse avoids mining \
-        now: when a site's sitemap or feed already hands over real recipe links, its \
-        category pages are left unopened. When mining IS the only way in, the recipes \
-        it turns up LEAD the queue \u{2014} verified and imported first, never lost at \
-        the back of the line.
+        Never empty-handed. A run that hits a rate limit or gets stopped now imports \
+        whatever it already found instead of throwing it away — the discovery engine \
+        keeps what earlier engines and mining turned up even when a later one fails or \
+        is cancelled mid-fetch. A real recipe is always the goal, not just a cached \
+        category: if a run would otherwise end with only unmined hub pages, it keeps \
+        opening them one at a time until it finds an actual recipe to bring in. And \
+        Find & Import now has a direct URL field — paste any recipe link and import it \
+        immediately, no source or category picking required.
         """
 
     // MARK: - Environment

@@ -26,10 +26,11 @@ struct MacBrowseView: View {
     @Environment(MacKitchenStore.self) private var store
 
     private enum Pane: String, CaseIterable, Identifiable {
-        case find, review
+        case find, categories, review
         var id: String { rawValue }
     }
     @State private var pane: Pane = .find
+    @State private var categorySourceFilter: String? = nil
 
     // ── Find state ───────────────────────────────────────────────────────
     @State private var sourceSearch = ""
@@ -38,6 +39,7 @@ struct MacBrowseView: View {
     @State private var categorySearch = ""
     @State private var showCategoryPicker = false
     @State private var showURLEditor = false
+    @State private var manualImportURL = ""
     @State private var showAdvanced = false
     @State private var showQueuePreview = true
     @State private var isQueueDropTargeted = false
@@ -183,11 +185,13 @@ struct MacBrowseView: View {
         HStack(spacing: 12) {
             Picker("Pane", selection: $pane) {
                 Text("Find & Import").tag(Pane.find)
+                Text(harvest.readyCategoryCount > 0
+                     ? "Categories · \(harvest.readyCategoryCount)" : "Categories").tag(Pane.categories)
                 Text(reviewWaiting > 0 ? "Review · \(reviewWaiting)" : "Review").tag(Pane.review)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(maxWidth: 340)
+            .frame(maxWidth: 460)
             Spacer(minLength: 0)
             Text(paneContextSummary)
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -204,6 +208,8 @@ struct MacBrowseView: View {
         case .find:
             let q = harvest.queuedURLCount
             return q > 0 ? "\(q) queued · \(reviewWaiting) to review" : "\(reviewWaiting) to review"
+        case .categories:
+            return "\(harvest.allCategories.count) categories · \(harvest.readyCategoryCount) ready"
         case .review:
             return "\(harvest.recipes.count) imported · \(harvest.dashboard.approved) approved"
         }
@@ -218,8 +224,9 @@ struct MacBrowseView: View {
                 .id(address)
         } else {
             switch pane {
-            case .find:   findPane
-            case .review: reviewPane
+            case .find:       findPane
+            case .categories: categoriesPane
+            case .review:     reviewPane
             }
         }
     }
@@ -367,45 +374,109 @@ struct MacBrowseView: View {
                     }
                 }
 
-                Picker("Workflow", selection: $harvest.settings.autoImportVerified) {
-                    Text("Review first").tag(false)
-                    Text("Automatic").tag(true)
+                Toggle(isOn: $harvest.settings.autopilot) {
+                    Text("Autopilot — fully hands-off").font(.callout.weight(.medium))
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .onChange(of: harvest.settings.autoImportVerified) { harvest.scheduleSettingsSave() }
+                .toggleStyle(.switch)
+                .onChange(of: harvest.settings.autopilot) { harvest.scheduleSettingsSave() }
 
-                Text(harvest.settings.autoImportVerified
-                     ? "Stocked finds, verifies, imports and approves qualifying recipes in one run."
-                     : "Stocked finds recipes and fills the queue, then stops for your review.")
+                Text(harvest.settings.autopilot
+                     ? "One press: Stocked finds, mines + caches categories, imports, and auto-approves qualifying recipes across sources on its own. Sub-standard ones wait in Review."
+                     : "Stocked finds recipes and fills the queue, then stops for your review before importing.")
                     .font(.caption2).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 startControls
 
                 discoveryHints
+
+                manualURLImportRow
             }
         }
     }
 
+    /// Build 102: importing a URL directly is always an option, independent of
+    /// Find & Import's guided source/category flow. Bypasses discovery entirely —
+    /// the URL goes straight into `importDirect`, the same path a confirmed
+    /// discovery result uses.
+    @ViewBuilder
+    private var manualURLImportRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "link.badge.plus").font(.caption).foregroundStyle(.secondary)
+            TextField("Or paste a recipe URL to import it directly…", text: $manualImportURL)
+                .textFieldStyle(.plain)
+                .font(.caption)
+                .onSubmit { importManualURL() }
+            Button("Import") { importManualURL() }
+                .buttonStyle(.borderless)
+                .font(.caption.weight(.semibold))
+                .disabled(manualImportURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                          || harvest.isImporting)
+        }
+        .padding(.horizontal, 9).padding(.vertical, 6)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func importManualURL() {
+        let trimmed = manualImportURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        harvest.importDirect([trimmed])
+        manualImportURL = ""
+    }
+
     @ViewBuilder
     private var startControls: some View {
-        let autoImports = harvest.settings.autoImportVerified
+        if harvest.settings.autopilot {
+            HStack(spacing: 8) {
+                if harvest.isAutopilotRunning {
+                    Button {
+                        harvest.stopAutopilot()
+                    } label: {
+                        Label("Stop", systemImage: "stop.fill")
+                    }
+                    .buttonStyle(.borderedProminent).controlSize(.large).tint(.red)
+                    ProgressView().controlSize(.small)
+                    Text(harvest.discoveryProgress.phase)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                } else {
+                    Button {
+                        harvest.startAutopilot(sourceIDs: selectedSources.map(\.id))
+                    } label: {
+                        Label(autopilotStartLabel, systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .disabled(browsableSources.isEmpty)
+                }
+                Spacer(minLength: 0)
+            }
+            .font(.callout)
+        } else {
+            manualStartControls
+        }
+    }
+
+    private var autopilotStartLabel: String {
+        switch selectedSources.count {
+        case 0:  return "Start — all sources"
+        case 1:  return "Start — \(selectedSources[0].name)"
+        default: return "Start — \(selectedSources.count) sources"
+        }
+    }
+
+    @ViewBuilder
+    private var manualStartControls: some View {
         HStack(spacing: 8) {
             if selectedSources.count == 1, let source = selectedSources.first {
-                let hasSaved = harvest.settings.reuseCachedDiscoveryResults
-                    && harvest.cacheSummary(for: source.id) != nil
-                Button(hasSaved
-                       ? (autoImports ? "Use Saved & Finish" : "Use Saved & Queue")
-                       : (autoImports ? "Start" : "Find Recipes")) {
+                Button(harvest.cacheSummary(for: source.id) != nil
+                       && harvest.settings.reuseCachedDiscoveryResults
+                       ? "Use Saved & Queue" : "Find Recipes") {
                     harvest.discover(source)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(.borderedProminent).controlSize(.large)
                 .disabled(harvest.isDiscovering)
                 if harvest.cacheSummary(for: source.id) != nil {
                     Button {
-                        harvest.refreshDiscovery(source, addToQueueOnly: !autoImports)
+                        harvest.refreshDiscovery(source, addToQueueOnly: true)
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
@@ -413,21 +484,15 @@ struct MacBrowseView: View {
                     .help("Read the website again and replace its saved results")
                 }
             } else if selectedSources.count > 1 {
-                Button(autoImports
-                       ? "Start \(selectedSources.count)-Source Run"
-                       : "Find from \(selectedSources.count) Sources") {
-                    harvest.browseSources(withIDs: selectedSources.map(\.id), queueOnly: !autoImports)
+                Button("Find from \(selectedSources.count) Sources") {
+                    harvest.browseSources(withIDs: selectedSources.map(\.id), queueOnly: true)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(.borderedProminent).controlSize(.large)
                 .disabled(harvest.isDiscovering)
             } else {
-                Button(autoImports ? "Start" : "Find Next Source") {
-                    harvest.browseNextSource()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(harvest.isDiscovering || browsableSources.isEmpty)
+                Button("Find Next Source") { harvest.browseNextSource() }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .disabled(harvest.isDiscovering || browsableSources.isEmpty)
             }
             Spacer(minLength: 0)
             if harvest.isDiscovering {
@@ -1413,6 +1478,137 @@ struct MacBrowseView: View {
         case .success: return MacTheme.green
         case .warning: return .orange
         case .error:   return .red
+        }
+    }
+
+    // MARK: - CATEGORIES PANE (Build 101)
+
+    private var categoryGroupOrder: [String] {
+        RecipeBrowseTaxonomy.groupOrder + ["Other"]
+    }
+
+    private var groupedCategories: [(group: String, items: [SourceCategory])] {
+        var items = harvest.allCategories
+        if let sourceID = categorySourceFilter {
+            items = items.filter { $0.sourceID == sourceID }
+        }
+        let grouped = Dictionary(grouping: items) { $0.group ?? "Other" }
+        return categoryGroupOrder.compactMap { group in
+            guard let rows = grouped[group], !rows.isEmpty else { return nil }
+            return (group, rows)
+        }
+    }
+
+    private var categorySourceOptions: [(id: String, name: String)] {
+        var seen = Set<String>()
+        return harvest.allCategories.compactMap { cat in
+            guard seen.insert(cat.sourceID).inserted else { return nil }
+            return (cat.sourceID, cat.sourceName)
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    @ViewBuilder
+    private var categoriesPane: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                categoriesHeaderCard
+                if harvest.allCategories.isEmpty {
+                    MacEmpty(
+                        title: "No categories yet",
+                        message: "Run a source in Find & Import. Every category it discovers is captured here — organized, cached, and ready to import in one click.",
+                        systemImage: "square.grid.2x2"
+                    )
+                    .frame(minHeight: 240)
+                } else {
+                    ForEach(groupedCategories, id: \.group) { section in
+                        MacCard(title: section.group, systemImage: "square.grid.2x2",
+                                footnote: "\(section.items.count) categor\(section.items.count == 1 ? "y" : "ies")") {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(section.items) { category in
+                                    categoryRow(category)
+                                    if category.id != section.items.last?.id { Divider() }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: 920, alignment: .leading)
+        }
+    }
+
+    private var categoriesHeaderCard: some View {
+        MacCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "square.grid.2x2").foregroundStyle(MacTheme.gold)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("\(harvest.allCategories.count) categories · \(harvest.readyCategoryCount) ready")
+                            .font(.callout.weight(.semibold))
+                        Text("Discovered on your sources, cached and organized. Ready ones import with no refetch.")
+                            .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    Spacer(minLength: 8)
+                    Button {
+                        harvest.importAllReadyCategories()
+                    } label: {
+                        Label("Import all ready", systemImage: "square.and.arrow.down.on.square")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(harvest.readyCategoryCount == 0 || harvest.isImporting)
+                }
+                if categorySourceOptions.count > 1 {
+                    Picker("Source", selection: $categorySourceFilter) {
+                        Text("All sources").tag(String?.none)
+                        ForEach(categorySourceOptions, id: \.id) { option in
+                            Text(option.name).tag(String?.some(option.id))
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 260)
+                }
+            }
+        }
+    }
+
+    private func categoryRow(_ category: SourceCategory) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: category.isReady ? "checkmark.circle.fill" : "circle.dashed")
+                .foregroundStyle(category.isReady ? MacTheme.green : .secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(category.name).font(.callout.weight(.medium)).lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(category.sourceName).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    if category.isReady {
+                        Text("· \(category.recipeCount) ready").font(.caption2).foregroundStyle(MacTheme.green)
+                    } else {
+                        Text("· not mined yet").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    if let mined = category.minedAt {
+                        Text("·").font(.caption2).foregroundStyle(.tertiary)
+                        Text(mined, style: .relative).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                    }
+                }
+            }
+            Spacer(minLength: 4)
+            Button { inlineBrowser = category.url } label: {
+                Image(systemName: "safari").font(.caption)
+            }
+            .buttonStyle(.borderless).help("Preview this category page")
+            Button(category.isReady ? "Import \(category.recipeCount)" : "Mine & Import") {
+                harvest.importCategory(category)
+            }
+            .buttonStyle(.bordered)
+            .disabled(harvest.isImporting)
+        }
+        .padding(.vertical, 3)
+        .contextMenu {
+            Button(category.isReady ? "Import \(category.recipeCount) recipes" : "Mine & import") {
+                harvest.importCategory(category)
+            }
+            Button("Preview category page") { inlineBrowser = category.url }
         }
     }
 

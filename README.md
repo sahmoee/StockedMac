@@ -1,74 +1,62 @@
-# Build 100 (4.40) — Harvest + Browse, combined and guided
+# Build 102 (4.42) — Never empty-handed
 
 **Mac only.** No worker or iOS change. Applied directly to
-`Documents/Stocked Mac/StockedMac/` (no separate package this build).
+`Documents/Stocked Mac/StockedMac/`.
+
+A run must always deliver something. Previously, a rate limit, a network drop, or the
+user pressing Stop mid-discovery could throw away everything a run had already found —
+and a run that only ever surfaced category/hub pages could end with nothing imported at
+all. Both are fixed, and importing a single URL directly (no source/category picking) is
+now always available.
 
 ---
 
-## One section instead of two
+## What changed
 
-Harvest is no longer its own sidebar item — it folded into **Browse**. Browse is now the
-single place recipes are found, imported, *and* approved, with a switch at the top:
-
-- **Find & Import** — the guided flow. Pick a source, pick a category, press **Start**.
-  One button runs discovery → verification → import → auto-approve.
-- **Review** — the old Harvest library, unchanged in what it does: search, filter,
-  bulk approve/reject on the left; the full recipe with its Stocked-standards checklist
-  on the right. When an import finishes, the "Review N" button drops you straight in.
-
-The sidebar's Browse badge shows how many recipes are **waiting to review** first, and
-falls back to how many links are queued. `⌘9` now opens Household; Browse is still `⌘B`.
-
-## Guided by default, everything else tucked away
-
-The default screen is three choices and a button. Every power control now lives behind a
-single collapsed **Advanced** panel, grouped:
-
-| Group | What's inside |
-|---|---|
-| **Discovery** | Prefer direct links, reuse saved results, rotation, source import/export/restore |
-| **Crawler** | Method, speed, WebKit fallback, import spacing, user-agent, Python parser test |
-| **Verify & import** | Verify-first, standards gate, approval confidence, Verify now, verify batch, queue cap, import batch |
-| **Delivery** | Require image, retry images, cloud sync |
-
-## Avoid mining — and when you can't, import it first
-
-Mining (opening a "breakfast" hub and scraping its recipe links) is now a **fallback**,
-not the default path:
-
-- New **Prefer direct recipe links** setting (on by default). When a site's sitemap or
-  feed already hands over enough real recipe URLs (≥ 12), its category/listing pages are
-  left unopened. The report says so: *"8 category pages skipped — 40 direct recipe links
-  already found (mining avoided)."*
-- When mining *is* the only way in, the recipes it surfaces **lead the queue**. Import-time
-  hub refusals and bulk-verify both **prepend** mined links, and bulk-verify now orders
-  `mined + verified + remainder`, so mined recipes are verified and imported **first** —
-  in the Automatic workflow they go in immediately instead of waiting for a press.
-- The Build 98/99 convergence rules still hold: one generation of mining, session-wide
-  dedupe, queue cap. The queue strictly shrinks as it drains, so this can't snowball.
+1. **Interruptions no longer erase progress.** `DiscoveryEngine.discover` used to let a
+   failure on any one engine (429, robots block, network error) or a cancellation
+   mid-fetch throw the whole run away — HarvestModel's outer `catch` discarded
+   everything, including recipes an earlier engine or earlier mining had already found.
+   Now each engine attempt is individually caught: a real error logs a note and the chain
+   tries the next engine; a cancellation stops the chain immediately but keeps whatever
+   is already in `recipeURLs`/`minedCategories`. `discover()` effectively never throws in
+   normal operation anymore — it always returns a report built from what it has.
+2. **A real recipe is always the target.** If the whole chain (plus its speed-budgeted
+   mining) still ends with nothing confirmed and nothing unverified, the engine keeps
+   opening the categories it already knows about — one hub at a time — until a real
+   recipe link turns up or every known hub has been tried. A run no longer ends with only
+   cached, unmined category tiles and zero importable recipes.
+3. **Stop/rate-limit now imports what was found.** Because `discover()` returns instead
+   of throwing, HarvestModel's existing confirmed → unverified → queue fallback chain
+   runs normally after a stop or a 429, so autopilot (or auto-import) imports whatever was
+   gathered up to that point instead of just showing "Browse canceled."
+4. **Import from a URL, always.** Find & Import now has a direct URL field ("Or paste a
+   recipe URL to import it directly…") wired straight to `importDirect` — importing a
+   single link no longer requires picking a source or category first.
 
 ## Installing
 
-1. Files are already in `StockedMac/` — nothing to copy this build.
-2. Build Settings: `MARKETING_VERSION = 4.40`, `CURRENT_PROJECT_VERSION = 100`.
-3. Try it: open **Browse**, pick one source, press **Start** with "Automatic" selected,
-   and watch the phases run and the drafts appear in **Review**. Then open **Advanced**
-   and confirm every old control is still there.
+1. Files are already in `StockedMac/` — nothing to copy.
+2. Build Settings: `MARKETING_VERSION = 4.42`, `CURRENT_PROJECT_VERSION = 102`.
+3. Try it: paste a recipe URL directly into the new field in Find & Import and press
+   Import. Then start a normal Browse run and press Stop partway through — whatever was
+   found so far should still come in.
 
-Files changed vs Build 99: `Harvest/HarvestTypes.swift` (new `preferDirectRecipes`,
-settings revision 4), `Harvest/HarvestModel.swift` (`prependImportURLs`, mined-first
-import, migration), `Harvest/HarvestServices.swift` (skip listing expansion when direct
-delivers), `Views/MacBrowseView.swift` (rebuilt: Find/Review panes, Advanced),
-`Views/MacKitchenViews.swift` (`MacHarvestView` removed, `HarvestDraftDetail` shared),
-`Views/MacRootView.swift` and `Views/MacCommands.swift` (section removed, nav rewired),
-`Core/MacBuildConfig.swift`.
+Files changed vs Build 101: `Harvest/HarvestServices.swift` (`DiscoveryEngine.discover`
+per-engine error/cancellation handling + guaranteed-recipe fallback mining),
+`Harvest/HarvestModel.swift` (`discover()` cancellation-catch message),
+`Views/MacBrowseView.swift` (direct URL import field), `Core/MacBuildConfig.swift`.
 
 ## Verification done here
 
-All changed Swift files brace-balanced (MacBrowseView 558/558, MacKitchenViews 149/149).
-Project-wide grep confirms zero remaining `.harvest` / `MacHarvestView` references in the
-live tree, so every `MacSection` switch stays exhaustive. `AppSettings` got its new key in
-**both** `CodingKeys` and the tolerant `init(from:)`, so the toggle persists. The mined
-import loop was traced for convergence (session-set dedupe, one-generation cap, strict
-queue drain, already-imported early-return). **No Swift compiler here — the real build is
-Xcode (⌘B).**
+`HarvestServices.swift`, `HarvestModel.swift`, and `MacBrowseView.swift` brace-balance
+checked (HarvestServices carries its known pre-existing +2 offset from single-character
+brace string literals in `balancedJSONObject`, unchanged by this build — the new code
+adds a matched do/catch and for-loop only). `MinedCategory.recipeURLs` mutation via array
+index confirmed valid (struct, `var` field, `var` array). Traced that `bulkVerifyQueue`
+already handled cancellation/network failure gracefully before this build (unchecked URLs
+stay queued, mined links are kept) — no change needed there. Traced the stop/autopilot
+path end to end: `stopAutopilot()` cancels the discovery Task, `discover()` now returns
+normally with partial results instead of throwing, and the existing
+confirmed → unverified → queue import logic runs unchanged. **No Swift compiler here —
+the real build is Xcode (⌘B).**

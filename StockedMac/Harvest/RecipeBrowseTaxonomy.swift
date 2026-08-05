@@ -144,6 +144,39 @@ nonisolated enum RecipeBrowseTaxonomy {
         all.filter { $0.group == group }
     }
 
+    /// Build 101: a readable name for a discovered category, from its URL slug.
+    /// "/recipes/weeknight-dinners/" → "Weeknight Dinners".
+    static func categoryName(fromURL urlString: String) -> String {
+        let decoded = urlString.removingPercentEncoding ?? urlString
+        let path = URL(string: decoded)?.path ?? decoded
+        let segment = path
+            .split(separator: "/")
+            .map(String.init)
+            .last { seg in !seg.allSatisfy(\.isNumber) && seg.count > 1 }
+            ?? (URL(string: decoded)?.host ?? "Category")
+        let words = segment
+            .replacingOccurrences(of: "_", with: "-")
+            .split(separator: "-")
+            .map(String.init)
+            .filter { !$0.isEmpty && !$0.allSatisfy(\.isNumber) }
+        let titled = words.map { $0.prefix(1).uppercased() + $0.dropFirst() }
+        let name = titled.joined(separator: " ")
+        return name.isEmpty ? "Category" : name
+    }
+
+    /// Build 101: the fixed-taxonomy group a discovered category best belongs to, matched
+    /// on its URL slug — so site categories organize alongside foods/cuisines/events/diets.
+    static func group(matchingURL urlString: String) -> String? {
+        let decoded = urlString.removingPercentEncoding ?? urlString
+        let haystack = " " + normalize(decoded) + " "
+        for category in all where category.terms.contains(where: {
+            !$0.isEmpty && haystack.contains(" \($0) ")
+        }) {
+            return category.group
+        }
+        return nil
+    }
+
     static func matches(
         _ link: DiscoveredLink,
         selectedIDs: Set<String>,
