@@ -506,6 +506,9 @@ actor DiscoveryEngine {
     nonisolated static func prioritizeSitemapChildren(_ children: [String]) -> [String] {
         func score(_ urlString: String) -> Int {
             let lower = urlString.lowercased()
+            // Web Stories are promotional slide shells. Keep them as a last-resort
+            // discovery source; the post/recipe sitemap carries the actual recipe card.
+            if lower.contains("web-story") || lower.contains("webstory") { return 6 }
             if lower.contains("recipe") { return 0 }
             if lower.contains("post") || lower.contains("content") || lower.contains("article") { return 1 }
             if lower.contains("video") || lower.contains("image") || lower.contains("photo")
@@ -791,7 +794,10 @@ actor DiscoveryEngine {
             }
             return slugLike ? .recipe : .listing
         }
-        if slugLike, segments.count >= 2 { return .recipe }
+        // WordPress commonly publishes articles directly at /recipe-slug/. Requiring
+        // two path segments made Stocked ignore an entire post sitemap, then prefer the
+        // /web-stories/ copies because those happened to be two levels deep.
+        if slugLike, !segments.isEmpty { return .recipe }
         return .listing
     }
 
@@ -1061,23 +1067,228 @@ actor SourceRegistry {
 
 actor PythonWorkerClient {
     nonisolated let isAvailable: Bool
-    
-    init(isAvailable: Bool = false) {
-        self.isAvailable = isAvailable
+    nonisolated let availabilityMessage: String
+    nonisolated let executableURL: URL?
+
+    private init(executableURL: URL?, availabilityMessage: String) {
+        self.executableURL = executableURL
+        self.isAvailable = executableURL != nil
+        self.availabilityMessage = availabilityMessage
     }
-    
+
     static func locate() -> PythonWorkerClient {
-        // Check if Python worker is available
-        PythonWorkerClient(isAvailable: false)
-    }
-    
-    func parse(html: String, url: URL) async throws -> ParserResult {
-        guard isAvailable else {
-            throw CompanionError.parseFailed("Python worker not available")
+        var candidates: [URL] = []
+        if let bundled = AppPaths.bundledResource("StockedRecipeWorker") {
+            candidates.append(bundled)
         }
-        
-        // Placeholder - would call Python parser
-        throw CompanionError.parseFailed("Python parsing not implemented")
+#if DEBUG
+        // Xcode previews and command-line development runs do not always have a useful
+        // main bundle. The source-tree copy is the same signed artifact the build copies.
+        let developmentCopy = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/StockedRecipeWorker")
+        candidates.append(developmentCopy)
+#endif
+
+        let manager = FileManager.default
+        if let executable = candidates.first(where: {
+            manager.fileExists(atPath: $0.path) && manager.isExecutableFile(atPath: $0.path)
+        }) {
+            return PythonWorkerClient(
+                executableURL: executable,
+                availabilityMessage: "Bundled Python parser found; run Test to verify launch."
+            )
+        }
+        if let presentButNotExecutable = candidates.first(where: {
+            manager.fileExists(atPath: $0.path)
+        }) {
+            return PythonWorkerClient(
+                executableURL: nil,
+                availabilityMessage: "Python parser is bundled but not executable: \(presentButNotExecutable.lastPathComponent)"
+            )
+        }
+        return PythonWorkerClient(
+            executableURL: nil,
+            availabilityMessage: "Python parser is not bundled in this build."
+        )
+    }
+
+    func parse(html: String, url: URL) async throws -> ParserResult {
+        guard let executableURL else {
+            throw CompanionError.parseFailed(availabilityMessage)
+        }
+        let task = Task.detached(priority: .utility) {
+            try Self.invoke(executable: executableURL, html: html, url: url)
+        }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    /// Exercises the real executable, decoder and process boundary — checking for a file
+    /// alone cannot reveal sandbox, signing, architecture or PyInstaller launch failures.
+    func healthCheck() async throws -> String {
+        let html = #"""
+        <script type="application/ld+json">{
+          "@context":"https://schema.org","@type":"Recipe","name":"Stocked parser check",
+          "recipeIngredient":["1 cup water","1 pinch salt","1 tsp oil"],
+          "recipeInstructions":["Combine the ingredients.","Serve."]
+        }</script>
+        """#
+        let result = try await parse(html: html, url: URL(string: "https://stocked.local/parser-check")!)
+        guard result.isComplete else {
+            throw CompanionError.parseFailed("Python parser launched but returned an incomplete self-test recipe.")
+        }
+        return "Python parser passed its live test (\(result.parser))."
+    }
+
+    private nonisolated static func invoke(
+        executable: URL,
+        html: String,
+        url: URL
+    ) throws -> ParserResult {
+        let manager = FileManager.default
+        let workspace = manager.temporaryDirectory
+            .appendingPathComponent("StockedRecipeWorker-\(UUID().uuidString)", isDirectory: true)
+        try manager.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? manager.removeItem(at: workspace) }
+
+        let inputURL = workspace.appendingPathComponent("request.json")
+        let outputURL = workspace.appendingPathComponent("response.json")
+        let errorURL = workspace.appendingPathComponent("stderr.txt")
+        let request = PythonWorkerRequest(mode: "parse", url: url.absoluteString, html: html)
+        try JSONEncoder().encode(request).write(to: inputURL, options: .atomic)
+        manager.createFile(atPath: outputURL.path, contents: nil)
+        manager.createFile(atPath: errorURL.path, contents: nil)
+
+        let input = try FileHandle(forReadingFrom: inputURL)
+        let output = try FileHandle(forWritingTo: outputURL)
+        let error = try FileHandle(forWritingTo: errorURL)
+        defer {
+            try? input.close()
+            try? output.close()
+            try? error.close()
+        }
+
+        let process = Process()
+        process.executableURL = executable
+        process.currentDirectoryURL = workspace
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = error
+        do {
+            try process.run()
+        } catch {
+            throw CompanionError.parseFailed(
+                "Python parser could not launch (\(error.localizedDescription)). Check app sandbox and code-signing settings."
+            )
+        }
+
+        let deadline = Date().addingTimeInterval(45)
+        while process.isRunning {
+            if Task.isCancelled {
+                process.terminate()
+                process.waitUntilExit()
+                throw CancellationError()
+            }
+            if Date() >= deadline {
+                process.terminate()
+                process.waitUntilExit()
+                throw CompanionError.parseFailed("Python parser timed out after 45 seconds.")
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        process.waitUntilExit()
+        try? output.synchronize()
+        try? error.synchronize()
+
+        let stderr = (try? String(contentsOf: errorURL, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard process.terminationStatus == 0 else {
+            throw CompanionError.parseFailed(
+                "Python parser exited with status \(process.terminationStatus)"
+                    + (stderr?.nilIfBlank.map { ": \($0)" } ?? ".")
+            )
+        }
+
+        let data = try Data(contentsOf: outputURL)
+        let response: PythonWorkerResponse
+        do {
+            response = try JSONDecoder().decode(PythonWorkerResponse.self, from: data)
+        } catch {
+            throw CompanionError.parseFailed(
+                "Python parser returned an unreadable response"
+                    + (stderr?.nilIfBlank.map { ": \($0)" } ?? ".")
+            )
+        }
+        guard response.ok, let value = response.result else {
+            throw CompanionError.parseFailed(
+                response.error?.nilIfBlank ?? "Python parser returned no recipe."
+            )
+        }
+        let result = value.parserResult
+        guard result.isComplete else {
+            throw CompanionError.parseFailed("Python parser found a page, but not a complete recipe.")
+        }
+        return result
+    }
+}
+
+private nonisolated struct PythonWorkerRequest: Encodable, Sendable {
+    let mode: String
+    let url: String
+    let html: String
+}
+
+private nonisolated struct PythonWorkerResponse: Decodable, Sendable {
+    let ok: Bool
+    let result: PythonWorkerResult?
+    let error: String?
+}
+
+private nonisolated struct PythonWorkerResult: Decodable, Sendable {
+    let title: String
+    let summary: String?
+    let canonicalURL: String?
+    let author: String?
+    let imageURL: String?
+    let ingredientSections: [IngredientSection]?
+    let instructionSections: [InstructionSection]?
+    let yield: String?
+    let servings: Double?
+    let times: RecipeTimes?
+    let nutrition: [String: String]?
+    let cuisines: [String]?
+    let categories: [String]?
+    let keywords: [String]?
+    let diets: [String]?
+    let confidence: Double?
+    let warnings: [String]?
+    let parser: String?
+
+    var parserResult: ParserResult {
+        ParserResult(
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+            summary: summary?.nilIfBlank,
+            author: author?.nilIfBlank,
+            imageURL: imageURL?.nilIfBlank,
+            ingredientSections: ingredientSections ?? [],
+            instructionSections: instructionSections ?? [],
+            yield: yield?.nilIfBlank,
+            servings: servings,
+            times: times ?? RecipeTimes(),
+            nutrition: nutrition ?? [:],
+            cuisines: cuisines ?? [],
+            categories: categories ?? [],
+            keywords: keywords ?? [],
+            diets: diets ?? [],
+            canonicalURL: canonicalURL?.nilIfBlank,
+            confidence: min(1, max(0, confidence ?? 0.75)),
+            warnings: warnings ?? [],
+            parser: parser?.nilIfBlank ?? "Bundled Python worker"
+        )
     }
 }
 

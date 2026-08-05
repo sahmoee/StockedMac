@@ -18,6 +18,32 @@ nonisolated struct ImportFailure: Identifiable, Sendable {
     let reason: String
 }
 
+/// A normalized, display-ready row in the import queue. Keeping this as a value type
+/// makes the queue preview deterministic and gives SwiftUI stable identity while text is
+/// edited, cleaned, reordered, or dropped into the app.
+nonisolated struct ImportQueueEntry: Identifiable, Hashable, Sendable {
+    let url: String
+    let host: String
+
+    var id: String { url }
+
+    var pageLabel: String {
+        guard let parsed = URL(string: url) else { return url }
+        let path = parsed.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return path.nilIfBlank ?? host
+    }
+}
+
+nonisolated struct ImportQueueSnapshot: Sendable {
+    let entries: [ImportQueueEntry]
+    let duplicateCount: Int
+    let invalidCount: Int
+
+    static let empty = ImportQueueSnapshot(entries: [], duplicateCount: 0, invalidCount: 0)
+
+    var domainCount: Int { Set(entries.map(\.host)).count }
+}
+
 @MainActor
 @Observable
 final class HarvestModel {
@@ -36,6 +62,7 @@ final class HarvestModel {
     /// instead of a modal alert.
     var discoveryFailure: String?
     var isImporting = false
+    var isImportingPage = false
     var isDiscovering = false
     // ── Build 91 (Browse) ───────────────────────────────────────────────
     /// One switch that parks every network request (browsing, imports, image
@@ -47,16 +74,26 @@ final class HarvestModel {
     var cloudSyncStatus: String?
     /// Past browse sessions, newest first, restored from DiscoveryReports on disk.
     var sessionHistory: [DiscoveryReport] = []
+    /// One durable, unfiltered discovery snapshot per source. These summaries let the
+    /// picker show what can be reused without loading every report into the UI.
+    var sourceCacheSummaries: [String: SourceDiscoveryCacheSummary] = [:]
+    /// Number of category/listing pages whose mined recipe links can be reused offline.
+    var cachedMinedPageCount = 0
     /// Sources still to visit in the current auto-rotate run.
     var autoRotateRemaining = 0
     /// Explicitly selected sources still waiting their turn (multi-select browsing).
     var sourceRotationQueue: [String] = []
     @ObservationIgnored private var rotationQueueOnly = false
+    @ObservationIgnored private var activeRawDiscoveryReport: DiscoveryReport?
+    @ObservationIgnored private var activeReportCameFromCache = false
     // ── Build 95 (Importing) ────────────────────────────────────────────
     /// Failed imports from the current/last run, newest last, capped at 50.
     var lastFailures: [ImportFailure] = []
     /// One line describing how the last import run went.
     var lastImportSummary: String?
+    /// One-level undo for explicit queue edits. Importing intentionally does not use it:
+    /// restoring already-imported URLs would create a misleading duplicate queue.
+    private(set) var queueUndoText: String?
     @ObservationIgnored private var minedURLs: [String] = []
     /// Every link that arrived via category-page mining THIS SESSION. Mined pages do
     /// not mine further (no snowball), and the same link never joins the queue twice.
@@ -75,6 +112,9 @@ final class HarvestModel {
     var errorMessage: String?
     var statusMessage = "Ready"
     var pythonWorkerAvailable = false
+    var pythonWorkerStatus = "Checking Python parser…"
+    var pythonWorkerTestPassed: Bool?
+    var isTestingPythonWorker = false
     var storageWarning: String?
 
     let paths: AppPaths
@@ -108,6 +148,7 @@ final class HarvestModel {
     @ObservationIgnored private let limiter: DomainRateLimiter
     @ObservationIgnored private let imageStore: ImageStore
     @ObservationIgnored private let fetcher: PolicyFetcher
+    @ObservationIgnored private let pythonParser: PythonWorkerClient
     @ObservationIgnored private let coordinator: CrawlCoordinator
     @ObservationIgnored private let exporter = StockedPackageExporter()
 
@@ -159,12 +200,14 @@ final class HarvestModel {
         self.limiter = limiter
         self.imageStore = imageStore
         self.fetcher = fetcher
+        let pythonParser = PythonWorkerClient.locate()
+        self.pythonParser = pythonParser
         coordinator = CrawlCoordinator(
             store: recipeStore,
             registry: sourceRegistry,
             fetcher: fetcher,
             imageStore: imageStore,
-            pythonParser: .locate()
+            pythonParser: pythonParser
         )
     }
 
@@ -178,12 +221,22 @@ final class HarvestModel {
         Task {
             settings = await settingsStore.load()
             migrateSettingsIfNeeded()
-            pythonWorkerAvailable = PythonWorkerClient.locate().isAvailable
+            settings.selectedBrowseCategoryIDs = settings.selectedBrowseCategoryIDs.filter {
+                RecipeBrowseTaxonomy.byID[$0] != nil
+            }
+            pythonWorkerAvailable = pythonParser.isAvailable
+            pythonWorkerStatus = pythonParser.availabilityMessage
             logs = await logStore.recent(limit: 200)
-            // Bring back the last browse so a relaunch does not throw away work.
-            discoveryReport = loadLastReport()
             loadSessionHistory()
+            reloadMiningCacheCount()
             await reload()
+            // Bring back the last browse and apply today's category selection to the
+            // unfiltered saved report. Changing filters never destroys cached links.
+            if let restored = loadLastReport() {
+                activeRawDiscoveryReport = restored
+                activeReportCameFromCache = true
+                discoveryReport = categoryFilteredReport(restored, fromCache: true)
+            }
             if let added = try? await sourceRegistry.mergeBuiltInAdditions(), added > 0 {
                 log(.info, "Added \(added) new built-in source\(added == 1 ? "" : "s").")
                 await reload()
@@ -274,13 +327,13 @@ final class HarvestModel {
     /// Imports a set of URLs immediately — used by the Browse screen so a
     /// verified recipe can be pulled in without a round-trip through the
     /// Import text box.
-    func importDirect(_ rawURLs: [String]) {
+    func importDirect(_ rawURLs: [String], parserModeOverride: ParserMode? = nil) {
         var seen = Set<String>()
         let urls = rawURLs
             .compactMap { try? URLSafety.validatedRemoteURL($0) }
             .map { URLSafety.normalized($0).absoluteString }
             .filter { seen.insert($0).inserted }
-        beginImport(urls)
+        beginImport(urls, parserModeOverride: parserModeOverride)
     }
 
     /// Appends URLs to the import box without disturbing what is already typed.
@@ -306,11 +359,19 @@ final class HarvestModel {
             statusMessage = "The clipboard has no text."
             return
         }
-        let found = text.matches(#"https?://[^\s"'<>\)\]]+"#, group: 0)
-        appendImportURLs(found.isEmpty ? [text] : found)
+        appendImportText([text])
     }
 
-    private func beginImport(_ urls: [String]) {
+    /// Accepts rich/plain pasted or dropped text and extracts every embedded web link.
+    func appendImportText(_ values: [String]) {
+        let found = values.flatMap { value -> [String] in
+            let matches = value.matches(#"https?://[^\s"'<>\)\]]+"#, group: 0)
+            return matches.isEmpty ? [value] : matches
+        }
+        appendImportURLs(found)
+    }
+
+    private func beginImport(_ urls: [String], parserModeOverride: ParserMode? = nil) {
         guard !isImporting else { return }
         guard !urls.isEmpty else {
             errorMessage = "Enter at least one http or https recipe URL."
@@ -368,7 +429,10 @@ final class HarvestModel {
                     next += 1
                     group.addTask {
                         await HarvestModel.performImport(
-                            url: url, settings: activeSettings, coordinator: coordinator
+                            url: url,
+                            settings: activeSettings,
+                            parserModeOverride: parserModeOverride,
+                            coordinator: coordinator
                         )
                     }
                 }
@@ -392,7 +456,10 @@ final class HarvestModel {
                         }
                         group.addTask {
                             await HarvestModel.performImport(
-                                url: url, settings: activeSettings, coordinator: coordinator
+                                url: url,
+                                settings: activeSettings,
+                                parserModeOverride: parserModeOverride,
+                                coordinator: coordinator
                             )
                         }
                         scheduled = true
@@ -426,10 +493,15 @@ final class HarvestModel {
     private nonisolated static func performImport(
         url: String,
         settings: AppSettings,
+        parserModeOverride: ParserMode?,
         coordinator: CrawlCoordinator
     ) async -> ImportOutcome {
         do {
-            let detail = try await coordinator.importRecipe(urlString: url, settings: settings)
+            let detail = try await coordinator.importRecipe(
+                urlString: url,
+                settings: settings,
+                parserModeOverride: parserModeOverride
+            )
             return ImportOutcome(url: url, detail: detail, error: nil)
         } catch is CancellationError {
             return ImportOutcome(url: url, detail: nil, error: "Canceled")
@@ -477,6 +549,7 @@ final class HarvestModel {
         } else if outcome.error == "Canceled" {
             // A cancelled import is the user's decision, not a failure — no red row.
         } else if !outcome.mined.isEmpty {
+            persistMinedLinks(outcome.mined, for: outcome.url)
             if sessionMinedSet.contains(outcome.url) {
                 // A mined link turned out to be ANOTHER category page. Expanding it
                 // again is how 288 candidates became a 1,662-URL queue — one
@@ -489,13 +562,17 @@ final class HarvestModel {
             }
         } else {
             importProgress.failed += 1
-            if let host {
+            if let host, Self.countsTowardHostCircuitBreaker(outcome.error) {
                 let streak = (hostFailureStreaks[host] ?? 0) + 1
                 hostFailureStreaks[host] = streak
                 if streak == 8, !trippedHosts.contains(host) {
                     trippedHosts.insert(host)
                     log(.warning, "8 straight failures from \(host) — skipping the rest of its URLs this run. Try the built-in browser, or a different method/UA.")
                 }
+            } else if let host {
+                // A parser miss proves the host responded successfully. It is not a
+                // network outage and must never suppress hundreds of later recipes.
+                hostFailureStreaks[host] = 0
             }
             if settings.retryFailedImports, !isRetryPass, Self.isRetryable(outcome.error) {
                 retryQueue.append(outcome.url)
@@ -520,6 +597,26 @@ final class HarvestModel {
             || message.contains("http 5")
             || message.contains("http 429")
             || message.contains("could not be read")
+    }
+
+    /// Only transport/access failures participate in the per-host breaker. Parser and
+    /// page-classification misses are content-specific and say nothing about host health.
+    private static func countsTowardHostCircuitBreaker(_ message: String?) -> Bool {
+        guard let message = message?.lowercased() else { return false }
+        if message.contains("could not parse recipe")
+            || message.contains("not a recipe")
+            || message.contains("category page") {
+            return false
+        }
+        return message.contains("timed out")
+            || message.contains("network")
+            || message.contains("connection")
+            || message.contains("bot wall")
+            || message.contains("blocking automated access")
+            || message.contains("robots.txt")
+            || message.contains("rate limited")
+            || message.contains("http 4")
+            || message.contains("http 5")
     }
 
     private func finishImportRun() async {
@@ -667,13 +764,19 @@ final class HarvestModel {
 
     // MARK: - Discovery
 
-    /// Number of valid http(s) URLs currently in the import queue text box.
+    /// Parsed queue information powers the preview, domain summary, validation badges,
+    /// and the import pipeline from one canonical normalization pass.
+    var queueSnapshot: ImportQueueSnapshot {
+        Self.makeQueueSnapshot(from: importText)
+    }
+
+    var queuedURLs: [String] {
+        queueSnapshot.entries.map(\.url)
+    }
+
+    /// Number of unique, valid http(s) URLs currently in the import queue text box.
     var queuedURLCount: Int {
-        importText.components(separatedBy: .newlines)
-            .flatMap { $0.components(separatedBy: ",") }
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && (URL(string: $0)?.scheme?.hasPrefix("http") == true) }
-            .count
+        queueSnapshot.entries.count
     }
 
     /// Crawls a source and always adds found URLs to the queue (ignores autoImportVerified).
@@ -681,7 +784,11 @@ final class HarvestModel {
         discover(source, addToQueueOnly: true)
     }
 
-    func discover(_ source: SourceProfile, addToQueueOnly: Bool = false) {
+    func discover(
+        _ source: SourceProfile,
+        addToQueueOnly: Bool = false,
+        forceRefresh: Bool = false
+    ) {
         guard !isDiscovering else { return }
         guard source.enabled else {
             discoveryFailure = "\(source.name) is disabled. Enable it in Sources first."
@@ -696,30 +803,56 @@ final class HarvestModel {
         discoveryReport = nil
         discoveryFailure = nil
         rememberSource(source.id)
+        let activeSettings = settings
+        let reusableReport = activeSettings.reuseCachedDiscoveryResults && !forceRefresh
+            ? cachedReport(for: source.id)
+            : nil
         discoveryProgress = DiscoveryProgress(
-            phase: "Starting", currentURL: nil, pagesFetched: 0,
+            phase: reusableReport == nil ? "Starting" : "Loading saved results",
+            currentURL: nil, pagesFetched: 0,
             queued: 0, confirmed: 0, rejected: 0
         )
-        statusMessage = "Discovering recipes on \(source.name)…"
-        let activeSettings = settings
+        statusMessage = reusableReport == nil
+            ? "Discovering recipes on \(source.name)…"
+            : "Using saved results for \(source.name)…"
         let coordinator = coordinator
 
         discoveryTask = Task { [weak self] in
             defer { self?.isDiscovering = false }
             do {
-                let report = try await coordinator.discoverRecipeURLs(
-                    source: source,
-                    settings: activeSettings,
-                    manual: true,
-                    progress: { [weak self] update in
-                        guard let self else { return }
-                        await self.updateDiscoveryProgress(update)
-                    }
-                )
+                let rawReport: DiscoveryReport
+                let fromCache: Bool
+                if let reusableReport {
+                    rawReport = reusableReport
+                    fromCache = true
+                    self?.discoveryProgress = DiscoveryProgress(
+                        phase: "Saved results ready",
+                        currentURL: nil,
+                        pagesFetched: 0,
+                        queued: 0,
+                        confirmed: reusableReport.confirmed.count,
+                        rejected: reusableReport.rejected.count
+                    )
+                } else {
+                    rawReport = try await coordinator.discoverRecipeURLs(
+                        source: source,
+                        settings: activeSettings,
+                        manual: true,
+                        progress: { [weak self] update in
+                            guard let self else { return }
+                            await self.updateDiscoveryProgress(update)
+                        }
+                    )
+                    fromCache = false
+                }
                 guard let self else { return }
+                self.activeRawDiscoveryReport = rawReport
+                self.activeReportCameFromCache = fromCache
+                let report = self.categoryFilteredReport(rawReport, source: source, fromCache: fromCache)
                 self.discoveryReport = report
-                // Always persist the report so a cancelled session survives relaunch.
-                await self.persistReport(report)
+                // Save the complete, unfiltered source result. Category selections can
+                // change later without forcing another crawl or losing any links.
+                if !fromCache { await self.persistReport(rawReport) }
                 let shouldAutoImport = !addToQueueOnly && self.settings.autoImportVerified
                 if shouldAutoImport, !report.confirmed.isEmpty {
                     self.importDirect(report.confirmed.map(\.url))
@@ -737,10 +870,12 @@ final class HarvestModel {
                 } else {
                     self.queue(report.confirmed)
                 }
-                self.statusMessage = "\(source.name): \(report.summary)"
+                self.statusMessage = fromCache
+                    ? "\(source.name): reused saved results · \(report.summary)"
+                    : "\(source.name): \(report.summary)"
                 self.log(
                     report.confirmed.isEmpty ? .warning : .success,
-                    "\(source.name) — \(report.summary)",
+                    "\(source.name) — \(fromCache ? "saved results · " : "")\(report.summary)",
                     url: source.baseURL
                 )
                 for note in report.notes.prefix(5) {
@@ -750,7 +885,7 @@ final class HarvestModel {
                 // guessing, and adopt a source that worked into the rotation.
                 var updated = source
                 var changed = false
-                if let seed = report.workingSeed,
+                if let seed = rawReport.workingSeed,
                    seed.lowercased().contains("sitemap") || seed.lowercased().contains("feed"),
                    !updated.sitemapURLs.contains(seed) {
                     updated.sitemapURLs.insert(seed, at: 0)
@@ -758,17 +893,19 @@ final class HarvestModel {
                     changed = true
                 }
                 if self.settings.rememberBrowsedSources,
-                   !report.confirmed.isEmpty,
+                   !rawReport.confirmed.isEmpty,
                    !updated.discoveryEnabled {
                     updated.discoveryEnabled = true
                     changed = true
                 }
                 if changed { self.updateSource(updated) }
-                await self.updateHealth(
-                    for: source,
-                    health: report.confirmed.isEmpty ? .limited : .healthy,
-                    message: report.summary
-                )
+                if !fromCache {
+                    await self.updateHealth(
+                        for: source,
+                        health: rawReport.confirmed.isEmpty ? .limited : .healthy,
+                        message: rawReport.summary
+                    )
+                }
                 // Chain to whatever is next: an explicitly selected source first, then
                 // auto-rotate. Queue-only browsing chains here; the auto-import path
                 // chains from finishImportRun instead, after the recipes are actually
@@ -829,8 +966,178 @@ final class HarvestModel {
         statusMessage = "Queued \(additions.count) verified recipe URL\(additions.count == 1 ? "" : "s")"
     }
 
+    var cachedSourceCount: Int { sourceCacheSummaries.count }
+
+    func cacheSummary(for sourceID: String) -> SourceDiscoveryCacheSummary? {
+        sourceCacheSummaries[sourceID]
+    }
+
+    func refreshDiscovery(_ source: SourceProfile, addToQueueOnly: Bool = false) {
+        discover(source, addToQueueOnly: addToQueueOnly, forceRefresh: true)
+    }
+
+    /// Re-slices the active unfiltered report immediately when category choices change.
+    /// No source request is made and the durable cache remains complete.
+    func applyCategoryFilterToCurrentReport() {
+        guard let raw = activeRawDiscoveryReport else { return }
+        discoveryReport = categoryFilteredReport(raw, fromCache: activeReportCameFromCache)
+        if settings.selectedBrowseCategoryIDs.isEmpty {
+            statusMessage = "Showing every category · \(raw.confirmed.count) verified links"
+        } else {
+            statusMessage = "Category filter applied · \(discoveryReport?.confirmed.count ?? 0) matches"
+        }
+    }
+
+    private func categoryFilteredReport(
+        _ raw: DiscoveryReport,
+        source explicitSource: SourceProfile? = nil,
+        fromCache: Bool
+    ) -> DiscoveryReport {
+        var report = raw
+        let selected = Set(settings.selectedBrowseCategoryIDs)
+        let source = explicitSource ?? sources.first { $0.id == raw.sourceID }
+        let sourceSignals = ([source?.name].compactMap { $0 } + (source?.tags ?? []))
+            .joined(separator: " ")
+
+        var savedSignals: [String: String] = [:]
+        for recipe in recipes {
+            let signals = ([recipe.title, recipe.summary].compactMap { $0 }
+                + recipe.categories + recipe.cuisines + recipe.keywords + recipe.diets)
+                .joined(separator: " ")
+            savedSignals[Self.discoveryURLKey(recipe.source.url)] = signals
+            if let canonical = recipe.source.canonicalURL {
+                savedSignals[Self.discoveryURLKey(canonical)] = signals
+            }
+        }
+
+        func keep(_ link: DiscoveredLink) -> Bool {
+            let supplemental = sourceSignals + " " + (savedSignals[Self.discoveryURLKey(link.url)] ?? "")
+            return RecipeBrowseTaxonomy.matches(
+                link,
+                selectedIDs: selected,
+                supplementalText: supplemental
+            )
+        }
+
+        if !selected.isEmpty {
+            report.candidates = raw.candidates.filter(keep)
+            report.confirmed = raw.confirmed.filter(keep)
+            report.unverified = raw.unverified.filter {
+                keep(DiscoveredLink(url: $0, title: nil, imageURL: nil))
+            }
+            let names = selected.compactMap { RecipeBrowseTaxonomy.byID[$0]?.name }.sorted()
+            let selection = names.prefix(4).joined(separator: ", ")
+                + (names.count > 4 ? " +\(names.count - 4) more" : "")
+            report.notes.insert(
+                "Category filter: \(report.confirmed.count) of \(raw.confirmed.count) verified links match \(selection).",
+                at: 0
+            )
+        }
+        if fromCache {
+            report.notes.insert(
+                "Reused the saved \(raw.sourceName) result from \(raw.finishedAt.formatted(date: .abbreviated, time: .shortened)); the website was not read again.",
+                at: 0
+            )
+        }
+        return report
+    }
+
+    private nonisolated static func discoveryURLKey(_ raw: String) -> String {
+        guard let url = URL(string: raw) else { return raw.lowercased() }
+        return URLSafety.normalized(url).absoluteString.lowercased()
+    }
+
+    private func sourceCacheURL(for sourceID: String) -> URL {
+        paths.sourceDiscoveryCache
+            .appendingPathComponent(String(Hashing.sha256(sourceID).prefix(24)))
+            .appendingPathExtension("json")
+    }
+
+    private func miningCacheURL(for pageURL: String) -> URL {
+        let key = Self.discoveryURLKey(pageURL)
+        return paths.miningResultCache
+            .appendingPathComponent(String(Hashing.sha256(key).prefix(32)))
+            .appendingPathExtension("json")
+    }
+
+    private func cachedMinedLinks(for pageURL: String) -> [String]? {
+        guard let data = try? Data(contentsOf: miningCacheURL(for: pageURL)),
+              let record = try? JSONCoding.decoder().decode(MinedPageCacheRecord.self, from: data),
+              !record.recipeURLs.isEmpty else { return nil }
+        return record.recipeURLs
+    }
+
+    private func persistMinedLinks(_ rawLinks: [String], for pageURL: String) {
+        var seen = Set<String>()
+        let links = rawLinks
+            .compactMap { try? URLSafety.validatedRemoteURL($0) }
+            .map { URLSafety.normalized($0).absoluteString }
+            .filter { seen.insert($0).inserted }
+        guard !links.isEmpty else { return }
+        let file = miningCacheURL(for: pageURL)
+        let isNew = !FileManager.default.fileExists(atPath: file.path)
+        let record = MinedPageCacheRecord(
+            pageURL: Self.discoveryURLKey(pageURL),
+            savedAt: Date(),
+            recipeURLs: links
+        )
+        guard let data = try? JSONCoding.encoder().encode(record) else { return }
+        do {
+            try data.write(to: file, options: .atomic)
+            if isNew { cachedMinedPageCount += 1 }
+        } catch {
+            log(.warning, "Could not save mined links for later reuse: \(error.localizedDescription)", url: pageURL)
+        }
+    }
+
+    private func reloadMiningCacheCount() {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: paths.miningResultCache,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        cachedMinedPageCount = files.filter { $0.pathExtension == "json" }.count
+    }
+
+    private func cachedReport(for sourceID: String) -> DiscoveryReport? {
+        let decoder = JSONCoding.decoder()
+        if let data = try? Data(contentsOf: sourceCacheURL(for: sourceID)),
+           let report = try? decoder.decode(DiscoveryReport.self, from: data) {
+            return report
+        }
+        // Existing installations already have session reports. Treat the newest one as
+        // an immediate cache hit; the next fresh crawl materializes the stable cache file.
+        return sessionHistory.first { $0.sourceID == sourceID }
+    }
+
     private func persistReport(_ report: DiscoveryReport) async {
         guard let data = try? JSONCoding.encoder().encode(report) else { return }
+        // Stable per-source copy: an anomalous empty refresh must not destroy a useful
+        // earlier result. The empty run remains in history for diagnosis, and Refresh
+        // can replace the cache once the site answers normally again.
+        let cacheURL = sourceCacheURL(for: report.sourceID)
+        let existing: DiscoveryReport?
+        if let existingData = try? Data(contentsOf: cacheURL) {
+            existing = try? JSONCoding.decoder().decode(DiscoveryReport.self, from: existingData)
+        } else {
+            existing = nil
+        }
+        let reportHasLinks = !report.candidates.isEmpty
+            || !report.confirmed.isEmpty
+            || !report.unverified.isEmpty
+        let existingHasLinks = existing.map {
+            !$0.candidates.isEmpty || !$0.confirmed.isEmpty || !$0.unverified.isEmpty
+        } ?? false
+        if reportHasLinks || !existingHasLinks {
+            try? data.write(to: cacheURL, options: .atomic)
+            sourceCacheSummaries[report.sourceID] = SourceDiscoveryCacheSummary(
+                sourceID: report.sourceID,
+                sourceName: report.sourceName,
+                savedAt: report.finishedAt,
+                resultCount: report.confirmed.count
+            )
+        } else {
+            log(.warning, "The refreshed \(report.sourceName) result was empty; kept its last useful saved result.")
+        }
         let name = "\(report.sourceID)-\(Int(report.finishedAt.timeIntervalSince1970)).json"
         try? data.write(
             to: paths.discoveryReports.appendingPathComponent(name),
@@ -871,7 +1178,7 @@ final class HarvestModel {
         Task {
             await fetcher.clearPause(for: source)
             log(.info, "Cleared the pause on \(source.name).")
-            discover(source)
+            discover(source, forceRefresh: true)
         }
     }
 
@@ -1263,29 +1570,50 @@ final class HarvestModel {
 
     // MARK: - Build 95: migrations, failures, spacing
 
-    /// One-time forward migration when defaults change meaning. Revision 2 (Build 95):
-    /// browsing no longer imports by itself, and the crawler stops announcing itself
-    /// with a truncated UA that trips bot walls.
+    /// One-time forward migration when defaults change meaning. Revision 3 makes the
+    /// guided flow safe by default: pasted/listing pages are verified and mined before
+    /// import, while Automatic remains an explicit choice in Browse.
     private func migrateSettingsIfNeeded() {
-        guard settings.settingsRevision < 2 else { return }
-        if settings.userAgent == AppSettings.legacyUserAgent {
-            settings.userAgent = AppSettings.safariUserAgent
+        guard settings.settingsRevision < 3 else { return }
+        var changes: [String] = []
+        if settings.settingsRevision < 2 {
+            if settings.userAgent == AppSettings.legacyUserAgent {
+                settings.userAgent = AppSettings.safariUserAgent
+            }
+            if settings.autoImportVerified {
+                settings.autoImportVerified = false
+            }
+            changes.append("browsing now pauses for review")
         }
-        if settings.autoImportVerified {
-            settings.autoImportVerified = false
+        if settings.settingsRevision < 3 {
+            settings.verifyBeforeImport = true
+            changes.append("queue imports now verify and mine category pages first")
         }
-        settings.settingsRevision = 2
+        settings.settingsRevision = 3
         scheduleSettingsSave()
-        log(.info, "New defaults applied: browsing queues instead of auto-importing, and the crawler identifies as Safari. Both are adjustable in Browse.")
+        log(.info, "New Browse flow defaults applied: \(changes.joined(separator: "; ")).")
+    }
+
+    /// Reports whether the current browser page is already represented by a harvested
+    /// recipe. The browser uses this to say "Update" instead of pretending it is new.
+    func isAlreadyImported(_ urlString: String) async -> Bool {
+        guard let valid = try? URLSafety.validatedRemoteURL(urlString) else { return false }
+        let normalized = URLSafety.normalized(valid).absoluteString
+        let known = (try? await recipeStore.knownSourceURLs()) ?? []
+        return known.contains(urlString) || known.contains(normalized)
     }
 
     /// Imports one page immediately — the in-app browser's buttons. `force` skips the
-    /// category-page refusal for the rare page the detector reads wrong.
+    /// category-page refusal for the rare page the detector reads wrong. Re-importing is
+    /// safe: RecipeStore merges by source fingerprint and preserves review decisions.
     func importPage(_ urlString: String, force: Bool = false) {
+        guard !isImportingPage else { return }
         let activeSettings = settings
         let coordinator = coordinator
+        isImportingPage = true
         statusMessage = "Importing the open page…"
         Task {
+            defer { isImportingPage = false }
             do {
                 let detail = try await coordinator.importRecipe(
                     urlString: urlString,
@@ -1320,6 +1648,11 @@ final class HarvestModel {
     /// everything already in the library, and everything that failed this session —
     /// and says how many of each it removed.
     func cleanQueue() {
+        guard importText.nilIfBlank != nil else {
+            statusMessage = "The queue is empty."
+            return
+        }
+        let invalid = queueSnapshot.invalidCount
         let raw = importText
             .components(separatedBy: .newlines)
             .flatMap { $0.components(separatedBy: ",") }
@@ -1327,12 +1660,9 @@ final class HarvestModel {
             .filter { !$0.isEmpty }
             .compactMap { try? URLSafety.validatedRemoteURL($0) }
             .map { URLSafety.normalized($0).absoluteString }
-        guard !raw.isEmpty else {
-            statusMessage = "The queue is empty."
-            return
-        }
         let failed = Set(lastFailures.map(\.url))
         let store = recipeStore
+        rememberQueueForUndo()
         statusMessage = "Cleaning the queue…"
         Task {
             let known = (try? await store.knownSourceURLs()) ?? []
@@ -1348,12 +1678,62 @@ final class HarvestModel {
                 keep.append(url)
             }
             importText = keep.joined(separator: "\n")
-            let removed = duplicates + alreadyImported + failedEarlier
+            let removed = duplicates + alreadyImported + failedEarlier + invalid
             statusMessage = removed == 0
                 ? "Queue is clean — \(keep.count) unique new URLs."
-                : "Cleaned: kept \(keep.count) — removed \(duplicates) duplicate\(duplicates == 1 ? "" : "s"), \(alreadyImported) already imported, \(failedEarlier) failed earlier"
+                : "Cleaned: kept \(keep.count) — removed \(duplicates) duplicate\(duplicates == 1 ? "" : "s"), \(invalid) invalid, \(alreadyImported) already imported, \(failedEarlier) failed earlier"
             log(removed == 0 ? .info : .success, statusMessage)
         }
+    }
+
+    /// Removes one preview row without forcing the user into the raw text editor.
+    func removeQueuedURL(_ url: String) {
+        let entries = queuedURLs
+        guard entries.contains(url) else { return }
+        rememberQueueForUndo()
+        importText = entries.filter { $0 != url }.joined(separator: "\n")
+        statusMessage = "Removed 1 URL · \(queuedURLCount) remain"
+    }
+
+    /// Moves a URL to the front, which is meaningful when imports are intentionally
+    /// processed in bounded batches.
+    func prioritizeQueuedURL(_ url: String) {
+        var entries = queuedURLs
+        guard let index = entries.firstIndex(of: url), index > 0 else { return }
+        rememberQueueForUndo()
+        let value = entries.remove(at: index)
+        entries.insert(value, at: 0)
+        importText = entries.joined(separator: "\n")
+        statusMessage = "Moved that recipe to the front of the queue."
+    }
+
+    func clearQueue() {
+        guard !importText.isEmpty else { return }
+        rememberQueueForUndo()
+        importText = ""
+        statusMessage = "Queue cleared. Undo is available."
+    }
+
+    var canUndoQueueChange: Bool { queueUndoText != nil }
+
+    func undoQueueChange() {
+        guard let previous = queueUndoText else { return }
+        let current = importText
+        importText = previous
+        queueUndoText = current
+        statusMessage = "Queue restored · \(queuedURLCount) URL\(queuedURLCount == 1 ? "" : "s")"
+    }
+
+    func copyQueueURLs() {
+        let value = queuedURLs.joined(separator: "\n")
+        guard !value.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        statusMessage = "Copied \(queuedURLCount) queued URL\(queuedURLCount == 1 ? "" : "s")"
+    }
+
+    private func rememberQueueForUndo() {
+        queueUndoText = importText
     }
 
     /// Copies every failed URL to the clipboard, one per line.
@@ -1365,6 +1745,25 @@ final class HarvestModel {
         statusMessage = "Copied \(lastFailures.count) failed URL\(lastFailures.count == 1 ? "" : "s")"
     }
 
+    /// Copies a support-grade report: unlike "Copy URLs", this preserves the complete
+    /// parser chain and local parser health without exposing recipe HTML or user data.
+    func copyFailureDiagnostics() {
+        guard !lastFailures.isEmpty else { return }
+        let header = [
+            "Stocked recipe import diagnostics",
+            "Generated: \(ISO8601DateFormatter().string(from: Date()))",
+            "Parser mode: \(settings.parserMode.rawValue)",
+            "Python parser: \(pythonWorkerStatus)",
+            "Failures: \(lastFailures.count)",
+        ].joined(separator: "\n")
+        let details = lastFailures.enumerated().map { index, failure in
+            "\n\(index + 1). \(failure.url)\n   \(failure.reason)"
+        }.joined()
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(header + details, forType: .string)
+        statusMessage = "Copied full import diagnostics"
+    }
+
     /// Re-runs every failed import from the last run.
     func retryFailures() {
         let urls = lastFailures.map(\.url)
@@ -1373,8 +1772,53 @@ final class HarvestModel {
         importDirect(urls)
     }
 
+    func retryFailure(_ failure: ImportFailure) {
+        lastFailures.removeAll { $0.id == failure.id }
+        isRetryPass = true
+        importDirect([failure.url])
+    }
+
+    /// Bypasses a failing native-first path for this retry without changing the user's
+    /// global parser preference. Native/microdata remain available as fallbacks.
+    func retryFailuresWithPython() {
+        let urls = lastFailures.map(\.url)
+        guard pythonWorkerAvailable, !urls.isEmpty else { return }
+        lastFailures.removeAll()
+        isRetryPass = true
+        importDirect(urls, parserModeOverride: .pythonFirst)
+    }
+
+    func retryFailureWithPython(_ failure: ImportFailure) {
+        guard pythonWorkerAvailable else { return }
+        lastFailures.removeAll { $0.id == failure.id }
+        isRetryPass = true
+        importDirect([failure.url], parserModeOverride: .pythonFirst)
+    }
+
     func clearFailures() {
         lastFailures.removeAll()
+    }
+
+    func testPythonWorker() {
+        guard pythonWorkerAvailable, !isTestingPythonWorker else { return }
+        isTestingPythonWorker = true
+        pythonWorkerStatus = "Running live Python parser test…"
+        let parser = pythonParser
+        Task { [weak self] in
+            do {
+                let result = try await parser.healthCheck()
+                guard let self else { return }
+                self.pythonWorkerStatus = result
+                self.pythonWorkerTestPassed = true
+                self.log(.success, result)
+            } catch {
+                guard let self else { return }
+                self.pythonWorkerStatus = error.localizedDescription
+                self.pythonWorkerTestPassed = false
+                self.log(.error, "Python parser test failed: \(error.localizedDescription)")
+            }
+            self?.isTestingPythonWorker = false
+        }
     }
 
     // MARK: - Build 91: pause / verify / images / cloud / sessions
@@ -1401,7 +1845,7 @@ final class HarvestModel {
     /// Checks every queued URL against the recipe-page detector and removes the ones
     /// that are not recipes. Network failures keep their URL — a timeout is not
     /// evidence against a page.
-    func bulkVerifyQueue(thenImport: Bool = false) {
+    func bulkVerifyQueue(thenImport: Bool = false, forceRefreshMining: Bool = false) {
         guard !isBulkVerifying, !isImporting else { return }
         let all = parsedImportURLs()
         guard !all.isEmpty else {
@@ -1413,6 +1857,10 @@ final class HarvestModel {
         let batch = (batchSize > 0 && all.count > batchSize) ? Array(all.prefix(batchSize)) : all
         let rest = Array(all.dropFirst(batch.count))
 
+        // Each explicit verification pass is a new mining session. Links remain in the
+        // durable page cache, but an earlier pass must not prevent those saved results
+        // from being restored to a newly created queue in the same app launch.
+        sessionMinedSet.removeAll()
         isBulkVerifying = true
         bulkVerifyProgress = ImportProgress(
             completed: 0, total: batch.count, succeeded: 0, failed: 0, currentURL: nil
@@ -1425,6 +1873,7 @@ final class HarvestModel {
             var keep: [String] = []
             var mined: [String] = []
             var hubs = 0
+            var cachedHubs = 0
             var dropped = 0
             for url in batch {
                 if Task.isCancelled {
@@ -1432,17 +1881,41 @@ final class HarvestModel {
                     continue
                 }
                 do {
-                    switch try await coordinator.verifyOrMine(urlString: url, settings: activeSettings) {
-                    case .recipe:
-                        keep.append(url)
+                    let cachedLinks = !forceRefreshMining && activeSettings.reuseCachedDiscoveryResults
+                        ? self?.cachedMinedLinks(for: url)
+                        : nil
+                    let check: PageCheck
+                    let reusedMiningCache: Bool
+                    if let cachedLinks {
+                        check = .listing(mined: cachedLinks)
+                        reusedMiningCache = true
+                    } else {
+                        check = try await coordinator.verifyOrMine(
+                            urlString: url,
+                            settings: activeSettings
+                        )
+                        reusedMiningCache = false
+                    }
+                    switch check {
+                    case .recipe(let resolvedURL):
+                        keep.append(resolvedURL ?? url)
                         self?.bulkVerifyProgress.succeeded += 1
+                        if let resolvedURL, resolvedURL != url {
+                            self?.log(.success, "Web Story resolved to its publisher recipe page.", url: resolvedURL)
+                        }
                     case .listing(let links):
                         // Build 99: a category page is REPLACED by the recipes on it
                         // (and on up to five of its sub-pages) instead of just removed.
                         hubs += 1
                         mined.append(contentsOf: links)
                         self?.bulkVerifyProgress.failed += 1
-                        self?.log(.info, "Category page — mined \(links.count) recipe links from it and its sub-pages.", url: url)
+                        if reusedMiningCache {
+                            cachedHubs += 1
+                            self?.log(.success, "Reused \(links.count) cached recipe links; the category page was not mined again.", url: url)
+                        } else {
+                            self?.persistMinedLinks(links, for: url)
+                            self?.log(.info, "Category page — mined and cached \(links.count) recipe links from it and its sub-pages.", url: url)
+                        }
                     case .other:
                         dropped += 1
                         self?.bulkVerifyProgress.failed += 1
@@ -1477,6 +1950,7 @@ final class HarvestModel {
             self.bulkVerifyTask = nil
             var summary = "Verified \(batch.count): kept \(keep.count)"
             if hubs > 0 { summary += ", mined \(freshMined.count) from \(hubs) category page\(hubs == 1 ? "" : "s")" }
+            if cachedHubs > 0 { summary += " (\(cachedHubs) reused from cache)" }
             if dropped > 0 { summary += ", removed \(dropped)" }
             if !rest.isEmpty { summary += " · \(rest.count) unchecked stay queued" }
             if capped > 0 { summary += " · \(capped) over the queue cap left out" }
@@ -1581,22 +2055,78 @@ final class HarvestModel {
             includingPropertiesForKeys: nil
         )) ?? []
         let decoder = JSONCoding.decoder()
-        sessionHistory = files
+        let reports = files
             .filter { $0.pathExtension == "json" }
             .compactMap { url -> DiscoveryReport? in
                 guard let data = try? Data(contentsOf: url) else { return nil }
                 return try? decoder.decode(DiscoveryReport.self, from: data)
             }
             .sorted { $0.finishedAt > $1.finishedAt }
-            .prefix(20)
-            .map { $0 }
+        sessionHistory = Array(reports.prefix(20))
+        rebuildSourceCacheSummaries(historicalReports: reports)
+    }
+
+    private func rebuildSourceCacheSummaries(historicalReports: [DiscoveryReport]) {
+        func hasLinks(_ report: DiscoveryReport) -> Bool {
+            !report.candidates.isEmpty || !report.confirmed.isEmpty || !report.unverified.isEmpty
+        }
+        var stableReports: [String: DiscoveryReport] = [:]
+        let stableFiles = (try? FileManager.default.contentsOfDirectory(
+            at: paths.sourceDiscoveryCache,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        let decoder = JSONCoding.decoder()
+        for url in stableFiles where url.pathExtension == "json" {
+            guard let data = try? Data(contentsOf: url),
+                  let report = try? decoder.decode(DiscoveryReport.self, from: data) else { continue }
+            if (stableReports[report.sourceID]?.finishedAt ?? .distantPast) < report.finishedAt {
+                stableReports[report.sourceID] = report
+            }
+        }
+        // Upgrade every existing discovery history automatically. This gives longtime
+        // installs the same skip-and-reuse behavior immediately, even when a source's
+        // last visit is older than the 20 sessions shown in the UI.
+        var newestHistorical: [String: DiscoveryReport] = [:]
+        var newestUsefulHistorical: [String: DiscoveryReport] = [:]
+        for report in historicalReports {
+            if (newestHistorical[report.sourceID]?.finishedAt ?? .distantPast) < report.finishedAt {
+                newestHistorical[report.sourceID] = report
+            }
+            if hasLinks(report),
+               (newestUsefulHistorical[report.sourceID]?.finishedAt ?? .distantPast) < report.finishedAt {
+                newestUsefulHistorical[report.sourceID] = report
+            }
+        }
+        for (sourceID, newest) in newestHistorical {
+            let report = newestUsefulHistorical[sourceID] ?? newest
+            let existing = stableReports[sourceID]
+            let existingHasLinks = existing.map(hasLinks) ?? false
+            let shouldReplace = existing == nil
+                || (hasLinks(report) && !existingHasLinks)
+                || (report.finishedAt > (existing?.finishedAt ?? .distantPast)
+                    && (hasLinks(report) || !existingHasLinks))
+            guard shouldReplace else { continue }
+            guard let data = try? JSONCoding.encoder().encode(report) else { continue }
+            try? data.write(to: sourceCacheURL(for: sourceID), options: .atomic)
+            stableReports[sourceID] = report
+        }
+        sourceCacheSummaries = Dictionary(uniqueKeysWithValues: stableReports.map { sourceID, report in
+            (sourceID, SourceDiscoveryCacheSummary(
+                sourceID: sourceID,
+                sourceName: report.sourceName,
+                savedAt: report.finishedAt,
+                resultCount: report.confirmed.count
+            ))
+        })
     }
 
     /// Brings a past session back as the active report so its links can be queued,
     /// imported, or its unverified remainder finished.
     func restoreSession(_ report: DiscoveryReport) {
-        discoveryReport = report
-        statusMessage = "Restored the \(report.sourceName) session (\(report.confirmed.count) verified links)"
+        activeRawDiscoveryReport = report
+        activeReportCameFromCache = true
+        discoveryReport = categoryFilteredReport(report, fromCache: true)
+        statusMessage = "Restored \(report.sourceName) from saved results (\(discoveryReport?.confirmed.count ?? 0) matching links)"
     }
 
     /// Browses several sources back to back — the count comes from Settings.
@@ -1809,16 +2339,41 @@ final class HarvestModel {
     // MARK: - Helpers
 
     private func parsedImportURLs() -> [String] {
-        importText
+        queueSnapshot.entries.map(\.url)
+    }
+
+    private nonisolated static func makeQueueSnapshot(from text: String) -> ImportQueueSnapshot {
+        let raw = text
             .components(separatedBy: .newlines)
             .flatMap { $0.components(separatedBy: ",") }
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .compactMap { try? URLSafety.validatedRemoteURL($0) }
-            .map { URLSafety.normalized($0).absoluteString }
-            .reduce(into: [String]()) { result, value in
-                if !result.contains(value) { result.append(value) }
+
+        var entries: [ImportQueueEntry] = []
+        var seen = Set<String>()
+        var duplicates = 0
+        var invalid = 0
+        for value in raw {
+            guard let valid = try? URLSafety.validatedRemoteURL(value) else {
+                invalid += 1
+                continue
             }
+            let normalized = URLSafety.normalized(valid)
+            let string = normalized.absoluteString
+            guard seen.insert(string).inserted else {
+                duplicates += 1
+                continue
+            }
+            entries.append(ImportQueueEntry(
+                url: string,
+                host: normalized.host?.lowercased() ?? "Unknown host"
+            ))
+        }
+        return ImportQueueSnapshot(
+            entries: entries,
+            duplicateCount: duplicates,
+            invalidCount: invalid
+        )
     }
 
     private func log(_ level: CrawlLogEntry.Level, _ message: String, url: String? = nil) {

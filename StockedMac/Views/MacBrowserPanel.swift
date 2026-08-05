@@ -1,12 +1,7 @@
-// MacBrowserPanel.swift — the visible in-app browser (Build 95, embedded in Build 96).
-//
-// A real WebKit view over https with an address bar, shown INSIDE the Browse window's
-// right pane — no sheet, no separate window. Any site, including one that blocks the
-// crawler, can be read by eye and imported from exactly the page on screen. "Import
-// this page" runs the normal pipeline; the ⌄ menu can force-import a page the
-// category detector reads wrong; "Add to queue" just files the URL.
+// MacBrowserPanel.swift — a first-class, embedded recipe browser.
 
 import AppKit
+import Observation
 import SwiftUI
 import WebKit
 
@@ -15,85 +10,225 @@ struct MacBrowserPanel: View {
     @Environment(\.dismiss) private var dismiss
 
     @State var address: String
-    /// Set when embedded (Build 96); nil means presented as a sheet.
     var onClose: (() -> Void)? = nil
-    @State private var currentURL: URL?
+
     @State private var pendingLoad: URL?
-    @State private var status: String?
+    @State private var status: BrowserStatus?
+    @State private var session = BrowserSession()
+    @State private var isAlreadyImported = false
+    @FocusState private var addressFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "globe").foregroundStyle(.secondary)
-                TextField("Enter a URL…", text: $address)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(go)
-                Button("Go", action: go)
-                    .disabled(address.trimmingCharacters(in: .whitespaces).isEmpty)
-                Divider().frame(height: 16)
-                Button("Add to queue") {
-                    guard let url = activeURLString else { return }
-                    harvest.appendImportURLs([url])
-                    status = "Queued."
-                }
-                .disabled(activeURLString == nil)
-                Button("Import this page") {
-                    guard let url = activeURLString else { return }
-                    harvest.importPage(url)
-                    status = "Importing — the result lands in Harvest."
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(activeURLString == nil || harvest.isImporting)
-                Menu {
-                    Button("Import even if it looks like a category page") {
-                        guard let url = activeURLString else { return }
-                        harvest.importPage(url, force: true)
-                        status = "Importing (forced) — the result lands in Harvest."
-                    }
-                } label: {
-                    Image(systemName: "chevron.down")
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 24)
-                .disabled(activeURLString == nil || harvest.isImporting)
-                Button("Close") {
-                    if let onClose { onClose() } else { dismiss() }
-                }
-            }
-            .padding(10)
+            navigationBar
+            Divider()
+            pageBar
 
             if let status {
-                HStack {
-                    Text(status).font(.caption).foregroundStyle(MacTheme.green)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 6)
+                statusBanner(status)
             }
 
             Divider()
 
             if let pendingLoad {
-                BrowserWebView(request: pendingLoad, currentURL: $currentURL)
+                BrowserWebView(request: pendingLoad, session: session)
+                    .overlay(alignment: .top) {
+                        if session.isLoading {
+                            ProgressView(value: session.estimatedProgress)
+                                .progressViewStyle(.linear)
+                        }
+                    }
             } else {
                 MacEmpty(
                     title: "Browse the web",
-                    message: "Enter a recipe page's address above. What you see is what Import gets.",
+                    message: "Enter a recipe page address, paste one, or drop a link. Stocked checks duplicates before importing.",
                     systemImage: "safari"
                 )
             }
         }
-        .frame(minWidth: 560, minHeight: 400)
+        .frame(minWidth: 400, minHeight: 400)
         .onAppear {
-            if !address.trimmingCharacters(in: .whitespaces).isEmpty { go() }
+            if !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                go()
+            } else {
+                addressFocused = true
+            }
         }
-        .onChange(of: currentURL) {
-            if let currentURL { address = currentURL.absoluteString }
+        .onChange(of: session.currentURL) {
+            guard let url = session.currentURL else { return }
+            address = url.absoluteString
+            status = nil
+        }
+        .task(id: "\(activeURLString ?? "")|\(harvest.recipes.count)") {
+            guard let activeURLString else {
+                isAlreadyImported = false
+                return
+            }
+            isAlreadyImported = await harvest.isAlreadyImported(activeURLString)
+        }
+        .dropDestination(for: String.self) { items, _ in
+            guard let first = items.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !first.isEmpty else { return false }
+            address = first
+            go()
+            return true
         }
     }
 
+    private var navigationBar: some View {
+        HStack(spacing: 6) {
+            Button(action: session.goBack) {
+                Image(systemName: "chevron.left")
+            }
+            .disabled(!session.canGoBack)
+            .help("Back")
+
+            Button(action: session.goForward) {
+                Image(systemName: "chevron.right")
+            }
+            .disabled(!session.canGoForward)
+            .help("Forward")
+
+            Button {
+                if session.isLoading { session.stop() } else { session.reload() }
+            } label: {
+                Image(systemName: session.isLoading ? "xmark" : "arrow.clockwise")
+            }
+            .disabled(pendingLoad == nil)
+            .help(session.isLoading ? "Stop loading" : "Reload")
+
+            TextField("Search or enter a URL", text: $address)
+                .textFieldStyle(.roundedBorder)
+                .focused($addressFocused)
+                .onSubmit(go)
+                .accessibilityLabel("Recipe web address")
+
+            Button(action: go) {
+                Image(systemName: "arrow.right.circle.fill")
+            }
+                .disabled(address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .help("Go to this address")
+                .accessibilityLabel("Go")
+
+            Menu {
+                Button("Open in Safari") { openExternally() }
+                    .disabled(activeURL == nil)
+                Button("Copy address") { copyAddress() }
+                    .disabled(activeURLString == nil)
+                Divider()
+                Button("Check whether this is a recipe") {
+                    guard let activeURLString else { return }
+                    harvest.testLink(activeURLString)
+                    status = BrowserStatus("Checking the page…", kind: .neutral)
+                }
+                .disabled(activeURLString == nil)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .help("Browser actions")
+
+            Button {
+                if let onClose { onClose() } else { dismiss() }
+            } label: {
+                Image(systemName: "xmark.circle")
+            }
+            .help("Close browser")
+            .accessibilityLabel("Close browser")
+        }
+        .buttonStyle(.borderless)
+        .padding(10)
+    }
+
+    private var pageBar: some View {
+        HStack(spacing: 8) {
+            if let url = activeURL {
+                Image(systemName: url.scheme == "https" ? "lock.fill" : "exclamationmark.triangle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(url.scheme == "https" ? MacTheme.green : Color.orange)
+                    .help(url.scheme == "https" ? "Secure HTTPS connection" : "This page is not using HTTPS")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(session.title.nilIfBlank ?? url.host ?? "Recipe page")
+                        .font(.caption.weight(.medium)).lineLimit(1)
+                    Text(url.host ?? url.absoluteString)
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            } else {
+                Text("No page loaded")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            if isAlreadyImported {
+                Label("In Harvest", systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(MacTheme.green)
+            }
+
+            Button("Queue") {
+                guard let activeURLString else { return }
+                harvest.appendImportURLs([activeURLString])
+                status = BrowserStatus("Added to the import queue.", kind: .success)
+            }
+            .disabled(activeURLString == nil || session.isLoading)
+            .help("Add this page to the import queue")
+            .accessibilityLabel("Add to queue")
+
+            Button(isAlreadyImported ? "Update" : "Import") {
+                importPage(force: false)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(activeURLString == nil || session.isLoading || harvest.isImporting || harvest.isImportingPage)
+            .help(isAlreadyImported ? "Update the existing Harvest recipe" : "Import this recipe into Harvest")
+            .accessibilityLabel(isAlreadyImported ? "Update recipe" : "Import recipe")
+
+            Menu {
+                Button("Import even if this looks like a category page") {
+                    importPage(force: true)
+                }
+                Button("Add to queue and continue browsing") {
+                    guard let activeURLString else { return }
+                    harvest.appendImportURLs([activeURLString])
+                    status = BrowserStatus("Saved for later.", kind: .success)
+                }
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 22)
+            .disabled(activeURLString == nil || session.isLoading || harvest.isImporting || harvest.isImportingPage)
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func statusBanner(_ status: BrowserStatus) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: status.kind.systemImage)
+            Text(status.message)
+            Spacer(minLength: 0)
+            Button {
+                self.status = nil
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+        }
+        .font(.caption)
+        .foregroundStyle(status.kind.tint)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(status.kind.tint.opacity(0.08))
+    }
+
+    private var activeURL: URL? {
+        guard let value = activeURLString else { return nil }
+        return URL(string: value)
+    }
+
     private var activeURLString: String? {
-        (currentURL?.absoluteString ?? address).nilIfBlank
+        (session.currentURL?.absoluteString ?? address).nilIfBlank
             .flatMap { try? URLSafety.validatedRemoteURL($0).absoluteString }
     }
 
@@ -101,57 +236,201 @@ struct MacBrowserPanel: View {
         var raw = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return }
         if !raw.contains("://") { raw = "https://" + raw }
-        guard let url = URL(string: raw), url.host != nil else {
-            status = "That doesn't look like a web address."
+        guard let url = try? URLSafety.validatedRemoteURL(raw) else {
+            status = BrowserStatus("Enter a valid HTTP or HTTPS address.", kind: .error)
             return
         }
         status = nil
-        address = raw
+        address = url.absoluteString
+        session.prepareForNavigation(to: url)
         pendingLoad = url
+    }
+
+    private func importPage(force: Bool) {
+        guard let activeURLString else { return }
+        harvest.importPage(activeURLString, force: force)
+        status = BrowserStatus(
+            isAlreadyImported ? "Updating the existing Harvest recipe…" : "Importing into Harvest for review…",
+            kind: .success
+        )
+    }
+
+    private func openExternally() {
+        guard let activeURL else { return }
+        NSWorkspace.shared.open(activeURL)
+    }
+
+    private func copyAddress() {
+        guard let activeURLString else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(activeURLString, forType: .string)
+        status = BrowserStatus("Address copied.", kind: .success)
     }
 }
 
-/// WKWebView wrapper that follows navigation and reports the current URL back.
+private struct BrowserStatus {
+    let message: String
+    let kind: Kind
+
+    init(_ message: String, kind: Kind) {
+        self.message = message
+        self.kind = kind
+    }
+
+    enum Kind {
+        case neutral, success, error
+
+        var tint: Color {
+            switch self {
+            case .neutral: return .secondary
+            case .success: return MacTheme.green
+            case .error: return .red
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .neutral: return "info.circle"
+            case .success: return "checkmark.circle"
+            case .error: return "exclamationmark.triangle"
+            }
+        }
+    }
+}
+
+@MainActor
+@Observable
+private final class BrowserSession {
+    @ObservationIgnored weak var webView: WKWebView?
+
+    var currentURL: URL?
+    var title = ""
+    var estimatedProgress = 0.0
+    var isLoading = false
+    var canGoBack = false
+    var canGoForward = false
+
+    func attach(_ webView: WKWebView) {
+        self.webView = webView
+        update(from: webView)
+    }
+
+    func update(from webView: WKWebView) {
+        currentURL = webView.url
+        title = webView.title ?? ""
+        estimatedProgress = webView.estimatedProgress
+        isLoading = webView.isLoading
+        canGoBack = webView.canGoBack
+        canGoForward = webView.canGoForward
+    }
+
+    func prepareForNavigation(to url: URL) {
+        currentURL = url
+        title = ""
+        estimatedProgress = 0
+        isLoading = true
+    }
+
+    func goBack() { webView?.goBack() }
+    func goForward() { webView?.goForward() }
+    func reload() { webView?.reload() }
+    func stop() { webView?.stopLoading() }
+}
+
 private struct BrowserWebView: NSViewRepresentable {
     let request: URL
-    @Binding var currentURL: URL?
+    let session: BrowserSession
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(currentURL: $currentURL)
+        Coordinator(session: session)
     }
 
     func makeNSView(context: Context) -> WKWebView {
-        let view = WKWebView(frame: .zero)
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.allowsBackForwardNavigationGestures = true
+        view.allowsMagnification = true
+        context.coordinator.connect(to: view)
         context.coordinator.lastRequested = request
         view.load(URLRequest(url: request))
         return view
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
-        // Reload only when the requested page genuinely changed, so following links
-        // inside the view is never fought by SwiftUI updates.
         if context.coordinator.lastRequested != request {
             context.coordinator.lastRequested = request
             view.load(URLRequest(url: request))
         }
     }
 
-    final class Coordinator: NSObject, @preconcurrency WKNavigationDelegate {
+    @MainActor
+    final class Coordinator: NSObject, WKNavigationDelegate {
         var lastRequested: URL?
-        @Binding var currentURL: URL?
+        let session: BrowserSession
+        private var observations: [NSKeyValueObservation] = []
 
-        init(currentURL: Binding<URL?>) {
-            _currentURL = currentURL
+        init(session: BrowserSession) {
+            self.session = session
         }
 
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            currentURL = webView.url
+        func connect(to webView: WKWebView) {
+            session.attach(webView)
+            let keys: [NSKeyValueObservation] = [
+                webView.observe(\.estimatedProgress, options: [.initial, .new]) { [weak session] view, _ in
+                    MainActor.assumeIsolated { session?.update(from: view) }
+                },
+                webView.observe(\.title, options: [.new]) { [weak session] view, _ in
+                    MainActor.assumeIsolated { session?.update(from: view) }
+                },
+                webView.observe(\.url, options: [.new]) { [weak session] view, _ in
+                    MainActor.assumeIsolated { session?.update(from: view) }
+                },
+                webView.observe(\.isLoading, options: [.new]) { [weak session] view, _ in
+                    MainActor.assumeIsolated { session?.update(from: view) }
+                }
+            ]
+            observations = keys
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            session.update(from: webView)
         }
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-            currentURL = webView.url
+            session.update(from: webView)
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            session.update(from: webView)
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+            session.update(from: webView)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation!,
+            withError error: any Error
+        ) {
+            session.update(from: webView)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
+        ) {
+            guard let url = navigationAction.request.url,
+                  let scheme = url.scheme?.lowercased(),
+                  !["http", "https", "about"].contains(scheme) else {
+                decisionHandler(.allow)
+                return
+            }
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel)
         }
     }
 }

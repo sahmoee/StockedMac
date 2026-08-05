@@ -352,6 +352,8 @@ nonisolated struct AppPaths: Sendable {
     let httpCache: URL
     let imageCache: URL
     let discoveryReports: URL
+    let sourceDiscoveryCache: URL
+    let miningResultCache: URL
     let lastDiscoveryReport: URL
     
     static func liveOrTemporary() -> (paths: AppPaths, warning: String?) {
@@ -378,9 +380,11 @@ nonisolated struct AppPaths: Sendable {
         let httpCache = root.appendingPathComponent("HTTPCache", isDirectory: true)
         let imageCache = root.appendingPathComponent("Images", isDirectory: true)
         let discoveryReports = root.appendingPathComponent("DiscoveryReports", isDirectory: true)
+        let sourceDiscoveryCache = root.appendingPathComponent("SourceDiscoveryCache", isDirectory: true)
+        let miningResultCache = root.appendingPathComponent("MiningResultCache", isDirectory: true)
         
         // Create subdirectories
-        for directory in [httpCache, imageCache, discoveryReports] {
+        for directory in [httpCache, imageCache, discoveryReports, sourceDiscoveryCache, miningResultCache] {
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
         
@@ -393,6 +397,8 @@ nonisolated struct AppPaths: Sendable {
             httpCache: httpCache,
             imageCache: imageCache,
             discoveryReports: discoveryReports,
+            sourceDiscoveryCache: sourceDiscoveryCache,
+            miningResultCache: miningResultCache,
             lastDiscoveryReport: root.appendingPathComponent("last-discovery.json")
         )
     }
@@ -405,7 +411,12 @@ nonisolated struct AppPaths: Sendable {
     }
     
     static func bundledResource(_ name: String) -> URL? {
-        Bundle.main.url(forResource: name.replacingOccurrences(of: ".json", with: ""), withExtension: "json")
+        let resource = URL(fileURLWithPath: name)
+        let ext = resource.pathExtension.nilIfBlank
+        let base = ext == nil
+            ? resource.lastPathComponent
+            : resource.deletingPathExtension().lastPathComponent
+        return Bundle.main.url(forResource: base, withExtension: ext)
     }
 }
 

@@ -7,6 +7,7 @@
 // Every ingredient line says whether it's in the kitchen. That check is the reason to keep
 // an inventory at all, so it should be visible without pressing anything.
 
+import AppKit
 import SwiftUI
 
 struct MacRecipesView: View {
@@ -17,30 +18,77 @@ struct MacRecipesView: View {
     @State private var selection: UUID?
     @State private var search = ""
     @State private var sort: Sort = .name
-    @State private var onlyCookable = false
+    @State private var availability: Availability = .all
+    @State private var favoritesOnly = false
+    @State private var selectedCuisine = ""
+    @State private var selectedTag = ""
+    @State private var selectedDifficulty = ""
+    @State private var selectedRole = ""
     @State private var editingID: UUID?
     @State private var planning: UserRecipe?
+    @FocusState private var searchFocused: Bool
 
     private enum Sort: String, CaseIterable, Identifiable {
         case name     = "Name"
         case recent   = "Recently added"
-        case cookable = "What I can cook"
+        case cookable = "Fewest missing"
+        case favorites = "Favorites first"
+        case cooked = "Most cooked"
         var id: String { rawValue }
+    }
+
+    private enum Availability: String, CaseIterable, Identifiable {
+        case all = "Any availability"
+        case ready = "Ready to cook"
+        case close = "Missing 1–2"
+        case shopping = "Needs shopping"
+        var id: String { rawValue }
+    }
+
+    private var cuisines: [String] {
+        uniqueSorted(store.recipes.compactMap { $0.cuisine.nilIfBlank })
+    }
+
+    private var tags: [String] {
+        uniqueSorted(store.recipes.flatMap(\.tags).compactMap(\.nilIfBlank))
+    }
+
+    private var difficulties: [String] {
+        uniqueSorted(store.recipes.compactMap { $0.difficulty.nilIfBlank })
+    }
+
+    private var roles: [DishRole] {
+        DishRole.allCases.filter { role in
+            store.recipes.contains { $0.dishRole == role }
+        }
     }
 
     private var rows: [UserRecipe] {
         var items = store.recipes
 
-        let query = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !query.isEmpty {
-            items = items.filter {
-                $0.title.lowercased().contains(query)
-                || $0.cuisine.lowercased().contains(query)
-                || $0.tags.joined(separator: " ").lowercased().contains(query)
-                || $0.ingredientNames.joined(separator: " ").lowercased().contains(query)
+        let tokens = searchTokens(search)
+        if !tokens.isEmpty { items = items.filter { matchesSearch($0, tokens: tokens) } }
+        if favoritesOnly { items = items.filter(\.isFavorited) }
+        if !selectedCuisine.isEmpty {
+            items = items.filter { $0.cuisine.compare(selectedCuisine, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
+        }
+        if !selectedTag.isEmpty {
+            items = items.filter { recipe in
+                recipe.tags.contains { $0.compare(selectedTag, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
             }
         }
-        if onlyCookable { items = items.filter { store.canCook($0) } }
+        if !selectedDifficulty.isEmpty {
+            items = items.filter { $0.difficulty == selectedDifficulty }
+        }
+        if !selectedRole.isEmpty {
+            items = items.filter { $0.dishRole.rawValue == selectedRole }
+        }
+        switch availability {
+        case .all: break
+        case .ready: items = items.filter { store.missingIngredients(for: $0).isEmpty }
+        case .close: items = items.filter { (1...2).contains(store.missingIngredients(for: $0).count) }
+        case .shopping: items = items.filter { !store.missingIngredients(for: $0).isEmpty }
+        }
 
         switch sort {
         case .name:   items.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
@@ -52,13 +100,33 @@ struct MacRecipesView: View {
                 if left != right { return left < right }
                 return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
             }
+        case .favorites:
+            items.sort {
+                if $0.isFavorited != $1.isFavorited { return $0.isFavorited }
+                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
+        case .cooked:
+            items.sort {
+                if $0.cookCount != $1.cookCount { return $0.cookCount > $1.cookCount }
+                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
         }
         return items
     }
 
     private var current: UserRecipe? {
         guard let selection else { return rows.first }
-        return store.recipes.first { $0.id == selection } ?? rows.first
+        return rows.first { $0.id == selection } ?? rows.first
+    }
+
+    private var activeFilterCount: Int {
+        (search.nilIfBlank == nil ? 0 : 1)
+            + (availability == .all ? 0 : 1)
+            + (favoritesOnly ? 1 : 0)
+            + (selectedCuisine.isEmpty ? 0 : 1)
+            + (selectedTag.isEmpty ? 0 : 1)
+            + (selectedDifficulty.isEmpty ? 0 : 1)
+            + (selectedRole.isEmpty ? 0 : 1)
     }
 
     // MARK: - Body
@@ -68,7 +136,7 @@ struct MacRecipesView: View {
 
         HStack(spacing: 0) {
             index
-                .frame(width: 268)
+                .frame(width: 330)
             Divider()
             Group {
                 if let recipe = current {
@@ -105,6 +173,11 @@ struct MacRecipesView: View {
         .sheet(item: $planning) { recipe in
             MacPlanRecipeSheet(recipe: recipe)
         }
+        .onChange(of: rows.map(\.id)) {
+            let ids = Set(rows.map(\.id))
+            if let selection, ids.contains(selection) { return }
+            selection = rows.first?.id
+        }
     }
 
     // MARK: - Index
@@ -115,9 +188,50 @@ struct MacRecipesView: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search recipes", text: $search)
                     .textFieldStyle(.plain)
+                    .focused($searchFocused)
+                    .help("Use quotes for an exact phrase or prefix a word with - to exclude it")
+                if !search.isEmpty {
+                    Button {
+                        search = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless).foregroundStyle(.secondary)
+                    .help("Clear search")
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+
+            Divider()
+
+            HStack(spacing: 7) {
+                Text(rows.count == store.recipes.count
+                     ? "\(rows.count) recipes"
+                     : "\(rows.count) of \(store.recipes.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                if activeFilterCount > 0 {
+                    MacPill(text: "\(activeFilterCount) filter\(activeFilterCount == 1 ? "" : "s")",
+                            tint: MacTheme.gold)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    guard let pick = rows.randomElement() else { return }
+                    selection = pick.id
+                } label: {
+                    Image(systemName: "dice")
+                }
+                .buttonStyle(.borderless)
+                .disabled(rows.isEmpty)
+                .help("Surprise me from these results")
+                if activeFilterCount > 0 {
+                    Button("Reset") { resetFilters() }
+                        .buttonStyle(.borderless).font(.caption)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
 
             Divider()
 
@@ -134,6 +248,7 @@ struct MacRecipesView: View {
                         Button("Add what's missing to the list") {
                             store.addMissingIngredients(for: recipe)
                         }
+                        Button("Copy ingredients") { copyIngredients(recipe) }
                         Divider()
                         Button("Delete", role: .destructive) {
                             store.deleteRecipe(ids: [recipe.id])
@@ -150,12 +265,17 @@ struct MacRecipesView: View {
                     ForEach(Sort.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .labelsHidden()
-                .frame(maxWidth: 150)
+                .frame(maxWidth: 155)
                 Spacer(minLength: 0)
-                Toggle("Cookable", isOn: $onlyCookable)
-                    .toggleStyle(.checkbox)
-                    .font(.caption)
-                    .help("Only show recipes where every ingredient is already in the kitchen.")
+                Button {
+                    favoritesOnly.toggle()
+                } label: {
+                    Image(systemName: favoritesOnly ? "star.fill" : "star")
+                        .foregroundStyle(favoritesOnly ? MacTheme.gold : .secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(favoritesOnly ? "Show all recipes" : "Favorites only")
+                filterMenu
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
@@ -164,33 +284,195 @@ struct MacRecipesView: View {
 
     private func indexRow(_ recipe: UserRecipe) -> some View {
         let missing = store.missingIngredients(for: recipe)
-        return VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 5) {
-                if recipe.isFavorited {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(MacTheme.gold)
+        return HStack(spacing: 9) {
+            recipeThumbnail(recipe, size: 44)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 5) {
+                    if recipe.isFavorited {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(MacTheme.gold)
+                    }
+                    Text(recipe.title).font(.callout.weight(.medium)).lineLimit(1)
                 }
-                Text(recipe.title).font(.callout).lineLimit(1)
-            }
-            HStack(spacing: 6) {
-                if missing.isEmpty {
-                    Label("ready", systemImage: "checkmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(MacTheme.green)
-                        .labelStyle(.titleAndIcon)
-                } else {
-                    Text("needs \(missing.count)")
-                        .font(.caption)
-                        .foregroundStyle(missing.count <= 2 ? MacTheme.low : .secondary)
+                HStack(spacing: 6) {
+                    if missing.isEmpty {
+                        Label("ready", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(MacTheme.green)
+                            .labelStyle(.titleAndIcon)
+                    } else {
+                        Text("needs \(missing.count)")
+                            .font(.caption)
+                            .foregroundStyle(missing.count <= 2 ? MacTheme.low : .secondary)
+                    }
+                    if !recipe.cookTime.isEmpty {
+                        Text("· \(recipe.cookTime)").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
                 }
-                if !recipe.cookTime.isEmpty {
-                    Text("· \(recipe.cookTime)").font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    if !recipe.cuisine.isEmpty {
+                        Text(recipe.cuisine).lineLimit(1)
+                    }
+                    if let tag = recipe.tags.first?.nilIfBlank {
+                        Text("· \(tag)").lineLimit(1)
+                    }
                 }
-                Spacer(minLength: 0)
+                .font(.caption2).foregroundStyle(.tertiary)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(recipe.title), \(missing.isEmpty ? "ready to cook" : "missing \(missing.count) ingredients")")
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            Picker("Availability", selection: $availability) {
+                ForEach(Availability.allCases) { Text($0.rawValue).tag($0) }
+            }
+            Toggle("Favorites only", isOn: $favoritesOnly)
+            Divider()
+            facetMenu("Cuisine", values: cuisines, selection: $selectedCuisine)
+            facetMenu("Tag", values: tags, selection: $selectedTag)
+            facetMenu("Difficulty", values: difficulties, selection: $selectedDifficulty)
+            Menu("Recipe role") {
+                Button("Any role") { selectedRole = "" }
+                Divider()
+                ForEach(roles, id: \.rawValue) { role in
+                    Button {
+                        selectedRole = role.rawValue
+                    } label: {
+                        if selectedRole == role.rawValue {
+                            Label(role.label, systemImage: "checkmark")
+                        } else {
+                            Text(role.label)
+                        }
+                    }
+                }
+            }
+            if activeFilterCount > 0 {
+                Divider()
+                Button("Reset all filters") { resetFilters() }
+            }
+        } label: {
+            Label(activeFilterCount > 0 ? "Filters \(activeFilterCount)" : "Filters",
+                  systemImage: "line.3.horizontal.decrease.circle")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+    }
+
+    private func facetMenu(
+        _ title: String,
+        values: [String],
+        selection: Binding<String>
+    ) -> some View {
+        Menu(title) {
+            Button("Any \(title.lowercased())") { selection.wrappedValue = "" }
+            Divider()
+            ForEach(values, id: \.self) { value in
+                Button {
+                    selection.wrappedValue = value
+                } label: {
+                    if selection.wrappedValue == value {
+                        Label(value, systemImage: "checkmark")
+                    } else {
+                        Text(value)
+                    }
+                }
+            }
+        }
+    }
+
+    private func recipeThumbnail(_ recipe: UserRecipe, size: CGFloat) -> some View {
+        Group {
+            if let data = recipe.imageData, let image = NSImage(data: data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    Color.secondary.opacity(0.10)
+                    Image(systemName: "fork.knife")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+    }
+
+    private func uniqueSorted(_ values: [String]) -> [String] {
+        var originalsByKey: [String: String] = [:]
+        for value in values {
+            let key = value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            originalsByKey[key] = originalsByKey[key] ?? value
+        }
+        return originalsByKey.values.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func resetFilters() {
+        search = ""
+        availability = .all
+        favoritesOnly = false
+        selectedCuisine = ""
+        selectedTag = ""
+        selectedDifficulty = ""
+        selectedRole = ""
+    }
+
+    private func copyIngredients(_ recipe: UserRecipe) {
+        let value = recipe.ingredients.map { ingredient in
+            ingredient.amount.isEmpty ? ingredient.name : "\(ingredient.amount) \(ingredient.name)"
+        }.joined(separator: "\n")
+        guard !value.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+    }
+
+    private struct SearchToken {
+        let value: String
+        let excluded: Bool
+    }
+
+    private func searchTokens(_ query: String) -> [SearchToken] {
+        var rawTerms: [String] = []
+        var current = ""
+        var inQuotes = false
+        for character in query {
+            if character == "\"" {
+                inQuotes.toggle()
+            } else if character.isWhitespace && !inQuotes {
+                if !current.isEmpty { rawTerms.append(current); current = "" }
+            } else {
+                current.append(character)
+            }
+        }
+        if !current.isEmpty { rawTerms.append(current) }
+        return rawTerms.compactMap { term in
+            let excluded = term.hasPrefix("-")
+            let raw = excluded ? String(term.dropFirst()) : term
+            let normalized = normalizedSearchText(raw)
+            return normalized.isEmpty ? nil : SearchToken(value: normalized, excluded: excluded)
+        }
+    }
+
+    private func matchesSearch(_ recipe: UserRecipe, tokens: [SearchToken]) -> Bool {
+        let corpus = normalizedSearchText([
+            recipe.title, recipe.description, recipe.cuisine, recipe.difficulty,
+            recipe.dishRole.label, recipe.tags.joined(separator: " "),
+            recipe.ingredientNames.joined(separator: " "),
+            recipe.instructions.joined(separator: " "), recipe.notes
+        ].joined(separator: " "))
+        return tokens.allSatisfy { token in
+            token.excluded ? !corpus.contains(token.value) : corpus.contains(token.value)
+        }
+    }
+
+    private func normalizedSearchText(_ value: String) -> String {
+        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 }
 
@@ -210,6 +492,15 @@ struct MacRecipeDetail: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                if let data = recipe.imageData, let image = NSImage(data: data) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 260)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .clipped()
+                        .accessibilityLabel("Photo of \(recipe.title)")
+                }
                 header
                 if !recipe.description.isEmpty {
                     Text(recipe.description)
@@ -219,9 +510,15 @@ struct MacRecipeDetail: View {
                 }
                 statusCard
 
-                HStack(alignment: .top, spacing: 14) {
-                    ingredientsCard.frame(maxWidth: 340)
-                    methodCard
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 14) {
+                        ingredientsCard.frame(maxWidth: 340)
+                        methodCard
+                    }
+                    VStack(alignment: .leading, spacing: 14) {
+                        ingredientsCard
+                        methodCard
+                    }
                 }
 
                 if !recipe.notes.isEmpty {
@@ -251,6 +548,15 @@ struct MacRecipeDetail: View {
                 .help(recipe.isFavorited ? "Remove from favourites" : "Add to favourites")
                 Button("Edit…", action: onEdit)
                 Button("Plan this…", action: onPlan)
+                Menu {
+                    Button("Copy full recipe") { copyRecipe() }
+                    Button("Copy ingredients") { copyIngredients() }
+                    Button("Copy method") { copyMethod() }
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .menuStyle(.borderlessButton)
+                .help("Copy recipe")
             }
             HStack(spacing: 6) {
                 if !recipe.cookTime.isEmpty {
@@ -271,7 +577,44 @@ struct MacRecipeDetail: View {
                     MacPill(text: "cooked \(recipe.cookCount)×", tint: MacTheme.green)
                 }
             }
+            if !recipe.tags.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 5) {
+                        ForEach(recipe.tags, id: \.self) { tag in
+                            MacPill(text: tag, tint: .secondary, systemImage: "tag")
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    private func copyRecipe() {
+        let ingredients = recipe.ingredients.map { ingredient in
+            "• " + (ingredient.amount.isEmpty
+                     ? ingredient.name
+                     : "\(ingredient.amount) \(ingredient.name)")
+        }.joined(separator: "\n")
+        let method = recipe.instructions.enumerated().map { "\($0.offset + 1). \($0.element)" }
+            .joined(separator: "\n")
+        copy("\(recipe.title)\n\nIngredients\n\(ingredients)\n\nMethod\n\(method)")
+    }
+
+    private func copyIngredients() {
+        copy(recipe.ingredients.map {
+            $0.amount.isEmpty ? $0.name : "\($0.amount) \($0.name)"
+        }.joined(separator: "\n"))
+    }
+
+    private func copyMethod() {
+        copy(recipe.instructions.enumerated().map { "\($0.offset + 1). \($0.element)" }
+            .joined(separator: "\n"))
+    }
+
+    private func copy(_ value: String) {
+        guard !value.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
     }
 
     private var statusCard: some View {

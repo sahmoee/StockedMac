@@ -263,6 +263,17 @@ nonisolated struct AppSettings: Codable, Sendable {
     /// How many URLs one Import press takes. 0 = everything queued; otherwise the
     /// first N import and the rest stay queued for the next press.
     var importBatchSize: Int
+    /// Sources starred in the multi-source picker. IDs are used so catalog updates can
+    /// rename or reorder a source without losing the user's curated set.
+    var favoriteSourceIDs: [String]
+    /// The multi-source selection restored when Browse is opened again.
+    var lastSelectedSourceIDs: [String]
+    /// Inclusive category filter applied to both freshly discovered and cached links.
+    /// Empty means every category.
+    var selectedBrowseCategoryIDs: [String]
+    /// Prefer the durable per-source discovery report instead of contacting a site that
+    /// has already been read. A manual Refresh bypasses this without clearing the cache.
+    var reuseCachedDiscoveryResults: Bool
 
     static var defaults: AppSettings {
         AppSettings(
@@ -277,7 +288,7 @@ nonisolated struct AppSettings: Codable, Sendable {
             useWorkerFallback: false,
             autoApproveConfidence: 0.9,
             retryFailedImports: true,
-            autoImportVerified: true,
+            autoImportVerified: false,
             skipAlreadyImported: true,
             cacheMaximumAgeHours: 24,
             maximumCacheBytes: 500_000_000,
@@ -287,7 +298,7 @@ nonisolated struct AppSettings: Codable, Sendable {
             recentSourceIDs: [],
             requireImageForImport: true,
             autoFetchMissingImages: true,
-            verifyBeforeImport: false,
+            verifyBeforeImport: true,
             cloudSyncEnabled: false,
             autoRotateSourceCount: 3,
             preferredCrawlMethod: .auto,
@@ -295,10 +306,14 @@ nonisolated struct AppSettings: Codable, Sendable {
             requireStandardsForAutoApprove: true,
             useWebKitFallback: true,
             importSpacingSeconds: 0,
-            settingsRevision: 2,
+            settingsRevision: 3,
             queueCap: 500,
             bulkVerifyBatchSize: 100,
-            importBatchSize: 0
+            importBatchSize: 0,
+            favoriteSourceIDs: [],
+            lastSelectedSourceIDs: [],
+            selectedBrowseCategoryIDs: [],
+            reuseCachedDiscoveryResults: true
         )
     }
 
@@ -329,6 +344,8 @@ nonisolated extension AppSettings {
         case preferredCrawlMethod, crawlAggressiveness, requireStandardsForAutoApprove
         case useWebKitFallback, importSpacingSeconds, settingsRevision, queueCap
         case bulkVerifyBatchSize, importBatchSize
+        case favoriteSourceIDs, lastSelectedSourceIDs
+        case selectedBrowseCategoryIDs, reuseCachedDiscoveryResults
     }
 
     init(from decoder: Decoder) throws {
@@ -364,6 +381,10 @@ nonisolated extension AppSettings {
         queueCap                = (try? c.decodeIfPresent(Int.self, forKey: .queueCap)) ?? d.queueCap
         bulkVerifyBatchSize     = (try? c.decodeIfPresent(Int.self, forKey: .bulkVerifyBatchSize)) ?? d.bulkVerifyBatchSize
         importBatchSize         = (try? c.decodeIfPresent(Int.self, forKey: .importBatchSize)) ?? d.importBatchSize
+        favoriteSourceIDs       = (try? c.decodeIfPresent([String].self, forKey: .favoriteSourceIDs)) ?? d.favoriteSourceIDs
+        lastSelectedSourceIDs   = (try? c.decodeIfPresent([String].self, forKey: .lastSelectedSourceIDs)) ?? d.lastSelectedSourceIDs
+        selectedBrowseCategoryIDs = (try? c.decodeIfPresent([String].self, forKey: .selectedBrowseCategoryIDs)) ?? []
+        reuseCachedDiscoveryResults = (try? c.decodeIfPresent(Bool.self, forKey: .reuseCachedDiscoveryResults)) ?? true
     }
 }
 
@@ -508,6 +529,22 @@ nonisolated struct DiscoveryReport: Codable, Sendable {
     var summary: String {
         "Found \(candidates.count) candidates, verified \(confirmed.count)"
     }
+}
+
+nonisolated struct SourceDiscoveryCacheSummary: Sendable {
+    var sourceID: String
+    var sourceName: String
+    var savedAt: Date
+    var resultCount: Int
+}
+
+/// Durable recipe links mined from one category, collection, or listing page. The
+/// unfiltered link set is retained so later queue passes can reuse it without fetching
+/// the page again, just as source discovery reuses its per-source report.
+nonisolated struct MinedPageCacheRecord: Codable, Sendable {
+    var pageURL: String
+    var savedAt: Date
+    var recipeURLs: [String]
 }
 
 nonisolated struct DiscoveredLink: Codable, Sendable {

@@ -2,7 +2,7 @@ import Foundation
 
 /// What Bulk verify learned about one queued URL.
 nonisolated enum PageCheck: Sendable {
-    case recipe
+    case recipe(resolvedURL: String? = nil)
     case listing(mined: [String])
     case other
 }
@@ -48,7 +48,8 @@ actor CrawlCoordinator {
     func importRecipe(
         urlString: String,
         settings: AppSettings,
-        allowNonRecipePages: Bool = false
+        allowNonRecipePages: Bool = false,
+        parserModeOverride: ParserMode? = nil
     ) async throws -> ImportOutcomeDetail {
         try Task.checkCancellation()
         let requestedURL = try URLSafety.validatedRemoteURL(urlString)
@@ -57,7 +58,7 @@ actor CrawlCoordinator {
             throw CompanionError.sourceDisabled(source.name)
         }
 
-        let page = try await fetcher.fetch(
+        var page = try await fetcher.fetch(
             requestedURL,
             source: source,
             settings: settings,
@@ -75,6 +76,27 @@ actor CrawlCoordinator {
             }
         }
 
+        // Google/WordPress Web Stories are slide shows, not recipe documents. Their
+        // explicit outlink is the publisher's authoritative recipe page; follow it
+        // before classification or parsing so every engine receives the real card.
+        var followedWebStory: URL?
+        if let destination = Self.webStoryRecipeURL(in: html, pageURL: page.finalURL),
+           URLSafety.normalized(destination) != URLSafety.normalized(page.finalURL) {
+            followedWebStory = page.finalURL
+            page = try await fetcher.fetch(
+                destination,
+                source: source,
+                settings: settings,
+                accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
+            )
+            html = page.text
+            if settings.useWebKitFallback, RecipePageDetector.looksBlocked(html),
+               let rendered = await renderedHTML(for: page.finalURL, settings: settings) {
+                html = rendered
+                usedWebKit = true
+            }
+        }
+
         // Refuse category and roundup pages up front rather than emitting a
         // half-parsed record that a reviewer then has to delete — after handing
         // their recipe links back so the caller can queue them.
@@ -84,7 +106,8 @@ actor CrawlCoordinator {
                               evidence: verdict.evidence.first)
         }
 
-        let mode = source.parserMode == .nativeFirst ? settings.parserMode : source.parserMode
+        let configuredMode = source.parserMode == .nativeFirst ? settings.parserMode : source.parserMode
+        let mode = parserModeOverride ?? configuredMode
         var parsed: ParserResult
         do {
             parsed = try await parse(html: html, url: page.finalURL, mode: mode, settings: settings)
@@ -117,6 +140,9 @@ actor CrawlCoordinator {
         var warnings = parsed.warnings
         if usedWebKit {
             warnings.append("Loaded with the built-in browser (the site blocks direct fetches).")
+        }
+        if followedWebStory != nil {
+            warnings.append("Followed the Web Story's publisher-provided recipe link.")
         }
         if verdict.kind == .listing {
             warnings.insert("This page also lists other recipes; check the extraction.", at: 0)
@@ -191,7 +217,9 @@ actor CrawlCoordinator {
             parser: parsed.parser,
             reviewState: .needsReview,
             sourceFingerprint: Hashing.sha256(identityURL),
-            discoveryNote: page.fromCache ? "Imported from the local cache" : nil
+            discoveryNote: followedWebStory.map {
+                "Resolved from Web Story \($0.absoluteString)"
+            } ?? (page.fromCache ? "Imported from the local cache" : nil)
         )
         draft.refreshFingerprint()
 
@@ -286,10 +314,13 @@ actor CrawlCoordinator {
            let rendered = await renderedHTML(for: page.finalURL, settings: settings) {
             html = rendered
         }
+        if let destination = Self.webStoryRecipeURL(in: html, pageURL: page.finalURL) {
+            return .recipe(resolvedURL: URLSafety.normalized(destination).absoluteString)
+        }
         let verdict = detector.inspect(html: html, url: page.finalURL, source: source)
         switch verdict.kind {
         case .recipe:
-            return .recipe
+            return .recipe()
         case .other:
             return .other
         case .listing:
@@ -403,7 +434,7 @@ actor CrawlCoordinator {
         do {
             return (try nativeParser.parse(html: html, url: url), nil)
         } catch {
-            return (nil, "Native parser: \(error.localizedDescription)")
+            return (nil, "Native parser: \(Self.parserReason(error))")
         }
     }
 
@@ -411,7 +442,7 @@ actor CrawlCoordinator {
         do {
             return (try microdataParser.parse(html: html, url: url), nil)
         } catch {
-            return (nil, "Microdata: \(error.localizedDescription)")
+            return (nil, "Microdata: \(Self.parserReason(error))")
         }
     }
 
@@ -419,7 +450,7 @@ actor CrawlCoordinator {
         do {
             return (try heuristicParser.parse(html: html, url: url), nil)
         } catch {
-            return (nil, "Heuristic: \(error.localizedDescription)")
+            return (nil, "Heuristic: \(Self.parserReason(error))")
         }
     }
 
@@ -427,7 +458,7 @@ actor CrawlCoordinator {
         do {
             return (try await pythonParser.parse(html: html, url: url), nil)
         } catch {
-            return (nil, "Python worker: \(error.localizedDescription)")
+            return (nil, "Python worker: \(Self.parserReason(error))")
         }
     }
 
@@ -437,6 +468,36 @@ actor CrawlCoordinator {
         } catch {
             return (nil, "\(error.localizedDescription)")
         }
+    }
+
+    private nonisolated static func parserReason(_ error: any Error) -> String {
+        if case let CompanionError.parseFailed(reason) = error { return reason }
+        return error.localizedDescription
+    }
+
+    /// Finds the publisher-controlled destination carried by AMP Web Story outlinks.
+    /// Same-host only: a story must never silently redirect an import to an ad network.
+    private nonisolated static func webStoryRecipeURL(in html: String, pageURL: URL) -> URL? {
+        let lower = html.lowercased()
+        guard pageURL.path.lowercased().contains("/web-stories/")
+                || lower.contains("<amp-story") else { return nil }
+        let patterns = [
+            #"<amp-story-page-outlink[\s\S]{0,1600}?<a[^>]+href\s*=\s*["']([^"']+)["']"#,
+            #"<amp-story-page-attachment[^>]+href\s*=\s*["']([^"']+)["']"#,
+        ]
+        let pageHost = pageURL.host?.lowercased().replacingOccurrences(of: "www.", with: "")
+        for raw in patterns.flatMap({ html.matches($0, group: 1) }) {
+            let decoded = raw.replacingOccurrences(of: "&amp;", with: "&")
+            guard let candidate = URL(string: decoded, relativeTo: pageURL)?.absoluteURL,
+                  let candidateHost = candidate.host?.lowercased()
+                    .replacingOccurrences(of: "www.", with: ""),
+                  candidateHost == pageHost,
+                  !candidate.path.lowercased().contains("/web-stories/"),
+                  !DiscoveryEngine.looksLikeMediaFile(candidate.absoluteString),
+                  let safe = try? URLSafety.validatedRemoteURL(candidate.absoluteString) else { continue }
+            return safe
+        }
+        return nil
     }
 
     /// Fills gaps in `primary` from other successful parses so a site that
