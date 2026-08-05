@@ -8,6 +8,35 @@
 
 ## Applied updates
 
+### Build 100 (4.40) — Harvest + Browse combined; avoid mining — 2026-08-05
+- **Harvest folded into Browse.** The separate Harvest sidebar item is gone; Browse is
+  now the one place recipes are found, imported AND approved. A segmented switch toggles
+  **Find & Import** (the guided flow) and **Review** (the old draft library — search,
+  filter, bulk approve/reject on the left, full recipe + Stocked-standards on the right).
+  The sidebar's Browse badge shows recipes-to-review first, else queued links. ⌘9 now
+  opens Household; Browse stays ⌘B.
+- **Guided by default, advanced hidden.** Source, category, workflow, and one Start
+  button up front; every power control (crawler method, speed, WebKit, spacing,
+  user-agent, python parser, reuse-cache, rotation, source import/export, standards,
+  confidence, queue cap, verify/import batch sizes, image + cloud delivery) lives behind
+  a single collapsed **Advanced** panel.
+- **Avoid mining.** New setting `preferDirectRecipes` (default on): when the direct
+  engine (sitemaps/feeds) already yields ≥12 real recipe links, category/listing pages
+  are NOT opened and expanded — mining is a fallback, not the norm.
+- **Mined recipes go first.** When a category page IS mined (import-time listing refusal
+  or bulk-verify), its recipe links are PREPENDED to the queue (new `prependImportURLs`)
+  and bulk-verify orders `freshMined + kept + rest`, so mined recipes are verified and
+  imported before anything else. In the Automatic workflow they import immediately rather
+  than waiting for a press. Convergence rules from Build 98/99 still hold (one generation,
+  session-deduped, queue-capped) — the drain strictly shrinks the queue.
+- Settings migrated to revision 4 (adds `preferDirectRecipes`; `MinedPageCacheRecord`
+  and all Build 98/99 bounds unchanged).
+- Files changed vs Build 99: `Harvest/HarvestTypes.swift`, `Harvest/HarvestModel.swift`,
+  `Harvest/HarvestServices.swift`, `Views/MacBrowseView.swift` (rebuilt),
+  `Views/MacKitchenViews.swift` (MacHarvestView removed; `HarvestDraftDetail` now shared),
+  `Views/MacRootView.swift`, `Views/MacCommands.swift`, `Core/MacBuildConfig.swift`.
+- Worker impact: none. iOS impact: none.
+
 ### Build 99 (4.39) — mining bulk verify + batch dials — 2026-08-02
 - Bulk verify replaces category pages with the recipes found on them AND up to five
   sub-pages (bounded 80/hub, session-deduped, queue-capped, WebKit-aware).

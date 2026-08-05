@@ -113,20 +113,20 @@ struct MacCommands: Commands {
         // File menu already claim.
         CommandMenu("Harvest") {
             Button("Import Queued URLs") {
-                navigation.section = .harvest
+                navigation.section = .browse
                 harvest.importURLs()
             }
             .keyboardShortcut("u", modifiers: [.command, .shift])
             .disabled(harvest.isImporting)
 
             Button("Paste URLs from Clipboard") {
-                navigation.section = .harvest
+                navigation.section = .browse
                 harvest.pasteURLsFromClipboard()
             }
             .keyboardShortcut("v", modifiers: [.command, .shift])
 
             Button("Browse Next Source") {
-                navigation.section = .harvest
+                navigation.section = .browse
                 harvest.browseNextSource()
             }
             .keyboardShortcut("b", modifiers: [.command, .shift])
@@ -169,7 +169,7 @@ struct MacCommands: Commands {
         // Kept in step with MacRootView's toolbar + button: the sections that read rather
         // than hold things have nothing for ⌘N to make.
         switch navigation.section {
-        case .home, .household, .insights, .tools, .cook, .harvest: return false
+        case .home, .household, .insights, .tools, .cook: return false
         default: return true
         }
     }

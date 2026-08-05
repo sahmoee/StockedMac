@@ -24,14 +24,14 @@ nonisolated enum MacBuildConfig {
     /// A separate product from the iOS app — separate project, separate bundle
     /// identifier — but the version line tracks the shared build history (the project file
     /// carries the real numbers; these are only the fallback if Info.plist is unreadable).
-    private static let fallbackVersion     = "4.39"
-    private static let fallbackBuildNumber = 99
+    private static let fallbackVersion     = "4.40"
+    private static let fallbackBuildNumber = 100
 
     /// When the shared model layer was last checked against the phone's copy. Models.swift
     /// and KitchenMetrics.swift are byte-for-byte identical to the iOS tree as of this
     /// check; re-run the diff and update this string whenever either side moves, so the
     /// provenance stays honest rather than decorative.
-    static let sharedModelLineage = "Shared models verified identical to iOS — Build 99, August 2026"
+    static let sharedModelLineage = "Shared models verified identical to iOS — Build 100, August 2026"
 
     static var buildNumber: Int {
         Int(bundleString("CFBundleVersion") ?? "") ?? fallbackBuildNumber
@@ -44,16 +44,17 @@ nonisolated enum MacBuildConfig {
 
     static let buildDate = "August 2026"
     static let buildName = """
-        Bulk verify stopped throwing food away. A category page in the queue used to \
-        be "not a recipe; removed" \u{2014} fifteen deletions in your last pass. Now the \
-        verifier walks INTO it: the recipes on the page, and on up to five of its \
-        sub-pages, replace the hub in the queue \u{2014} bounded, deduplicated against \
-        everything this session has seen, and capped, so it converges like everything \
-        else. And the batch sizes are yours now: a stepper for how many URLs one \
-        verify pass checks, a stepper for how many one Import press takes (the rest \
-        stay queued for the next press), alongside the queue cap \u{2014} and Import \
-        finally DRAINS the queue as it takes, so the count on the sidebar means \
-        "waiting", not "everything I ever found".
+        Harvest and Browse are one place now. There is a single Browse section with a \
+        Find & Import / Review switch: pick a source, pick a category, press Start \u{2014} \
+        one button runs the whole thing, and the drafts land in the Review pane right \
+        beside it, no hunting for a second screen. Every power control \u{2014} crawler \
+        engine, speed, user-agent, queue cap, batch sizes, confidence, delivery \u{2014} \
+        moved behind one collapsed "Advanced" panel, so the default screen is three \
+        choices and a button instead of four numbered cards. And Browse avoids mining \
+        now: when a site's sitemap or feed already hands over real recipe links, its \
+        category pages are left unopened. When mining IS the only way in, the recipes \
+        it turns up LEAD the queue \u{2014} verified and imported first, never lost at \
+        the back of the line.
         """
 
     // MARK: - Environment

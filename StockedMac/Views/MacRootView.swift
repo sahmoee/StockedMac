@@ -23,10 +23,10 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
     case cook      = "Cook"
     case insights  = "Insights"
     case tools     = "Tools"
-    case harvest   = "Harvest"
     case household = "Household"
     /// Build 91: the full import pipeline — sources, queue, verification, image
-    /// recovery, cloud cache — in one place. Harvest keeps the review library.
+    /// recovery, cloud cache. Build 100 folds the review library in too, so Browse
+    /// is now the single place recipes are found, imported, AND approved.
     case browse    = "Browse"
 
     var id: String { rawValue }
@@ -41,7 +41,6 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
         case .cook:      return "frying.pan"
         case .insights:  return "chart.bar"
         case .tools:     return "wrench.and.screwdriver"
-        case .harvest:   return "leaf"
         case .household: return "person.2"
         case .browse:    return "globe"
         }
@@ -58,8 +57,7 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
         case .cook:      return "6"
         case .insights:  return "7"
         case .tools:     return "8"
-        case .harvest:   return "9"
-        case .household: return "0"
+        case .household: return "9"
         case .browse:    return "b"
         }
     }
@@ -160,10 +158,11 @@ struct MacRootView: View {
             return ready > 0 ? "\(ready)" : nil
         case .insights, .tools:
             return nil
-        case .harvest:
-            let waiting = harvest.recipes.filter { $0.reviewState == .needsReview }.count
-            return waiting > 0 ? "\(waiting)" : nil
         case .browse:
+            // Build 100: Browse now owns review too. Surface what needs a decision first
+            // (the actionable number), falling back to how many links are queued.
+            let waiting = harvest.recipes.filter { $0.reviewState == .needsReview }.count
+            if waiting > 0 { return "\(waiting)" }
             let queued = harvest.queuedURLCount
             return queued > 0 ? "\(queued)" : nil
         case .household:
@@ -223,7 +222,6 @@ struct MacRootView: View {
         case .cook:      MacCookView()
         case .insights:  MacInsightsView()
         case .tools:     MacToolsView()
-        case .harvest:   MacHarvestView()
         case .household: MacHouseholdView()
         case .browse:    MacBrowseView()
         }
@@ -246,7 +244,7 @@ struct MacRootView: View {
 
     private var supportsAdding: Bool {
         switch navigation.section {
-        case .home, .cook, .insights, .tools, .harvest, .household, .browse: return false
+        case .home, .cook, .insights, .tools, .household, .browse: return false
         default: return true
         }
     }

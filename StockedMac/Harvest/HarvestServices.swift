@@ -309,9 +309,22 @@ actor DiscoveryEngine {
                 unverifiedURLs = result.unverified
             }
 
-            try await expandListings(&recipeURLs, listingURLs: &listingURLs,
-                                     source: source, settings: settings,
-                                     level: level, notes: &notes, progress: progress)
+            // Build 100: avoid mining when direct discovery already delivered. A site's
+            // category/listing pages are only opened and expanded as a FALLBACK — when the
+            // direct engine (sitemaps/feeds) came up short — so a healthy sitemap or feed
+            // never triggers a crawl. When mining IS the only thing that found recipes,
+            // those links lead the queue and are verified/imported first (see HarvestModel).
+            let directRecipeFloor = 12
+            if settings.preferDirectRecipes, recipeURLs.count >= directRecipeFloor {
+                if !listingURLs.isEmpty {
+                    notes.append("\(listingURLs.count) category page\(listingURLs.count == 1 ? "" : "s") skipped — \(recipeURLs.count) direct recipe links already found (mining avoided).")
+                    listingURLs.removeAll()
+                }
+            } else {
+                try await expandListings(&recipeURLs, listingURLs: &listingURLs,
+                                         source: source, settings: settings,
+                                         level: level, notes: &notes, progress: progress)
+            }
             if !recipeURLs.isEmpty { break }
         }
 

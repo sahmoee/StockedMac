@@ -353,6 +353,25 @@ final class HarvestModel {
         statusMessage = "Added \(additions.count) URL\(additions.count == 1 ? "" : "s")"
     }
 
+    /// Adds URLs to the FRONT of the import queue (Build 100). Recipes surfaced by
+    /// mining a category page jump ahead of everything already queued, so the next
+    /// verify/import pass — which always works front-first — checks and imports them
+    /// first. This is the other half of "avoid mining, but never lose what it found".
+    /// Returns the number of URLs actually added.
+    @discardableResult
+    func prependImportURLs(_ rawURLs: [String]) -> Int {
+        let existing = Set(parsedImportURLs())
+        var seen = Set<String>()
+        let additions = rawURLs
+            .compactMap { try? URLSafety.validatedRemoteURL($0) }
+            .map { URLSafety.normalized($0).absoluteString }
+            .filter { seen.insert($0).inserted && !existing.contains($0) }
+        guard !additions.isEmpty else { return 0 }
+        let suffix = importText.nilIfBlank.map { "\n" + $0 } ?? ""
+        importText = additions.joined(separator: "\n") + suffix
+        return additions.count
+    }
+
     /// Pulls every http(s) URL out of the clipboard, whatever it is wrapped in.
     func pasteURLsFromClipboard() {
         guard let text = NSPasteboard.general.string(forType: .string)?.nilIfBlank else {
@@ -646,10 +665,13 @@ final class HarvestModel {
         }
         isRetryPass = false
 
-        // Recipes mined off category pages join the queue — deduplicated against this
-        // session's mining, the library, and the queue cap, so rounds CONVERGE
-        // instead of snowballing.
+        // Recipes mined off category pages join the FRONT of the queue (Build 100) —
+        // deduplicated against this session's mining, the library, and the queue cap, so
+        // rounds CONVERGE instead of snowballing. Leading the queue means the next
+        // verify/import pass, which is always front-first, handles them before anything
+        // else — mining is avoided where it can be, but what it finds is imported first.
         var minedNote = ""
+        var minedQueuedThisPass = false
         if !minedURLs.isEmpty {
             var seen = Set<String>()
             var unique = minedURLs.filter { seen.insert($0).inserted && !sessionMinedSet.contains($0) }
@@ -672,15 +694,18 @@ final class HarvestModel {
 
             unique.forEach { sessionMinedSet.insert($0) }
             if !unique.isEmpty {
-                appendImportURLs(unique)
-                minedNote = " · \(unique.count) mined recipes joined the queue"
-                log(.success, "\(unique.count) mined recipe links joined the queue — press Import to bring them in.")
+                let added = prependImportURLs(unique)
+                minedQueuedThisPass = added > 0
+                minedNote = " · \(added) mined recipes lead the queue"
+                log(.success, settings.autoImportVerified
+                    ? "\(added) mined recipe link\(added == 1 ? "" : "s") lead the queue — importing them first."
+                    : "\(added) mined recipe link\(added == 1 ? "" : "s") lead the queue — press Import to bring them in first.")
             }
             if droppedKnown > 0 {
                 log(.info, "\(droppedKnown) mined link\(droppedKnown == 1 ? "" : "s") already in the library; not re-queued.")
             }
             if droppedByCap > 0 {
-                log(.warning, "Queue is at its \(settings.queueCap)-URL cap; \(droppedByCap) mined links were left out. Raise the cap in the Queue card, or import and re-browse.")
+                log(.warning, "Queue is at its \(settings.queueCap)-URL cap; \(droppedByCap) mined links were left out. Raise the cap in Advanced, or import and re-browse.")
             }
         }
 
@@ -699,6 +724,17 @@ final class HarvestModel {
 
         // Push freshly approved work to the Worker cache when the user asked for that.
         if settings.cloudSyncEnabled { syncApprovedToCloud() }
+
+        // Build 100: in the Automatic workflow, recipes just mined off a category page
+        // are imported straight away rather than waiting for a press — they already lead
+        // the queue, and this drains them before we move on to the next source. Safe to
+        // loop on: imported URLs leave the queue text (it strictly shrinks) and mining is
+        // one-generation + session-deduped + capped, so it converges instead of running away.
+        if settings.autoImportVerified, minedQueuedThisPass, !isDiscovering, queuedURLCount > 0 {
+            log(.info, "Automatic: importing the mined recipes now.")
+            importURLs()
+            return
+        }
 
         // Selected sources first, then auto-rotate, until both runs are used up.
         if !isDiscovering, advanceSourceRotation() {
@@ -1574,7 +1610,7 @@ final class HarvestModel {
     /// guided flow safe by default: pasted/listing pages are verified and mined before
     /// import, while Automatic remains an explicit choice in Browse.
     private func migrateSettingsIfNeeded() {
-        guard settings.settingsRevision < 3 else { return }
+        guard settings.settingsRevision < 4 else { return }
         var changes: [String] = []
         if settings.settingsRevision < 2 {
             if settings.userAgent == AppSettings.legacyUserAgent {
@@ -1589,7 +1625,11 @@ final class HarvestModel {
             settings.verifyBeforeImport = true
             changes.append("queue imports now verify and mine category pages first")
         }
-        settings.settingsRevision = 3
+        if settings.settingsRevision < 4 {
+            settings.preferDirectRecipes = true
+            changes.append("Browse now prefers direct recipe links and mines only when needed; mined recipes are imported first")
+        }
+        settings.settingsRevision = 4
         scheduleSettingsSave()
         log(.info, "New Browse flow defaults applied: \(changes.joined(separator: "; ")).")
     }
@@ -1931,15 +1971,16 @@ final class HarvestModel {
             guard let self else { return }
             let cancelled = Task.isCancelled
 
-            // Merge: verified recipes + fresh mined links + the unchecked remainder,
-            // deduplicated against everything and capped at the queue cap.
+            // Merge: fresh mined links LEAD (Build 100 — verify/import them first),
+            // then the verified recipes, then the unchecked remainder — deduplicated
+            // against everything and capped at the queue cap.
             var seen = Set(keep)
             rest.forEach { seen.insert($0) }
             let freshMined = mined.filter {
                 seen.insert($0).inserted && !self.sessionMinedSet.contains($0)
             }
             freshMined.forEach { self.sessionMinedSet.insert($0) }
-            var final = keep + freshMined + rest
+            var final = freshMined + keep + rest
             var capped = 0
             if final.count > self.settings.queueCap {
                 capped = final.count - self.settings.queueCap

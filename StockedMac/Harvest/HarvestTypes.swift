@@ -274,6 +274,12 @@ nonisolated struct AppSettings: Codable, Sendable {
     /// Prefer the durable per-source discovery report instead of contacting a site that
     /// has already been read. A manual Refresh bypasses this without clearing the cache.
     var reuseCachedDiscoveryResults: Bool
+    // ── Build 100 (Combine) ──────────────────────────────────────────────
+    /// Avoid mining. When a run's direct engine (sitemaps/feeds) already yields enough
+    /// real recipe links, category/listing pages are NOT opened and expanded — mining
+    /// only kicks in as a fallback when direct discovery comes up short. When recipes
+    /// ARE mined, they jump to the front of the queue and are verified/imported first.
+    var preferDirectRecipes: Bool
 
     static var defaults: AppSettings {
         AppSettings(
@@ -306,14 +312,15 @@ nonisolated struct AppSettings: Codable, Sendable {
             requireStandardsForAutoApprove: true,
             useWebKitFallback: true,
             importSpacingSeconds: 0,
-            settingsRevision: 3,
+            settingsRevision: 4,
             queueCap: 500,
             bulkVerifyBatchSize: 100,
             importBatchSize: 0,
             favoriteSourceIDs: [],
             lastSelectedSourceIDs: [],
             selectedBrowseCategoryIDs: [],
-            reuseCachedDiscoveryResults: true
+            reuseCachedDiscoveryResults: true,
+            preferDirectRecipes: true
         )
     }
 
@@ -346,6 +353,7 @@ nonisolated extension AppSettings {
         case bulkVerifyBatchSize, importBatchSize
         case favoriteSourceIDs, lastSelectedSourceIDs
         case selectedBrowseCategoryIDs, reuseCachedDiscoveryResults
+        case preferDirectRecipes
     }
 
     init(from decoder: Decoder) throws {
@@ -385,6 +393,7 @@ nonisolated extension AppSettings {
         lastSelectedSourceIDs   = (try? c.decodeIfPresent([String].self, forKey: .lastSelectedSourceIDs)) ?? d.lastSelectedSourceIDs
         selectedBrowseCategoryIDs = (try? c.decodeIfPresent([String].self, forKey: .selectedBrowseCategoryIDs)) ?? []
         reuseCachedDiscoveryResults = (try? c.decodeIfPresent(Bool.self, forKey: .reuseCachedDiscoveryResults)) ?? true
+        preferDirectRecipes     = (try? c.decodeIfPresent(Bool.self, forKey: .preferDirectRecipes)) ?? d.preferDirectRecipes
     }
 }
 

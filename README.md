@@ -1,58 +1,74 @@
-# Build 99 (4.39) — bulk verify that mines, and batch sizes you control
+# Build 100 (4.40) — Harvest + Browse, combined and guided
 
-**Mac delta only.** No worker or iOS change. Full `StockedMac/` folder included
-(Builds 91–98 with 99 on top).
+**Mac only.** No worker or iOS change. Applied directly to
+`Documents/Stocked Mac/StockedMac/` (no separate package this build).
 
 ---
 
-## Bulk verify walks into category pages now
+## One section instead of two
 
-Your last pass removed 15 URLs as "not a recipe page". Some of those were hubs full of
-recipes. Bulk verify now judges each queued URL three ways:
+Harvest is no longer its own sidebar item — it folded into **Browse**. Browse is now the
+single place recipes are found, imported, *and* approved, with a switch at the top:
 
-- **Recipe** → kept, as before.
-- **Category page** → **replaced by the recipes found on it — and on up to five of its
-  sub-pages** (a "breakfast" hub's sub-categories get mined too). Bounded at 80 links
-  per hub, deduplicated against the queue, this session's mining, and the unchecked
-  remainder, then capped at the queue cap — the convergence rules from Build 98 all
-  apply, so this cannot re-open the snowball.
-- **Neither** → removed, counted.
+- **Find & Import** — the guided flow. Pick a source, pick a category, press **Start**.
+  One button runs discovery → verification → import → auto-approve.
+- **Review** — the old Harvest library, unchanged in what it does: search, filter,
+  bulk approve/reject on the left; the full recipe with its Stocked-standards checklist
+  on the right. When an import finishes, the "Review N" button drops you straight in.
 
-Bot-walled pages get the WebKit-rendered look before judgment, same as importing. The
-summary line says exactly what happened: "Verified 100: kept 74, mined 212 from 9
-category pages, removed 5 · 66 unchecked stay queued".
+The sidebar's Browse badge shows how many recipes are **waiting to review** first, and
+falls back to how many links are queued. `⌘9` now opens Household; Browse is still `⌘B`.
 
-## The three dials
+## Guided by default, everything else tucked away
 
-| Dial | Where | What it does |
-|---|---|---|
-| **Verify up to N per pass** (25–1,000) | Verification card | One Bulk-verify press checks the front N of the queue; the rest stay queued unchecked |
-| **Import batch** (All, or 50–2,000) | Queue card | One Import press takes the first N and leaves the rest for the next press; the button says "Import first 200 of 1,204" |
-| **Queue cap** (100–5,000) | Queue card | From Build 98 — the ceiling mined/discovered links respect |
+The default screen is three choices and a button. Every power control now lives behind a
+single collapsed **Advanced** panel, grouped:
 
-## Import drains the queue now
+| Group | What's inside |
+|---|---|
+| **Discovery** | Prefer direct links, reuse saved results, rotation, source import/export/restore |
+| **Crawler** | Method, speed, WebKit fallback, import spacing, user-agent, Python parser test |
+| **Verify & import** | Verify-first, standards gate, approval confidence, Verify now, verify batch, queue cap, import batch |
+| **Delivery** | Require image, retry images, cloud sync |
 
-Taken URLs leave the queue text the moment a run starts — the sidebar count finally
-means "waiting to import", not "everything ever found". Stopped runs keep what
-imported; the un-taken remainder is still sitting in the queue untouched.
+## Avoid mining — and when you can't, import it first
+
+Mining (opening a "breakfast" hub and scraping its recipe links) is now a **fallback**,
+not the default path:
+
+- New **Prefer direct recipe links** setting (on by default). When a site's sitemap or
+  feed already hands over enough real recipe URLs (≥ 12), its category/listing pages are
+  left unopened. The report says so: *"8 category pages skipped — 40 direct recipe links
+  already found (mining avoided)."*
+- When mining *is* the only way in, the recipes it surfaces **lead the queue**. Import-time
+  hub refusals and bulk-verify both **prepend** mined links, and bulk-verify now orders
+  `mined + verified + remainder`, so mined recipes are verified and imported **first** —
+  in the Automatic workflow they go in immediately instead of waiting for a press.
+- The Build 98/99 convergence rules still hold: one generation of mining, session-wide
+  dedupe, queue cap. The queue strictly shrinks as it drains, so this can't snowball.
 
 ## Installing
 
-1. Copy `StockedMac/` over `Documents/Stocked Mac/StockedMac/`.
-2. Build Settings: `MARKETING_VERSION = 4.39`, `CURRENT_PROJECT_VERSION = 99`.
-3. Try: set Import batch to 50, Bulk verify the queue (watch hubs convert to mined
-   dishes), then press Import a few times and watch the count actually go down.
+1. Files are already in `StockedMac/` — nothing to copy this build.
+2. Build Settings: `MARKETING_VERSION = 4.40`, `CURRENT_PROJECT_VERSION = 100`.
+3. Try it: open **Browse**, pick one source, press **Start** with "Automatic" selected,
+   and watch the phases run and the drafts appear in **Review**. Then open **Advanced**
+   and confirm every old control is still there.
 
-Files changed vs Build 98: `Harvest/HarvestTypes.swift` (two batch settings),
-`Harvest/CrawlCoordinator.swift` (`verifyOrMine` with sub-page expansion),
-`Harvest/HarvestModel.swift` (mining bulk verify, draining batched imports),
-`Views/MacBrowseView.swift` (steppers, dynamic Import button),
+Files changed vs Build 99: `Harvest/HarvestTypes.swift` (new `preferDirectRecipes`,
+settings revision 4), `Harvest/HarvestModel.swift` (`prependImportURLs`, mined-first
+import, migration), `Harvest/HarvestServices.swift` (skip listing expansion when direct
+delivers), `Views/MacBrowseView.swift` (rebuilt: Find/Review panes, Advanced),
+`Views/MacKitchenViews.swift` (`MacHarvestView` removed, `HarvestDraftDetail` shared),
+`Views/MacRootView.swift` and `Views/MacCommands.swift` (section removed, nav rewired),
 `Core/MacBuildConfig.swift`.
 
 ## Verification done here
 
-All Swift files brace/paren/bracket-balanced (raw-string aware). The merge order in
-bulk verify (kept + fresh-mined + unchecked remainder) was traced for dedupe,
-session-set, cancel-mid-pass, and cap-overflow cases; `verifyOrMine`'s sub-page walk
-is bounded (5 pages, 80 links) and cancellation-checked. **No Swift compiler here —
-the real build is Xcode.**
+All changed Swift files brace-balanced (MacBrowseView 558/558, MacKitchenViews 149/149).
+Project-wide grep confirms zero remaining `.harvest` / `MacHarvestView` references in the
+live tree, so every `MacSection` switch stays exhaustive. `AppSettings` got its new key in
+**both** `CodingKeys` and the tolerant `init(from:)`, so the toggle persists. The mined
+import loop was traced for convergence (session-set dedupe, one-generation cap, strict
+queue drain, already-imported early-return). **No Swift compiler here — the real build is
+Xcode (⌘B).**
