@@ -6,9 +6,21 @@ xcuserdata/
 *.xcworkspace/xcuserdata/
 .DS_Store
 
-# If you ever paste a real key into Secrets.xcconfig, keep it out of git.
-# (The committed version holds only empty defaults and an optional include.)
+# Local configuration and credentials — commit examples only.
+Secrets.xcconfig
 Secrets.local.xcconfig
+.env
+.env.*
+!.env.example
+.dev.vars
+*.p8
+*.p12
+*.pem
+*.key
+*.cer
+*.mobileprovision
+AuthKey_*.p8
+GoogleService-Info.plist
 
 # BuildBuddy undo backups (tool state, not source)
 .buildbuddy-backups/
