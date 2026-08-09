@@ -12,3 +12,11 @@ Secrets.local.xcconfig
 
 # BuildBuddy undo backups (tool state, not source)
 .buildbuddy-backups/
+
+# Local Python environments and PyInstaller intermediates are rebuildable.
+worker-build/.venv/
+worker-build/.pyinstaller/
+
+# macOS AppleDouble metadata
+._*
+**/._*

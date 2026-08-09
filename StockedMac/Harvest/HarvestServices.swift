@@ -1696,15 +1696,184 @@ nonisolated struct NativeRecipeParser {
     }
 }
 
+/// The remote fallback that works in the sandboxed App Store build, where the bundled
+/// Python binary cannot be spawned. It hands the page's readable text to the same Stocked
+/// Worker and `recipeImport` route the phone's "Bring a recipe in" uses, then maps the
+/// model's JSON into a `ParserResult` so the rest of the harvest pipeline — dedupe,
+/// review, counts, sync — treats it exactly like any other parse.
 nonisolated struct HarvestWorkerParser {
-    static var isAvailable: Bool {
-        // Check if worker endpoint is configured
-        false
-    }
-    
+    /// Available whenever the Worker URL and shared key are configured (Secrets.xcconfig).
+    static var isAvailable: Bool { MacBuildConfig.isWorkerConfigured }
+
     static func parse(html: String, url: URL) async throws -> ParserResult {
-        // Would call remote worker API
-        throw CompanionError.parseFailed("Worker parsing not available")
+        guard isAvailable else {
+            throw CompanionError.parseFailed("The Stocked Worker is not configured in this build.")
+        }
+
+        let text = plainText(from: html)
+        guard text.count >= 40 else {
+            throw CompanionError.parseFailed("The page had too little readable text for the Worker to parse.")
+        }
+
+        // Same route and payload key as iOS RecipeImportAI. `recipeImport` is passthrough,
+        // so completionObject returns the model's recipe JSON directly.
+        let object = try await MacWorkerClient.completionObject(
+            route: .recipeImport,
+            payload: ["recipeText": text],
+            timeout: 45
+        )
+
+        // The recipeImport model returns no image or canonical URL, but the cloud sync
+        // only pushes recipes that carry an image. Pull the page's own og:image/og:url so
+        // a Worker-parsed recipe still gets a hero image and reaches the household cache.
+        let ogImage = HeuristicRecipeParser.metaContent("og:image", in: html)
+        let ogCanonical = HeuristicRecipeParser.metaContent("og:url", in: html)
+
+        return try makeResult(from: object, url: url, ogImage: ogImage, canonical: ogCanonical)
+    }
+
+    // MARK: - Response mapping
+
+    private static func makeResult(from obj: [String: Any], url: URL,
+                                   ogImage: String?, canonical: String?) throws -> ParserResult {
+        func string(_ key: String) -> String? {
+            if let s = obj[key] as? String { return s.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank }
+            if let n = obj[key] as? Int { return String(n) }
+            if let d = obj[key] as? Double { return String(d) }
+            return nil
+        }
+
+        let title = string("title") ?? ""
+
+        // Ingredients: [{name, amount}] preferred; a bare [String] is also accepted.
+        var items: [IngredientItem] = []
+        if let rows = obj["ingredients"] as? [[String: Any]] {
+            for row in rows {
+                let name = (row["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let amount = (row["amount"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let raw = [amount, name].compactMap { $0?.nilIfBlank }.joined(separator: " ")
+                guard let raw = raw.nilIfBlank else { continue }
+                items.append(IngredientItem(raw: raw, quantityText: amount?.nilIfBlank, name: name?.nilIfBlank))
+            }
+        } else if let rows = obj["ingredients"] as? [String] {
+            items = rows
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .map { IngredientItem(raw: $0) }
+        }
+
+        // Instructions: "instructions" per the recipeImport schema; accept "steps" too.
+        let stepStrings = (obj["instructions"] as? [String]) ?? (obj["steps"] as? [String]) ?? []
+        let steps = stepStrings
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !title.isEmpty, !items.isEmpty, !steps.isEmpty else {
+            throw CompanionError.parseFailed("The Worker responded but did not return a complete recipe.")
+        }
+
+        let times = RecipeTimes(
+            prepMinutes: minutes(from: string("prepTime")),
+            cookMinutes: minutes(from: string("cookTime")),
+            totalMinutes: minutes(from: string("totalTime"))
+        ).normalized()
+
+        var servings: Double?
+        if let n = obj["servings"] as? Double { servings = n }
+        else if let n = obj["servings"] as? Int { servings = Double(n) }
+        else if let s = string("servings") {
+            servings = Double(String(s.prefix { $0.isNumber || $0 == "." }))
+        }
+
+        let cuisines = string("cuisine").map { [$0] } ?? []
+        let keywords = (obj["tags"] as? [String])?
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+
+        return ParserResult(
+            title: title,
+            summary: string("description"),
+            author: nil,
+            imageURL: string("image") ?? string("imageUrl") ?? ogImage,
+            ingredientSections: [IngredientSection(name: nil, items: items)],
+            instructionSections: [InstructionSection(name: nil, steps: steps)],
+            yield: nil,
+            servings: servings,
+            times: times,
+            nutrition: [:],
+            cuisines: cuisines,
+            categories: [],
+            keywords: keywords,
+            diets: [],
+            canonicalURL: canonical ?? url.absoluteString,
+            // Model-backed, so it clears the review gate but stays under the 0.9
+            // auto-good threshold and carries a warning so it is never auto-approved.
+            confidence: 0.8,
+            warnings: ["Reconstructed by the Stocked Worker — review before approving."],
+            parser: "stocked-worker"
+        )
+    }
+
+    // MARK: - Helpers
+
+    /// Reduce a full HTML page to the readable text the model needs, dropping scripts,
+    /// styles and tags and capping length so a huge page cannot blow the token budget.
+    static func plainText(from html: String) -> String {
+        var text = html
+        for pattern in [#"(?is)<script\b[^>]*>.*?</script>"#, #"(?is)<style\b[^>]*>.*?</style>"#,
+                        #"(?is)<!--.*?-->"#, #"(?is)<head\b[^>]*>.*?</head>"#] {
+            text = text.replacingOccurrences(of: pattern, with: " ", options: .regularExpression)
+        }
+        text = text.replacingOccurrences(of: #"(?i)<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>"#,
+                                         with: "\n", options: .regularExpression)
+        text = text.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+        let entities = ["&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">",
+                        "&quot;": "\"", "&#39;": "'", "&rsquo;": "\u{2019}", "&frac12;": "½"]
+        for (entity, value) in entities { text = text.replacingOccurrences(of: entity, with: value) }
+        // Collapse runs of spaces/blank lines the tag removal leaves behind.
+        text = text.replacingOccurrences(of: #"[ \t]+"#, with: " ", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"\n[ \t]*\n[ \t\n]*"#, with: "\n\n", options: .regularExpression)
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cap = 14_000
+        if text.count > cap { text = String(text.prefix(cap)) }
+        return text
+    }
+
+    /// Minutes from either an ISO-8601 duration ("PT1H30M") or free text ("1 hr 30 min",
+    /// "45 minutes"). Returns nil when nothing time-like is present.
+    static func minutes(from value: String?) -> Int? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        let upper = value.uppercased()
+
+        // ISO-8601 duration.
+        if upper.hasPrefix("PT") {
+            var total = 0, current = ""
+            for ch in upper.dropFirst(2) {
+                if ch.isNumber { current += String(ch) }
+                else if ch == "H" { total += (Int(current) ?? 0) * 60; current = "" }
+                else if ch == "M" { total += Int(current) ?? 0; current = "" }
+                else { current = "" }
+            }
+            return total > 0 ? total : nil
+        }
+
+        // Free text: sum every "<n> hour/min" pair; fall back to a bare number as minutes.
+        let lower = value.lowercased()
+        var total = 0, matched = false
+        let scanner = lower.replacingOccurrences(of: #"[^0-9a-z. ]"#, with: " ", options: .regularExpression)
+        let tokens = scanner.split(separator: " ").map(String.init)
+        var pendingNumber: Double?
+        for token in tokens {
+            if let n = Double(token) { pendingNumber = n; continue }
+            if let n = pendingNumber {
+                if token.hasPrefix("h") { total += Int((n * 60).rounded()); matched = true; pendingNumber = nil }
+                else if token.hasPrefix("m") || token.hasPrefix("min") { total += Int(n.rounded()); matched = true; pendingNumber = nil }
+            }
+        }
+        if !matched, let only = tokens.compactMap({ Double($0) }).first {
+            return Int(only.rounded())
+        }
+        return total > 0 ? total : nil
     }
 }
 

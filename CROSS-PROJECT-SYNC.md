@@ -8,6 +8,59 @@
 
 ## Applied updates
 
+### 2026-08-06 — iOS now pulls the harvest cache (no Mac change)
+- **No Mac app change; recorded here because it completes the Mac→cloud→iOS recipe path.**
+  Since Build 91 the Mac has pushed approved harvested recipes to the Worker
+  (`HarvestCloudSync.swift` → `POST /harvest/cache` + `/harvest/image`); since the 2026-08-05
+  Worker fix those pushes actually persist. As of 2026-08-06 the **iOS** app finally reads them
+  back: a new `Stocked/HarvestRecipeSync.swift` GETs `/harvest/recipes` on launch, on every
+  foreground, and every 15 minutes, and folds each recipe into its on-device `RecipeDatabase`.
+- **What this means for Mac work:** the `POST /harvest/cache` payload shape in
+  `HarvestCloudSync.payload(for:)` is now a live contract that iOS decodes field-by-field
+  (`id, title, description, cuisine, tags, ingredients:[{name,amount}], instructions:[…],
+  sourceURL, attribution, confidence, image, imageURL, servings, prepTime, cookTime`). Changing
+  or renaming those fields will silently drop data on iOS — keep it additive, and mirror any
+  change in `Documents/Stocked 2/CROSS-PROJECT-SYNC.md`.
+- iOS uses each recipe's `attribution` as the source name (falls back to "Stocked Kitchen"),
+  so keep attribution honest and free of the retired "Sowens"/"kaggle" fragments the iOS
+  blocklist rejects. Recipes are guaranteed to carry an image by the Mac before push, which is
+  what makes them presentable in the iOS pool. See `Documents/worker/CROSS-PROJECT-SYNC.md` and
+  the iOS file's 2026-08-06 entry for details.
+
+### Build 103 (4.43) — Recipes, not category pages — 2026-08-05
+- **Root cause of the "stuck in a category loop" report:** sites that nest roundup posts
+  inside other roundup posts (a "40 favorite appetizers" post linking to a "9 favorite
+  things" post linking to the actual dish) hit a one-generation mining limit that had
+  been added deliberately (an earlier build turned 288 candidates into a 1,662-URL
+  snowball). That limit stopped expanding after the first hop and dropped the rest as
+  dead ends — so candidates kept getting opened, mined, and discarded without ever
+  reaching a real recipe, each hop spamming its own Activity line.
+- **Fixed:** `HarvestModel` now tracks a per-link hop count (`mineDepth`) instead of a
+  flat generation flag — mining recurses automatically in the background up to 4 hops
+  deep before it stops, so nested roundup chains resolve down to real recipes instead of
+  dead-ending. `finishImportRun` logs one roll-up Activity line per import pass ("Opened
+  N category pages in the background, finding M recipe links") instead of one entry per
+  page mined — the feed reports recipes found, not pages visited.
+- Files changed vs Build 102: `Harvest/HarvestModel.swift`, `Core/MacBuildConfig.swift`.
+- No settings migration, no worker/iOS impact.
+
+### 2026-08-05 — Worker fix: /harvest/* routes now actually exist (no Mac code change)
+- **No Mac app change; this is a worker-only fix, recorded here because it directly
+  concerns Mac's cloud sync.** Confirmed the app already talks to the correct unified
+  worker: `MacBuildConfig.receiptWorkerURL = "https://api.sowensstudios.com"` is the
+  same custom domain iOS uses, the `X-Stocked-Key` header name and `STOCKED_SHARED_KEY`
+  secret name match exactly, and the unified worker's default (no-prefix) routing sends
+  every Mac request to the `stocked` app module — same as iOS today.
+- **Found real drift while checking this:** `HarvestCloudSync.swift`'s `POST
+  /harvest/cache`, `POST /harvest/image`, and the `GET /harvest/recipes` /
+  `GET /harvest/img/<id>.jpg` reads documented since Build 91 were never actually
+  implemented on the worker — not in the old standalone worker, not after the merge.
+  Every push since Build 91 has been silently failing (422 "Unrecognized request", no
+  UI error surfaced). See `Documents/worker/CROSS-PROJECT-SYNC.md` 2026-08-05 entry for
+  the full fix — `src/apps/stocked/src/harvest.js` now exists for real, wired into
+  `index.js`, same contract Mac's code already expects. No Mac-side change needed; cloud
+  sync should just start working on the next run.
+
 ### Build 102 (4.42) — Never empty-handed — 2026-08-05
 - **Interruptions no longer erase progress.** `DiscoveryEngine.discover` (Harvest
   Services) used to let a failure on any one engine (429, robots block, network error) or

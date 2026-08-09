@@ -1,62 +1,60 @@
-# Build 102 (4.42) — Never empty-handed
+# Build 103 (4.43) — Recipes, not category pages
 
 **Mac only.** No worker or iOS change. Applied directly to
 `Documents/Stocked Mac/StockedMac/`.
 
-A run must always deliver something. Previously, a rate limit, a network drop, or the
-user pressing Stop mid-discovery could throw away everything a run had already found —
-and a run that only ever surfaced category/hub pages could end with nothing imported at
-all. Both are fixed, and importing a single URL directly (no source/category picking) is
-now always available.
+Browse looked stuck: the Activity feed spammed "Category page — found N recipe links"
+for minutes on end, the import dashboard sat at 0 Imported the whole time, and the
+Categories tab filled up with roundup/listicle posts ("40 Favorite Winter Appetizers",
+"Nine Favorite Things 54…") that never resolved into anything importable. Both are fixed.
 
 ---
 
+## What was actually happening
+
+Sites like Half Baked Harvest publish collection/roundup posts that look exactly like a
+normal recipe URL — no `/category/` in the path, nothing to catch at discovery time.
+Only when Stocked actually opened one did it learn it wasn't a recipe, and often it
+linked to ANOTHER roundup post, not a dish. The mining code had a one-generation limit
+(added deliberately, after an earlier build turned 288 candidates into a 1,662-URL
+snowball) — so the first roundup got mined, but a roundup found INSIDE that roundup was
+just dropped as a dead end. On a source with several layers of nested collection posts,
+that meant candidate after candidate got opened, remined, and dropped — with real recipes
+never actually reached, and each hop logging its own Activity line, which is what made it
+look like an infinite loop.
+
 ## What changed
 
-1. **Interruptions no longer erase progress.** `DiscoveryEngine.discover` used to let a
-   failure on any one engine (429, robots block, network error) or a cancellation
-   mid-fetch throw the whole run away — HarvestModel's outer `catch` discarded
-   everything, including recipes an earlier engine or earlier mining had already found.
-   Now each engine attempt is individually caught: a real error logs a note and the chain
-   tries the next engine; a cancellation stops the chain immediately but keeps whatever
-   is already in `recipeURLs`/`minedCategories`. `discover()` effectively never throws in
-   normal operation anymore — it always returns a report built from what it has.
-2. **A real recipe is always the target.** If the whole chain (plus its speed-budgeted
-   mining) still ends with nothing confirmed and nothing unverified, the engine keeps
-   opening the categories it already knows about — one hub at a time — until a real
-   recipe link turns up or every known hub has been tried. A run no longer ends with only
-   cached, unmined category tiles and zero importable recipes.
-3. **Stop/rate-limit now imports what was found.** Because `discover()` returns instead
-   of throwing, HarvestModel's existing confirmed → unverified → queue fallback chain
-   runs normally after a stop or a 429, so autopilot (or auto-import) imports whatever was
-   gathered up to that point instead of just showing "Browse canceled."
-4. **Import from a URL, always.** Find & Import now has a direct URL field ("Or paste a
-   recipe URL to import it directly…") wired straight to `importDirect` — importing a
-   single link no longer requires picking a source or category first.
+1. **Mining now recurses, bounded by depth instead of generation count.** Each mined
+   link carries a hop-count from its original discovered URL (`HarvestModel.mineDepth`).
+   A link found via mining is mined again if it also turns out to be a category page —
+   up to 4 hops deep — instead of stopping dead after the first hop. Nested
+   roundup-of-roundup chains now resolve down to real recipes automatically, in the
+   background, the way discovery and import already work.
+2. **One roll-up Activity line per pass, not one per page.** `finishImportRun` now logs
+   a single "Opened N category pages in the background, finding M recipe links" summary
+   (plus a note if the depth limit was hit) instead of a separate entry for every hub
+   page mined. The Activity feed reads as recipes found, not pages visited.
 
 ## Installing
 
 1. Files are already in `StockedMac/` — nothing to copy.
-2. Build Settings: `MARKETING_VERSION = 4.42`, `CURRENT_PROJECT_VERSION = 102`.
-3. Try it: paste a recipe URL directly into the new field in Find & Import and press
-   Import. Then start a normal Browse run and press Stop partway through — whatever was
-   found so far should still come in.
+2. Build Settings: `MARKETING_VERSION = 4.43`, `CURRENT_PROJECT_VERSION = 103`.
+3. Try it: run a source that publishes nested roundup posts (Half Baked Harvest is a
+   good stress test) and watch the Activity feed — it should show occasional roll-up
+   mining summaries and, within a few passes, actual "Imported <title>" lines, not an
+   endless stream of category-page entries.
 
-Files changed vs Build 101: `Harvest/HarvestServices.swift` (`DiscoveryEngine.discover`
-per-engine error/cancellation handling + guaranteed-recipe fallback mining),
-`Harvest/HarvestModel.swift` (`discover()` cancellation-catch message),
-`Views/MacBrowseView.swift` (direct URL import field), `Core/MacBuildConfig.swift`.
+Files changed vs Build 102: `Harvest/HarvestModel.swift` (`mineDepth` tracking in
+`record()`, roll-up logging in `finishImportRun()`), `Core/MacBuildConfig.swift`.
 
 ## Verification done here
 
-`HarvestServices.swift`, `HarvestModel.swift`, and `MacBrowseView.swift` brace-balance
-checked (HarvestServices carries its known pre-existing +2 offset from single-character
-brace string literals in `balancedJSONObject`, unchanged by this build — the new code
-adds a matched do/catch and for-loop only). `MinedCategory.recipeURLs` mutation via array
-index confirmed valid (struct, `var` field, `var` array). Traced that `bulkVerifyQueue`
-already handled cancellation/network failure gracefully before this build (unchecked URLs
-stay queued, mined links are kept) — no change needed there. Traced the stop/autopilot
-path end to end: `stopAutopilot()` cancels the discovery Task, `discover()` now returns
-normally with partial results instead of throwing, and the existing
-confirmed → unverified → queue import logic runs unchanged. **No Swift compiler here —
-the real build is Xcode (⌘B).**
+Brace-balance checked (0 net change in nesting). Traced that `mineDepth` persists for
+the session the same way `sessionMinedSet` already did (no new reset path needed), and
+that `persistMinedLinks` still runs on every mined page regardless of depth, so the
+Categories tab keeps seeing everything even once the depth limit stops further
+auto-expansion — nothing that was found is lost, it just stops auto-chaining. Confirmed
+the other `CompanionError.listingPage` catch site (`importPage`, the in-browser
+single-click import) is a separate, low-frequency manual path and was left unchanged on
+purpose. **No Swift compiler here — the real build is Xcode (⌘B).**

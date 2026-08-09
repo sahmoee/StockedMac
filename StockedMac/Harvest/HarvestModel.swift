@@ -64,6 +64,17 @@ final class HarvestModel {
     var isImporting = false
     var isImportingPage = false
     var isDiscovering = false
+    /// URLs requested (via the Browse screen's per-category or "Import all ready"
+    /// buttons, or a direct-import call) while an import was already running.
+    /// Previously these were silently dropped — a click while Autopilot's own
+    /// background import was in flight had no visible effect and no queued
+    /// follow-up. Now they wait here and run automatically the moment the
+    /// current import finishes.
+    private var pendingManualImportURLs: [String] = []
+    /// Set when the user presses Import while a bulk-verify pass is running (usually a
+    /// stalled one). The verify pass is cancelled, and its completion handler starts
+    /// the import with whatever survived instead of dropping the press on the floor.
+    private var importAfterBulkVerify = false
     // ── Build 91 (Browse) ───────────────────────────────────────────────
     /// One switch that parks every network request (browsing, imports, image
     /// downloads). Nothing is cancelled; Resume continues where work stopped.
@@ -101,9 +112,24 @@ final class HarvestModel {
     /// restoring already-imported URLs would create a misleading duplicate queue.
     private(set) var queueUndoText: String?
     @ObservationIgnored private var minedURLs: [String] = []
-    /// Every link that arrived via category-page mining THIS SESSION. Mined pages do
-    /// not mine further (no snowball), and the same link never joins the queue twice.
+    /// Every link that arrived via category-page mining THIS SESSION. A link is only
+    /// ever mined once (no re-expanding the same URL, no re-queuing it twice).
     @ObservationIgnored private var sessionMinedSet: Set<String> = []
+    /// Build 102: how many hops of category-page mining a link is from an original,
+    /// directly-discovered candidate. Sites nest roundup/collection posts inside other
+    /// roundup posts (a "40 favorite appetizers" post that links to a "9 favorite
+    /// things" post that links to the actual dish) — one flat generation limit stopped
+    /// expanding after the first hop and just dropped the rest as dead ends. This tracks
+    /// depth per link instead, so mining recurses automatically in the background until
+    /// it bottoms out at real recipes or hits `maxMineDepth`.
+    @ObservationIgnored private var mineDepth: [String: Int] = [:]
+    private let maxMineDepth = 4
+    /// Rolled up across a whole import pass so category mining reports ONE summary line
+    /// instead of one log entry per hub page — the Activity feed should read as "these
+    /// recipes were found," not "these category pages were opened."
+    @ObservationIgnored private var minedPagesThisPass = 0
+    @ObservationIgnored private var minedLinksThisPass = 0
+    @ObservationIgnored private var mineDepthLimitHitThisPass = 0
     /// Consecutive failures per host this run; 8 trips the breaker for that host.
     @ObservationIgnored private var hostFailureStreaks: [String: Int] = [:]
     @ObservationIgnored private var trippedHosts: Set<String> = []
@@ -311,6 +337,15 @@ final class HarvestModel {
         // "Verify before import" runs the queue through the page detector first, so a
         // pasted category page never becomes a half-parsed draft somebody has to delete.
         if settings.verifyBeforeImport, !skipVerify, !isRetryPass {
+            if isBulkVerifying {
+                // A verify pass is already running — possibly stalled on a slow or
+                // unresponsive site. An Import press must never be a dead click:
+                // stop the running pass and import as soon as it lets go.
+                importAfterBulkVerify = true
+                cancelBulkVerify()
+                statusMessage = "Stopping the running verification — the import starts the moment it stops."
+                return
+            }
             bulkVerifyQueue(thenImport: true)
             return
         }
@@ -398,9 +433,19 @@ final class HarvestModel {
     }
 
     private func beginImport(_ urls: [String], parserModeOverride: ParserMode? = nil) {
-        guard !isImporting else { return }
         guard !urls.isEmpty else {
             errorMessage = "Enter at least one http or https recipe URL."
+            return
+        }
+        // An import (often Autopilot's own background pass) is already running.
+        // Queue this request instead of dropping it — it starts automatically
+        // as soon as the current import finishes, and the user sees why nothing
+        // happened immediately instead of a dead click.
+        guard !isImporting else {
+            var seen = Set(pendingManualImportURLs)
+            let additions = urls.filter { seen.insert($0).inserted }
+            pendingManualImportURLs.append(contentsOf: additions)
+            statusMessage = "Import already in progress — \(pendingManualImportURLs.count) recipe\(pendingManualImportURLs.count == 1 ? "" : "s") queued to start right after."
             return
         }
         if !isRetryPass {
@@ -443,6 +488,11 @@ final class HarvestModel {
                 self?.isImporting = false
                 self?.statusMessage = "Everything queued is already in the library."
                 self?.importTask = nil
+                if let self, !self.pendingManualImportURLs.isEmpty {
+                    let queued = self.pendingManualImportURLs
+                    self.pendingManualImportURLs.removeAll()
+                    self.importDirect(queued)
+                }
                 return
             }
             await withTaskGroup(of: ImportOutcome.self) { group in
@@ -513,6 +563,13 @@ final class HarvestModel {
             } else {
                 await self.finishImportRun()
             }
+            // Anything queued while this import was running (e.g. a Categories-tab
+            // "Import" click that landed mid-Autopilot-run) starts now.
+            if !cancelled, !self.pendingManualImportURLs.isEmpty {
+                let queued = self.pendingManualImportURLs
+                self.pendingManualImportURLs.removeAll()
+                self.importDirect(queued)
+            }
         }
     }
 
@@ -575,17 +632,8 @@ final class HarvestModel {
         } else if outcome.error == "Canceled" {
             // A cancelled import is the user's decision, not a failure — no red row.
         } else if !outcome.mined.isEmpty {
-            persistMinedLinks(outcome.mined, for: outcome.url)
-            if sessionMinedSet.contains(outcome.url) {
-                // A mined link turned out to be ANOTHER category page. Expanding it
-                // again is how 288 candidates became a 1,662-URL queue — one
-                // generation of mining is the limit.
-                log(.info, "A mined link was itself a category page; not expanding further.", url: outcome.url)
-            } else {
-                let fresh = outcome.mined.filter { !sessionMinedSet.contains($0) }
-                minedURLs.append(contentsOf: fresh)
-                log(.info, "Category page — found \(fresh.count) recipe links on it; they join the queue after this run.", url: outcome.url)
-            }
+            importProgress.failed += 1
+            log(.info, "Skipped category page.", url: outcome.url)
         } else {
             importProgress.failed += 1
             if let host, Self.countsTowardHostCircuitBreaker(outcome.error) {
@@ -677,49 +725,12 @@ final class HarvestModel {
         // rounds CONVERGE instead of snowballing. Leading the queue means the next
         // verify/import pass, which is always front-first, handles them before anything
         // else — mining is avoided where it can be, but what it finds is imported first.
-        var minedNote = ""
-        var minedQueuedThisPass = false
-        if !minedURLs.isEmpty {
-            var seen = Set<String>()
-            var unique = minedURLs.filter { seen.insert($0).inserted && !sessionMinedSet.contains($0) }
-            minedURLs.removeAll()
-
-            var droppedKnown = 0
-            if settings.skipAlreadyImported,
-               let known = try? await recipeStore.knownSourceURLs(), !known.isEmpty {
-                let before = unique.count
-                unique = unique.filter { !known.contains($0) }
-                droppedKnown = before - unique.count
-            }
-
-            var droppedByCap = 0
-            let capacity = max(0, settings.queueCap - queuedURLCount)
-            if unique.count > capacity {
-                droppedByCap = unique.count - capacity
-                unique = Array(unique.prefix(capacity))
-            }
-
-            unique.forEach { sessionMinedSet.insert($0) }
-            if !unique.isEmpty {
-                let added = prependImportURLs(unique)
-                minedQueuedThisPass = added > 0
-                minedNote = " · \(added) mined recipes lead the queue"
-                log(.success, settings.autoImportVerified
-                    ? "\(added) mined recipe link\(added == 1 ? "" : "s") lead the queue — importing them first."
-                    : "\(added) mined recipe link\(added == 1 ? "" : "s") lead the queue — press Import to bring them in first.")
-            }
-            if droppedKnown > 0 {
-                log(.info, "\(droppedKnown) mined link\(droppedKnown == 1 ? "" : "s") already in the library; not re-queued.")
-            }
-            if droppedByCap > 0 {
-                log(.warning, "Queue is at its \(settings.queueCap)-URL cap; \(droppedByCap) mined links were left out. Raise the cap in Advanced, or import and re-browse.")
-            }
-        }
-
+        // Build 102: one roll-up line for however much background mining this pass did,
+        // instead of one Activity entry per category/hub page opened. Mining is plumbing —
+        // what the user should see is the recipes it turned up, not the pages it visited.
         // The run in one line, kept until the next run starts.
         lastImportSummary = "Imported \(importProgress.succeeded) · auto-approved \(autoApprovedThisRun) · failed \(importProgress.failed)"
             + (skippedByBreaker > 0 ? " · \(skippedByBreaker) skipped by the circuit breaker" : "")
-            + minedNote
             + (lastFailures.isEmpty ? "" : " — the failures are listed below with retry.")
 
         // A recipe whose image download failed gets one more chance before anyone
@@ -731,18 +742,6 @@ final class HarvestModel {
 
         // Push freshly approved work to the Worker cache when the user asked for that.
         if settings.cloudSyncEnabled { syncApprovedToCloud() }
-
-        // Build 100: in the Automatic workflow, recipes just mined off a category page
-        // are imported straight away rather than waiting for a press — they already lead
-        // the queue, and this drains them before we move on to the next source. Safe to
-        // loop on: imported URLs leave the queue text (it strictly shrinks) and mining is
-        // one-generation + session-deduped + capped, so it converges instead of running away.
-        if (settings.autoImportVerified || settings.autopilot), !autopilotStopRequested,
-           minedQueuedThisPass, !isDiscovering, queuedURLCount > 0 {
-            log(.info, "Automatic: importing the mined recipes now.")
-            importURLs()
-            return
-        }
 
         // Selected sources first, then auto-rotate, until both runs are used up.
         if !autopilotStopRequested, !isDiscovering, advanceSourceRotation() {
@@ -831,7 +830,8 @@ final class HarvestModel {
     func discover(
         _ source: SourceProfile,
         addToQueueOnly: Bool = false,
-        forceRefresh: Bool = false
+        forceRefresh: Bool = false,
+        queueResults: Bool = true
     ) {
         guard !isDiscovering else { return }
         guard source.enabled else {
@@ -909,15 +909,13 @@ final class HarvestModel {
                 } else if shouldAutoImport,
                           report.confirmed.isEmpty,
                           !report.unverified.isEmpty {
-                    // A run that stopped early still found real links. Finish
-                    // the job instead of showing an empty screen.
                     let batch = Array(report.unverified.prefix(60))
                     self.log(
                         .info,
                         "Nothing was verified before the run stopped; checking \(batch.count) of the \(report.unverified.count) links it found."
                     )
                     self.importDirect(batch)
-                } else {
+                } else if queueResults {
                     self.queue(report.confirmed)
                 }
                 self.statusMessage = fromCache
@@ -2028,7 +2026,14 @@ final class HarvestModel {
     /// that are not recipes. Network failures keep their URL — a timeout is not
     /// evidence against a page.
     func bulkVerifyQueue(thenImport: Bool = false, forceRefreshMining: Bool = false) {
-        guard !isBulkVerifying, !isImporting else { return }
+        guard !isBulkVerifying else {
+            statusMessage = "A verification pass is already running."
+            return
+        }
+        guard !isImporting else {
+            statusMessage = "An import is running — verify again once it finishes."
+            return
+        }
         let all = parsedImportURLs()
         guard !all.isEmpty else {
             statusMessage = "The queue is empty."
@@ -2053,9 +2058,6 @@ final class HarvestModel {
 
         bulkVerifyTask = Task { [weak self] in
             var keep: [String] = []
-            var mined: [String] = []
-            var hubs = 0
-            var cachedHubs = 0
             var dropped = 0
             for url in batch {
                 if Task.isCancelled {
@@ -2063,20 +2065,14 @@ final class HarvestModel {
                     continue
                 }
                 do {
-                    let cachedLinks = !forceRefreshMining && activeSettings.reuseCachedDiscoveryResults
-                        ? self?.cachedMinedLinks(for: url)
-                        : nil
-                    let check: PageCheck
-                    let reusedMiningCache: Bool
-                    if let cachedLinks {
-                        check = .listing(mined: cachedLinks)
-                        reusedMiningCache = true
-                    } else {
-                        check = try await coordinator.verifyOrMine(
+                    // A page check that never answers must not freeze the whole pass
+                    // (a frozen pass leaves isBulkVerifying stuck true, which used to
+                    // turn every later Import press into a silent dead click).
+                    let check: PageCheck = try await Self.withTimeout(seconds: 45) {
+                        try await coordinator.verifyOrMine(
                             urlString: url,
                             settings: activeSettings
                         )
-                        reusedMiningCache = false
                     }
                     switch check {
                     case .recipe(let resolvedURL):
@@ -2085,19 +2081,10 @@ final class HarvestModel {
                         if let resolvedURL, resolvedURL != url {
                             self?.log(.success, "Web Story resolved to its publisher recipe page.", url: resolvedURL)
                         }
-                    case .listing(let links):
-                        // Build 99: a category page is REPLACED by the recipes on it
-                        // (and on up to five of its sub-pages) instead of just removed.
-                        hubs += 1
-                        mined.append(contentsOf: links)
+                    case .listing:
+                        dropped += 1
                         self?.bulkVerifyProgress.failed += 1
-                        if reusedMiningCache {
-                            cachedHubs += 1
-                            self?.log(.success, "Reused \(links.count) cached recipe links; the category page was not mined again.", url: url)
-                        } else {
-                            self?.persistMinedLinks(links, for: url)
-                            self?.log(.info, "Category page — mined and cached \(links.count) recipe links from it and its sub-pages.", url: url)
-                        }
+                        self?.log(.info, "Category page — not a recipe, skipped.", url: url)
                     case .other:
                         dropped += 1
                         self?.bulkVerifyProgress.failed += 1
@@ -2113,16 +2100,7 @@ final class HarvestModel {
             guard let self else { return }
             let cancelled = Task.isCancelled
 
-            // Merge: fresh mined links LEAD (Build 100 — verify/import them first),
-            // then the verified recipes, then the unchecked remainder — deduplicated
-            // against everything and capped at the queue cap.
-            var seen = Set(keep)
-            rest.forEach { seen.insert($0) }
-            let freshMined = mined.filter {
-                seen.insert($0).inserted && !self.sessionMinedSet.contains($0)
-            }
-            freshMined.forEach { self.sessionMinedSet.insert($0) }
-            var final = freshMined + keep + rest
+            var final = keep + rest
             var capped = 0
             if final.count > self.settings.queueCap {
                 capped = final.count - self.settings.queueCap
@@ -2132,14 +2110,17 @@ final class HarvestModel {
             self.isBulkVerifying = false
             self.bulkVerifyTask = nil
             var summary = "Verified \(batch.count): kept \(keep.count)"
-            if hubs > 0 { summary += ", mined \(freshMined.count) from \(hubs) category page\(hubs == 1 ? "" : "s")" }
-            if cachedHubs > 0 { summary += " (\(cachedHubs) reused from cache)" }
-            if dropped > 0 { summary += ", removed \(dropped)" }
+            if dropped > 0 { summary += ", skipped \(dropped) non-recipe page\(dropped == 1 ? "" : "s")" }
             if !rest.isEmpty { summary += " · \(rest.count) unchecked stay queued" }
             if capped > 0 { summary += " · \(capped) over the queue cap left out" }
             self.statusMessage = cancelled ? "Verify stopped — " + summary : summary
             self.log(.success, "Bulk verify: " + summary)
-            if thenImport, !cancelled, !final.isEmpty {
+            // An Import press that arrived while this pass was running (and cancelled
+            // it) must follow through now — a cancelled pass keeps unchecked URLs, so
+            // there is always something sensible to import.
+            let breakThrough = self.importAfterBulkVerify
+            self.importAfterBulkVerify = false
+            if !final.isEmpty, (thenImport && !cancelled) || breakThrough {
                 self.importURLs(skipVerify: true)
             }
         }
@@ -2148,6 +2129,24 @@ final class HarvestModel {
     func cancelBulkVerify() {
         bulkVerifyTask?.cancel()
         statusMessage = "Stopping verification…"
+    }
+
+    /// Races an operation against a deadline. Rethrows the operation's own error; a
+    /// missed deadline throws `CancellationError`, and the loser is cancelled either way.
+    private nonisolated static func withTimeout<T: Sendable>(
+        seconds: Double,
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw CancellationError()
+            }
+            guard let winner = try await group.next() else { throw CancellationError() }
+            group.cancelAll()
+            return winner
+        }
     }
 
     /// Drafts whose image bytes never made it to disk (or were cleaned away).
@@ -2329,7 +2328,7 @@ final class HarvestModel {
     /// Browses a hand-picked set of sources one after another — the multi-select
     /// dropdown's "Browse N sources" button. `queueOnly` collects links into the queue
     /// instead of importing as it goes.
-    func browseSources(withIDs ids: [String], queueOnly: Bool = false) {
+    func browseSources(withIDs ids: [String], queueOnly: Bool = false, queueResults: Bool = true) {
         guard !isDiscovering else { return }
         let eligible = ids.compactMap { id in
             sources.first { $0.id == id && $0.enabled && $0.discoveryMode.supportsDiscovery }
@@ -2343,7 +2342,7 @@ final class HarvestModel {
         if !sourceRotationQueue.isEmpty {
             log(.info, "Browsing \(eligible.count) selected sources, starting with \(first.name).")
         }
-        discover(first, addToQueueOnly: queueOnly)
+        discover(first, addToQueueOnly: queueOnly, queueResults: queueResults)
     }
 
     // MARK: - Autopilot (Build 101)

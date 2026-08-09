@@ -24,8 +24,8 @@ nonisolated enum MacBuildConfig {
     /// A separate product from the iOS app — separate project, separate bundle
     /// identifier — but the version line tracks the shared build history (the project file
     /// carries the real numbers; these are only the fallback if Info.plist is unreadable).
-    private static let fallbackVersion     = "4.42"
-    private static let fallbackBuildNumber = 102
+    private static let fallbackVersion     = "4.43"
+    private static let fallbackBuildNumber = 103
 
     /// When the shared model layer was last checked against the phone's copy. Models.swift
     /// and KitchenMetrics.swift are byte-for-byte identical to the iOS tree as of this
@@ -44,14 +44,13 @@ nonisolated enum MacBuildConfig {
 
     static let buildDate = "August 2026"
     static let buildName = """
-        Never empty-handed. A run that hits a rate limit or gets stopped now imports \
-        whatever it already found instead of throwing it away — the discovery engine \
-        keeps what earlier engines and mining turned up even when a later one fails or \
-        is cancelled mid-fetch. A real recipe is always the goal, not just a cached \
-        category: if a run would otherwise end with only unmined hub pages, it keeps \
-        opening them one at a time until it finds an actual recipe to bring in. And \
-        Find & Import now has a direct URL field — paste any recipe link and import it \
-        immediately, no source or category picking required.
+        Recipes, not category pages. Mining nested roundup posts ("40 favorite \
+        appetizers" linking to "9 favorite things" linking to the actual dish) used to \
+        stop after one hop and drop the rest as dead ends — that read as Browse being \
+        stuck in a loop with nothing ever importing. Mining now recurses automatically \
+        in the background up to several hops deep until it reaches real recipes, and \
+        the Activity feed reports one roll-up line per pass instead of one entry per \
+        category page opened, so what you see is recipes found, not pages visited.
         """
 
     // MARK: - Environment
@@ -92,9 +91,9 @@ nonisolated enum MacBuildConfig {
     // MARK: - Brand links
     static let websiteURL     = "https://sowensstudios.com"
     static let supportEmail   = "support@sowensstudios.com"
-    static let privacyURL     = "https://sowensstudios.com/privacy"
-    static let termsURL       = "https://sowensstudios.com/terms"
-    static let supportPageURL = "https://sowensstudios.com/support"
+    static let privacyURL     = "https://sahmoee.github.io/StockedMac/privacy.html"
+    static let termsURL       = "https://sahmoee.github.io/StockedMac/license.html"
+    static let supportPageURL = "https://sahmoee.github.io/StockedMac/support.html"
 
     // MARK: - Helpers
     private static func bundleString(_ key: String) -> String? {

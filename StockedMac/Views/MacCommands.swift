@@ -117,7 +117,6 @@ struct MacCommands: Commands {
                 harvest.importURLs()
             }
             .keyboardShortcut("u", modifiers: [.command, .shift])
-            .disabled(harvest.isImporting)
 
             Button("Paste URLs from Clipboard") {
                 navigation.section = .browse

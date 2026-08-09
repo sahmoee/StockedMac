@@ -297,7 +297,10 @@ nonisolated struct AppSettings: Codable, Sendable {
             downloadImages: true,
             parseIngredientStructure: true,
             maximumConcurrentJobs: 3,
-            useWorkerFallback: false,
+            // On by default: the sandboxed App Store build can no longer spawn the bundled
+            // Python worker, so the Stocked Worker is the only model-backed parser left for
+            // pages the native/microdata/heuristic engines cannot fully extract.
+            useWorkerFallback: true,
             autoApproveConfidence: 0.9,
             retryFailedImports: true,
             autoImportVerified: false,
