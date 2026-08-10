@@ -32,3 +32,9 @@ worker-build/.pyinstaller/
 # macOS AppleDouble metadata
 ._*
 **/._*
+
+# Local operating guide — not part of the shipped repo
+README-FIRST.md
+CROSS-PROJECT-SYNC.md
+REPORT.md
+sync
