@@ -90,6 +90,11 @@ struct StockedMacApp: App {
                     // immediately ahead of the arrival of the very rows being swept.
                     // Outside the `isJoined` branch so an unjoined Mac still gets swept.
                     MacRecipePurge.run(store: store)
+                    // Backfill the full Recipes-sidebar library after pull/purge. Previous
+                    // builds only published newly approved Harvester drafts, and the Worker
+                    // also capped its index at 500, so an 882-recipe kitchen could never be
+                    // fully available to iPhone/iPad. Upserts are idempotent by recipe UUID.
+                    harvest.syncKitchenToCloud(store.recipes)
                 }
         }
         .defaultSize(width: 1140, height: 760)

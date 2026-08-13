@@ -3,6 +3,11 @@
 Every push should add an entry here so GitHub carries the build/change history.
 Newest at the top. Keep it plain ASCII (see .gitmessage.txt for the commit rules).
 
+## Build 108 — Version 4.43
+
+- The complete Recipes library now backfills to the shared iPhone and iPad catalog on launch, including recipes created before automatic Harvester publishing existed.
+- Full-catalog uploads remain safe to repeat because recipes are updated by stable UUID.
+
 ## Build 107 — Version 4.43
 
 - Approved Stocked Mac recipes now publish automatically to the shared Stocked recipe database used by every app install.

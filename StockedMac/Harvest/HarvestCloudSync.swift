@@ -84,6 +84,48 @@ enum HarvestCloudSync {
         return PushResult(recipes: pushedRecipes, images: pushedImages)
     }
 
+    /// Backfills the Mac kitchen's complete recipe collection. This is intentionally
+    /// separate from `RecipeDraft`: the Recipes sidebar is backed by `UserRecipe`, and
+    /// using only the Harvester review library left existing kitchen recipes unpublished.
+    static func pushKitchenRecipes(_ recipes: [UserRecipe]) async throws -> PushResult {
+        guard let base = URL(string: MacBuildConfig.receiptWorkerURL) else {
+            throw MacServiceError.notConfigured("The Stocked Worker URL")
+        }
+        var pushedRecipes = 0
+        var pushedImages = 0
+
+        var index = 0
+        while index < recipes.count {
+            let chunk = Array(recipes[index..<min(index + chunkSize, recipes.count)])
+            index += chunkSize
+            let body: [String: Any] = [
+                "schemaVersion": 1,
+                "clientVersion": "mac-\(MacBuildConfig.version)",
+                "recipes": chunk.map(kitchenPayload(for:)),
+            ]
+            try await post(body, to: base.appendingPathComponent("harvest/cache"))
+            pushedRecipes += chunk.count
+        }
+
+        for recipe in recipes {
+            guard let data = recipe.imageData, !data.isEmpty else { continue }
+            let jpeg = data.count <= maxImageBytes ? data : downsampledJPEG(data, toAtMost: maxImageBytes)
+            guard let jpeg else { continue }
+            do {
+                try await post([
+                    "schemaVersion": 1,
+                    "id": recipe.id.uuidString,
+                    "mediaType": "image/jpeg",
+                    "imageBase64": jpeg.base64EncodedString(),
+                ], to: base.appendingPathComponent("harvest/image"))
+                pushedImages += 1
+            } catch {
+                continue
+            }
+        }
+        return PushResult(recipes: pushedRecipes, images: pushedImages)
+    }
+
     // MARK: - Transport
 
     private static func post(_ body: [String: Any], to url: URL) async throws {
@@ -159,6 +201,27 @@ enum HarvestCloudSync {
         } else if let total = times.totalMinutes {
             dict["cookTime"] = minutesLabel(total)
         }
+        return dict
+    }
+
+    private static func kitchenPayload(for recipe: UserRecipe) -> [String: Any] {
+        var dict: [String: Any] = [
+            "id": recipe.id.uuidString,
+            "title": recipe.title,
+            "description": recipe.description,
+            "cuisine": recipe.cuisine,
+            "tags": recipe.tags,
+            "ingredients": recipe.ingredients.map { ["name": $0.name, "amount": $0.amount] },
+            "instructions": recipe.instructions,
+            "importedBy": "Stocked Mac",
+            "importedAt": ISO8601DateFormatter().string(from: recipe.dateCreated),
+            "attribution": "Stocked Mac",
+            "servings": max(1, recipe.servings),
+            "prepTime": recipe.prepTime,
+            "cookTime": recipe.cookTime,
+        ]
+        if let imageURL = recipe.imageURL?.nilIfBlank { dict["imageURL"] = imageURL }
+        if recipe.imageData != nil { dict["image"] = "/harvest/img/\(recipe.id.uuidString).jpg" }
         return dict
     }
 

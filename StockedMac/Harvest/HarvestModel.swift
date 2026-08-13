@@ -2361,6 +2361,25 @@ final class HarvestModel {
         }
     }
 
+    /// Publishes the Recipes-sidebar collection, including recipes that predate the
+    /// Harvester approval flow. Safe on every launch because the Worker upserts by UUID.
+    func syncKitchenToCloud(_ recipes: [UserRecipe]) {
+        guard !isCloudSyncing, !recipes.isEmpty, MacWorkerClient.isConfigured else { return }
+        isCloudSyncing = true
+        cloudSyncStatus = "Syncing all \(recipes.count) kitchen recipes…"
+        Task { [weak self] in
+            do {
+                let result = try await HarvestCloudSync.pushKitchenRecipes(recipes)
+                self?.cloudSyncStatus = "Synced all \(result.recipes) kitchen recipes to iPhone and iPad."
+                self?.log(.success, "Shared catalog backfill: \(result.recipes) recipes uploaded.")
+            } catch {
+                self?.cloudSyncStatus = "Full catalog sync failed: \(error.localizedDescription)"
+                self?.log(.error, "Shared catalog backfill failed: \(error.localizedDescription)")
+            }
+            self?.isCloudSyncing = false
+        }
+    }
+
     /// Restores the saved discovery reports so past sessions are one click to resume.
     func loadSessionHistory() {
         let files = (try? FileManager.default.contentsOfDirectory(
