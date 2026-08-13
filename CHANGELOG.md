@@ -3,6 +3,12 @@
 Every push should add an entry here so GitHub carries the build/change history.
 Newest at the top. Keep it plain ASCII (see .gitmessage.txt for the commit rules).
 
+## Build 106 — Version 4.43
+
+- Recognizes access challenges before counting recipe links, preventing bot-wall JavaScript from being mislabeled and recursively queued as category pages.
+- Excludes favicons, vector images, fonts, and additional media extensions from discovery before they can generate page-decode failures.
+- Skips the local Python attempt when that optional helper is unavailable in the app sandbox, keeping import errors focused on parsers that actually ran.
+
 ## Build 105 — Version 4.43
 
 - Fixed valid JSON-LD recipe pages being mistaken for category pages when they also linked to related recipes.

@@ -97,6 +97,15 @@ actor CrawlCoordinator {
             }
         }
 
+        // Challenge pages often repeat the requested `/recipe/` URL in JavaScript.
+        // Counting those links first mislabels a bot wall as a category and queues
+        // the same unusable URL repeatedly. WebKit already had its retry above.
+        if RecipePageDetector.looksBlocked(html) {
+            throw CompanionError.parseFailed(
+                "The site is blocking automated access to this page (bot wall). Open it in the built-in browser, or choose another source."
+            )
+        }
+
         // Refuse category and roundup pages up front rather than emitting a
         // half-parsed record that a reviewer then has to delete — after handing
         // their recipe links back so the caller can queue them.
@@ -271,6 +280,9 @@ actor CrawlCoordinator {
            let rendered = await renderedHTML(for: page.finalURL, settings: settings) {
             html = rendered
         }
+        if RecipePageDetector.looksBlocked(html) {
+            return RecipePageVerdict(kind: .other, evidence: ["Site access challenge detected"])
+        }
         return detector.inspect(html: html, url: page.finalURL, source: source)
     }
 
@@ -314,6 +326,7 @@ actor CrawlCoordinator {
            let rendered = await renderedHTML(for: page.finalURL, settings: settings) {
             html = rendered
         }
+        if RecipePageDetector.looksBlocked(html) { return .other }
         if let destination = Self.webStoryRecipeURL(in: html, pageURL: page.finalURL) {
             return .recipe(resolvedURL: URLSafety.normalized(destination).absoluteString)
         }
@@ -390,11 +403,13 @@ actor CrawlCoordinator {
             record(await runPython(html: html, url: url))
         case .nativeFirst:
             record(runNative(html: html, url: url))
-            if !isGoodEnough() {
+            if pythonParser.isAvailable, !isGoodEnough() {
                 record(await runPython(html: html, url: url))
             }
         case .pythonFirst:
-            record(await runPython(html: html, url: url))
+            if pythonParser.isAvailable {
+                record(await runPython(html: html, url: url))
+            }
             if !isGoodEnough() {
                 record(runNative(html: html, url: url))
             }

@@ -901,8 +901,11 @@ actor DiscoveryEngine {
 
     nonisolated static func looksLikeMediaFile(_ urlString: String) -> Bool {
         let lower = urlString.lowercased()
-        return [".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".webm", ".pdf",
-                ".zip", ".xml", ".css", ".js"].contains { lower.hasSuffix($0) || lower.contains($0 + "?") }
+        return [".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".svg", ".ico",
+                ".mp4", ".webm", ".mov", ".pdf", ".zip", ".xml", ".css", ".js",
+                ".woff", ".woff2", ".ttf", ".otf"].contains {
+            lower.hasSuffix($0) || lower.contains($0 + "?")
+        }
     }
 
     // MARK: Extraction helpers
