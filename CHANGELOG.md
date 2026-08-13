@@ -3,6 +3,11 @@
 Every push should add an entry here so GitHub carries the build/change history.
 Newest at the top. Keep it plain ASCII (see .gitmessage.txt for the commit rules).
 
+## Build 107 — Version 4.43
+
+- Approved Stocked Mac recipes now publish automatically to the shared Stocked recipe database used by every app install.
+- Harvest payloads identify Stocked Mac as the importer and carry a stable import timestamp for household activity.
+
 ## Build 106 — Version 4.43
 
 - Recognizes access challenges before counting recipe links, preventing bot-wall JavaScript from being mislabeled and recursively queued as category pages.

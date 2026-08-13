@@ -141,6 +141,8 @@ enum HarvestCloudSync {
             },
             "instructions": draft.instructionSections.flatMap(\.steps).filter { !$0.isEmpty },
             "sourceURL": draft.source.url,
+            "importedBy": "Stocked Mac",
+            "importedAt": ISO8601DateFormatter().string(from: draft.updatedAt),
             "attribution": SourceAttribution.displayName(
                 host: draft.source.host,
                 sourceName: draft.source.attribution,

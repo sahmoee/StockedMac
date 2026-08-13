@@ -862,8 +862,10 @@ final class HarvestModel {
             if recovered > 0 { await reload() }
         }
 
-        // Push freshly approved work to the Worker cache when the user asked for that.
-        if settings.cloudSyncEnabled { syncApprovedToCloud() }
+        // Approved recipes are part of Stocked's shared catalogue. Publishing is
+        // automatic so every Stocked install can discover them; the setting remains
+        // visible as status for older preference files but no longer gates delivery.
+        syncApprovedToCloud()
 
         // Selected sources first, then auto-rotate, until both runs are used up.
         if !autopilotStopRequested, !isDiscovering, advanceSourceRotation() {
@@ -1570,7 +1572,7 @@ final class HarvestModel {
                 log(.info, "Marked \(changed.count) recipe\(changed.count == 1 ? "" : "s") as \(state.label).")
                 if state == .approved {
                     handOver(changed)
-                    if settings.cloudSyncEnabled { syncApprovedToCloud() }
+                    syncApprovedToCloud()
                 }
             } catch {
                 present(error)
@@ -1871,7 +1873,7 @@ final class HarvestModel {
     /// guided flow safe by default: pasted/listing pages are verified and mined before
     /// import, while Automatic remains an explicit choice in Browse.
     private func migrateSettingsIfNeeded() {
-        guard settings.settingsRevision < 5 else { return }
+        guard settings.settingsRevision < 6 else { return }
         var changes: [String] = []
         if settings.settingsRevision < 2 {
             if settings.userAgent == AppSettings.legacyUserAgent {
@@ -1894,7 +1896,11 @@ final class HarvestModel {
             settings.autopilot = true
             changes.append("Autopilot is on — one press finds, mines + caches categories, imports and auto-approves hands-off")
         }
-        settings.settingsRevision = 5
+        if settings.settingsRevision < 6 {
+            settings.cloudSyncEnabled = true
+            changes.append("approved recipes now publish to the shared Stocked recipe database automatically")
+        }
+        settings.settingsRevision = 6
         scheduleSettingsSave()
         log(.info, "New Browse flow defaults applied: \(changes.joined(separator: "; ")).")
     }
@@ -2334,9 +2340,9 @@ final class HarvestModel {
             cloudSyncStatus = "The Worker key isn't configured (Secrets.xcconfig), so nothing can upload."
             return
         }
-        let batch = approvedRecipes.filter { $0.image?.hasLocalFile ?? false }
+        let batch = approvedRecipes
         guard !batch.isEmpty else {
-            cloudSyncStatus = "Nothing approved with an image to sync yet."
+            cloudSyncStatus = "Nothing approved to sync yet."
             return
         }
         isCloudSyncing = true
