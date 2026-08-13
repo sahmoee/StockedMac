@@ -25,7 +25,7 @@ nonisolated enum MacBuildConfig {
     /// identifier — but the version line tracks the shared build history (the project file
     /// carries the real numbers; these are only the fallback if Info.plist is unreadable).
     private static let fallbackVersion     = "4.43"
-    private static let fallbackBuildNumber = 103
+    private static let fallbackBuildNumber = 104
 
     /// When the shared model layer was last checked against the phone's copy. Models.swift
     /// and KitchenMetrics.swift are byte-for-byte identical to the iOS tree as of this
@@ -44,13 +44,11 @@ nonisolated enum MacBuildConfig {
 
     static let buildDate = "August 2026"
     static let buildName = """
-        Recipes, not category pages. Mining nested roundup posts ("40 favorite \
-        appetizers" linking to "9 favorite things" linking to the actual dish) used to \
-        stop after one hop and drop the rest as dead ends — that read as Browse being \
-        stuck in a loop with nothing ever importing. Mining now recurses automatically \
-        in the background up to several hops deep until it reaches real recipes, and \
-        the Activity feed reports one roll-up line per pass instead of one entry per \
-        category page opened, so what you see is recipes found, not pages visited.
+        Recipe import is now a short guided flow: paste one link, recipe text, or recipe \
+        screenshots; review only uncertain fields; then approve once to add the recipe \
+        to the Mac kitchen and Stocked iOS sync. Optional website discovery checks no \
+        more than three selected sources per pass, displays a finite recipe batch, and \
+        imports selected results directly instead of creating another queue step.
         """
 
     // MARK: - Environment

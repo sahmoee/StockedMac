@@ -235,7 +235,14 @@ struct MacBrowserPanel: View {
     private func go() {
         var raw = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return }
-        if !raw.contains("://") { raw = "https://" + raw }
+        if !raw.contains("://") {
+            if raw.contains(".") && !raw.contains(" ") {
+                raw = "https://" + raw
+            } else {
+                let query = (raw + " recipe").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? raw
+                raw = "https://www.google.com/search?q=\(query)"
+            }
+        }
         guard let url = try? URLSafety.validatedRemoteURL(raw) else {
             status = BrowserStatus("Enter a valid HTTP or HTTPS address.", kind: .error)
             return

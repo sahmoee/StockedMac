@@ -740,8 +740,12 @@ nonisolated enum URLSafety {
         components?.fragment = nil
         // Remove common tracking parameters
         if var queryItems = components?.queryItems {
+            let trackingNames: Set<String> = [
+                "fbclid", "gclid", "igsh", "igshid", "mc_cid", "mc_eid", "ref", "source"
+            ]
             queryItems = queryItems.filter { item in
-                !["utm_source", "utm_medium", "utm_campaign", "fbclid"].contains(item.name)
+                let name = item.name.lowercased()
+                return !name.hasPrefix("utm_") && !trackingNames.contains(name)
             }
             components?.queryItems = queryItems.isEmpty ? nil : queryItems
         }

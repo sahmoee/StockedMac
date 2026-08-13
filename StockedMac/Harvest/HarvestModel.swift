@@ -44,6 +44,56 @@ nonisolated struct ImportQueueSnapshot: Sendable {
     var domainCount: Int { Set(entries.map(\.host)).count }
 }
 
+nonisolated enum MacRecipeTextParser {
+    struct Result: Sendable {
+        var title = ""
+        var ingredients: [String] = []
+        var steps: [String] = []
+        var warnings: [String] = []
+        var confidence: Double { min(0.9, 0.35 + (ingredients.isEmpty ? 0 : 0.25) + (steps.isEmpty ? 0 : 0.25)) }
+    }
+
+    static func mergePages(_ pages: [String]) -> String {
+        var seen = Set<String>()
+        return pages.flatMap { $0.components(separatedBy: .newlines) }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter {
+                let key = $0.lowercased().filter { $0.isLetter || $0.isNumber }
+                return key.count > 2 && seen.insert(key).inserted
+            }.joined(separator: "\n")
+    }
+
+    static func parse(_ raw: String) -> Result {
+        let lines = raw.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return Result() }
+        var result = Result()
+        enum Bucket { case none, ingredients, steps }
+        var bucket = Bucket.none
+        let units = ["cup", "tbsp", "tsp", "ounce", "oz", "pound", "lb", "gram", "kg", "ml", "liter", "clove", "pinch", "can", "package", "bunch", "sprig"]
+        func ingredient(_ line: String) -> Bool {
+            let lower = line.lowercased()
+            return line.first?.isNumber == true || "½⅓¼¾⅔⅛".contains(line.first ?? " ") || units.contains { lower.contains($0) }
+        }
+        result.title = lines.first(where: { !ingredient($0) && $0.count >= 3 && $0.count <= 100 }) ?? "Imported Recipe"
+        for line in lines where line != result.title {
+            let lower = line.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+            if lower.hasPrefix("ingredient") { bucket = .ingredients; continue }
+            if ["instructions", "directions", "method", "steps", "preparation"].contains(lower) { bucket = .steps; continue }
+            let clean = line.replacingOccurrences(of: #"^[\s\-*•]*\d*[.)]?\s*"#, with: "", options: .regularExpression)
+            switch bucket {
+            case .ingredients: result.ingredients.append(clean)
+            case .steps: result.steps.append(clean)
+            case .none:
+                if ingredient(line) { result.ingredients.append(clean) }
+                else if line.count >= 35 || line.range(of: #"^\d+[.)]"#, options: .regularExpression) != nil { result.steps.append(clean) }
+            }
+        }
+        if result.ingredients.isEmpty || result.steps.isEmpty { result.warnings.append("Some fields need review after text recognition.") }
+        return result
+    }
+}
+
 @MainActor
 @Observable
 final class HarvestModel {
@@ -430,6 +480,42 @@ final class HarvestModel {
             return matches.isEmpty ? [value] : matches
         }
         appendImportURLs(found)
+    }
+
+    /// Creates a reviewable draft from pasted or OCR text. This is intentionally
+    /// conservative: uncertain text is kept as a warning instead of invented data.
+    func importRecipeText(_ raw: String, sourceLabel: String = "Pasted text") {
+        let parsed = MacRecipeTextParser.parse(raw)
+        guard !parsed.title.isEmpty || !parsed.ingredients.isEmpty || !parsed.steps.isEmpty else {
+            statusMessage = "No recipe structure was found in that text."
+            return
+        }
+        var warnings = parsed.warnings
+        if parsed.ingredients.isEmpty { warnings.append("No ingredients were recognized.") }
+        if parsed.steps.isEmpty { warnings.append("No instructions were recognized.") }
+        let sourceURL = "stocked-text://\(UUID().uuidString)"
+        let draft = RecipeDraft(
+            title: parsed.title.nilIfBlank ?? "Imported Recipe",
+            summary: "Imported from \(sourceLabel)",
+            source: HarvestSource(url: sourceURL, canonicalURL: nil, host: sourceLabel,
+                                  author: nil, attribution: sourceLabel),
+            ingredientSections: parsed.ingredients.isEmpty ? [] : [IngredientSection(
+                name: nil, items: parsed.ingredients.map { IngredientItem(raw: $0, quantity: nil,
+                    quantityText: nil, unit: nil, name: nil, preparation: nil, notes: nil) })],
+            instructionSections: parsed.steps.isEmpty ? [] : [InstructionSection(name: nil, steps: parsed.steps)],
+            confidence: parsed.confidence,
+            warnings: warnings,
+            parser: "mac-text",
+            sourceFingerprint: Hashing.sha256(sourceURL)
+        )
+        Task {
+            do {
+                let saved = try await recipeStore.upsert(draft)
+                await reload()
+                selectedRecipeID = saved.id
+                statusMessage = "Imported \(saved.title) for review · \(parsed.ingredients.count) ingredients · \(parsed.steps.count) steps"
+            } catch { present(error) }
+        }
     }
 
     private func beginImport(_ urls: [String], parserModeOverride: ParserMode? = nil) {

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+@preconcurrency import Vision
 
 struct MacBrowseView: View {
     @Environment(HarvestModel.self) private var harvest
@@ -17,12 +18,29 @@ struct MacBrowseView: View {
     @State private var showSourcePicker = false
     @State private var selectedFoundLinks: Set<String> = []
     @State private var inlineBrowser: String? = nil
+    @State private var directURL = ""
+    @State private var manualRecipeText = ""
+    @State private var manualImportStatus: String?
+    @State private var foundSearch = ""
+    @State private var foundSort: FoundSort = .title
+
+    private enum FoundSort: String, CaseIterable, Identifiable {
+        case title = "Title", source = "Source"
+        var id: String { rawValue }
+    }
 
     // ── Review state ──────────────────────────────────────────────────────
     @State private var reviewSearch = ""
     @State private var reviewFilter: ReviewState? = nil
     @State private var onlyImageless = false
+    @State private var onlyNeedsAttention = false
+    @State private var reviewSort: ReviewSort = .newest
     @State private var addStatus: String? = nil
+
+    private enum ReviewSort: String, CaseIterable, Identifiable {
+        case newest = "Newest", confidence = "Confidence", title = "Title", source = "Source"
+        var id: String { rawValue }
+    }
 
     // MARK: - Source grouping
 
@@ -182,6 +200,8 @@ struct MacBrowseView: View {
         HStack(alignment: .top, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    quickStartCard
+                    directImportCard
                     sourceCard
                     if harvest.queuedURLCount > 0 || harvest.isImporting {
                         queueImportCard
@@ -189,7 +209,7 @@ struct MacBrowseView: View {
                 }
                 .padding(14)
             }
-            .frame(width: 270)
+            .frame(width: 350)
 
             Divider()
 
@@ -198,13 +218,117 @@ struct MacBrowseView: View {
         }
     }
 
+    private var quickStartCard: some View {
+        MacCard(title: "Add recipes without the hunt", systemImage: "bolt.fill") {
+            VStack(alignment: .leading, spacing: 7) {
+                workflowStep(1, "Paste one recipe link, recipe text, or screenshots.")
+                workflowStep(2, "Review only anything Stocked could not verify.")
+                workflowStep(3, "Approve & Send adds it to Stocked iOS automatically.")
+                Text("Website discovery is optional and limited to a small source batch. It never runs endlessly in the background from this screen.")
+                    .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func workflowStep(_ number: Int, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Text("\(number)").font(.caption2.bold()).foregroundStyle(.white)
+                .frame(width: 18, height: 18).background(MacTheme.gold, in: Circle())
+            Text(text).font(.caption).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var directImportCard: some View {
+        MacCard(title: "Quick import", systemImage: "square.and.arrow.down") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Fastest: paste the page that contains the recipe.")
+                    .font(.caption).foregroundStyle(.secondary)
+                TextField("Recipe URL", text: $directURL)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(importDirectURL)
+                HStack(spacing: 6) {
+                    Button("Import Recipe", action: importDirectURL)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(directURL.nilIfBlank == nil || harvest.isImporting)
+                    Button("Paste") {
+                        if let value = NSPasteboard.general.string(forType: .string) { directURL = value }
+                    }
+                    Spacer()
+                }.buttonStyle(.borderless).font(.caption)
+                Divider()
+                Text("Or paste the recipe itself. Stocked structures ingredients and steps for review.")
+                    .font(.caption).foregroundStyle(.secondary)
+                TextEditor(text: $manualRecipeText).font(.caption).frame(minHeight: 72)
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.2)))
+                HStack(spacing: 6) {
+                    Button("Create from Text") {
+                        harvest.importRecipeText(manualRecipeText)
+                        manualRecipeText = ""
+                        pane = .review
+                    }.disabled(manualRecipeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Read Screenshots…", action: importImages)
+                    Spacer()
+                }.font(.caption)
+                if let manualImportStatus { Text(manualImportStatus).font(.caption2).foregroundStyle(.secondary) }
+            }
+        }
+    }
+
+    private func importDirectURL() {
+        var value = directURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !value.contains("://"), value.contains(".") { value = "https://" + value }
+        guard !value.isEmpty else { return }
+        harvest.importDirect([value])
+        directURL = ""
+        manualImportStatus = "Importing one recipe for review…"
+    }
+
+    private func importImages() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = true
+        guard panel.runModal() == .OK else { return }
+        manualImportStatus = "Reading \(panel.urls.count) image\(panel.urls.count == 1 ? "" : "s")…"
+        let urls = panel.urls
+        Task {
+            var pages: [String] = []
+            for url in urls {
+                guard let image = NSImage(contentsOf: url),
+                      let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
+                let text = await recognizeText(cg)
+                if !text.isEmpty { pages.append(text) }
+            }
+            let merged = MacRecipeTextParser.mergePages(pages)
+            guard !merged.isEmpty else { manualImportStatus = "No readable recipe text found."; return }
+            harvest.importRecipeText(merged, sourceLabel: urls.count == 1 ? "Screenshot" : "\(urls.count) screenshots")
+            manualImportStatus = "Imported for review."
+            pane = .review
+        }
+    }
+
+    private func recognizeText(_ image: CGImage) async -> String {
+        await withCheckedContinuation { continuation in
+            let request = VNRecognizeTextRequest { request, _ in
+                let lines = (request.results as? [VNRecognizedTextObservation])?.compactMap { $0.topCandidates(1).first?.string } ?? []
+                continuation.resume(returning: lines.joined(separator: "\n"))
+            }
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = true
+            DispatchQueue.global(qos: .userInitiated).async {
+                try? VNImageRequestHandler(cgImage: image).perform([request])
+            }
+        }
+    }
+
     // MARK: Source card
 
     private var sourceCard: some View {
         @Bindable var harvest = harvest
-        return MacCard(title: "Find recipes", systemImage: "sparkle.magnifyingglass",
+        return MacCard(title: "Explore websites (optional)", systemImage: "sparkle.magnifyingglass",
                 footnote: "\(browsableSources.count) sources") {
             VStack(alignment: .leading, spacing: 10) {
+                Text("Use this only when you do not already have a recipe. Pick up to three trusted sites; Stocked returns confirmed recipe pages and stops.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Button { showSourcePicker.toggle() } label: {
                     HStack(spacing: 7) {
                         Image(systemName: selectedSources.isEmpty ? "globe" : "checkmark.circle.fill")
@@ -247,6 +371,11 @@ struct MacBrowseView: View {
 
                 findButtonRow
 
+                if selectedSources.count > 3 {
+                    Label("Only the first 3 selected sources will be checked in this pass.", systemImage: "info.circle")
+                        .font(.caption2).foregroundStyle(.orange)
+                }
+
                 if let source = selectedSources.first,
                    let summary = harvest.cacheSummary(for: source.id) {
                     HStack(spacing: 5) {
@@ -287,7 +416,8 @@ struct MacBrowseView: View {
     }
 
     private func startFind(forceRefresh: Bool = false) {
-        let sources = selectedSources.isEmpty ? browsableSources : selectedSources
+        let preferred = selectedSources.isEmpty ? defaultDiscoverySources : selectedSources
+        let sources = Array(preferred.prefix(3))
         if sources.count > 1 {
             harvest.browseSources(withIDs: sources.map(\.id), queueOnly: true, queueResults: false)
         } else if let source = sources.first {
@@ -295,14 +425,22 @@ struct MacBrowseView: View {
         }
     }
 
+    private var defaultDiscoverySources: [SourceProfile] {
+        let favorite = browsableSources.filter { harvest.settings.favoriteSourceIDs.contains($0.id) }
+        if let first = favorite.first ?? harvest.recentSources.first(where: { $0.enabled && $0.discoveryMode.supportsDiscovery }) ?? browsableSources.first {
+            return [first]
+        }
+        return []
+    }
+
     private var findButtonLabel: String {
         switch selectedSources.count {
-        case 0: return "Find Next Source"
+        case 0: return "Find a Small Batch"
         case 1:
             let hasCache = harvest.cacheSummary(for: selectedSources[0].id) != nil
                 && harvest.settings.reuseCachedDiscoveryResults
             return hasCache ? "Use Saved Results" : "Find Recipes"
-        default: return "Find from \(selectedSources.count) Sources"
+        default: return "Find from \(min(3, selectedSources.count)) Sources"
         }
     }
 
@@ -447,7 +585,7 @@ struct MacBrowseView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                let links = report.confirmed
+                let links = visibleFoundLinks(report.confirmed)
                 if links.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("No recipe pages confirmed. The source may use a different structure — try a different source.")
@@ -464,11 +602,27 @@ struct MacBrowseView: View {
                     HStack(spacing: 8) {
                         Text("\(links.count) recipe\(links.count == 1 ? "" : "s") found")
                             .font(.callout.weight(.semibold))
+                        if report.confirmed.count > links.count && foundSearch.isEmpty {
+                            Text("showing first \(links.count)")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
                         Spacer(minLength: 0)
                         Button("All") { selectedFoundLinks = Set(links.map(\.url)) }
                             .buttonStyle(.borderless).font(.caption)
                         Button("None") { selectedFoundLinks.removeAll() }
                             .buttonStyle(.borderless).font(.caption)
+                    }
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
+                        TextField("Filter found recipes", text: $foundSearch).textFieldStyle(.roundedBorder)
+                        Picker("Sort", selection: $foundSort) {
+                            ForEach(FoundSort.allCases) { Text($0.rawValue).tag($0) }
+                        }.labelsHidden().frame(width: 90)
+                        if !foundSearch.isEmpty {
+                            Button { foundSearch = "" } label: { Image(systemName: "xmark.circle.fill") }
+                                .buttonStyle(.borderless)
+                        }
                     }
 
                     Divider()
@@ -486,9 +640,9 @@ struct MacBrowseView: View {
 
                     HStack(spacing: 8) {
                         let count = selectedFoundLinks.intersection(Set(links.map(\.url))).count
-                        Button(count == 0 ? "Select recipes above to queue" : "Add \(count) to Queue") {
+                        Button(count == 0 ? "Select recipes to import" : "Import \(count) Selected") {
                             let urls = links.filter { selectedFoundLinks.contains($0.url) }.map(\.url)
-                            harvest.appendImportURLs(urls)
+                            harvest.importDirect(urls)
                             selectedFoundLinks.removeAll()
                         }
                         .buttonStyle(.borderedProminent)
@@ -507,6 +661,23 @@ struct MacBrowseView: View {
                 }
             }
         }
+    }
+
+    private func visibleFoundLinks(_ links: [DiscoveredLink]) -> [DiscoveredLink] {
+        let query = foundSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = query.isEmpty ? links : links.filter {
+            ($0.title ?? "").localizedCaseInsensitiveContains(query) ||
+            $0.url.localizedCaseInsensitiveContains(query)
+        }
+        switch foundSort {
+        case .title:
+            result.sort { ($0.title ?? $0.url).localizedCaseInsensitiveCompare($1.title ?? $1.url) == .orderedAscending }
+        case .source:
+            result.sort { (URL(string: $0.url)?.host ?? "").localizedCaseInsensitiveCompare(URL(string: $1.url)?.host ?? "") == .orderedAscending }
+        }
+        // Keep discovery useful and finite. A source can expose thousands of archive
+        // URLs; showing a focused batch prevents Browse from becoming another mine.
+        return Array(result.prefix(60))
     }
 
     private func foundRecipeRow(_ link: DiscoveredLink) -> some View {
@@ -631,11 +802,18 @@ struct MacBrowseView: View {
         var items = harvest.recipes
         if let f = reviewFilter { items = items.filter { $0.reviewState == f } }
         if onlyImageless { items = items.filter { !($0.image?.hasLocalFile ?? false) } }
+        if onlyNeedsAttention { items = items.filter { !$0.warnings.isEmpty || !$0.exportProblems.isEmpty || $0.confidence < 0.75 } }
         let q = reviewSearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if !q.isEmpty {
             items = items.filter {
                 $0.title.lowercased().contains(q) || $0.source.host.lowercased().contains(q)
             }
+        }
+        switch reviewSort {
+        case .newest: items.sort { $0.updatedAt > $1.updatedAt }
+        case .confidence: items.sort { $0.confidence < $1.confidence }
+        case .title: items.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .source: items.sort { $0.source.host.localizedCaseInsensitiveCompare($1.source.host) == .orderedAscending }
         }
         return items
     }
@@ -644,6 +822,8 @@ struct MacBrowseView: View {
         @Bindable var harvest = harvest
         return HStack(spacing: 0) {
             VStack(spacing: 0) {
+                deliveryBanner
+                Divider()
                 reviewFilterRow
                 Divider()
                 reviewBulkBar
@@ -676,6 +856,33 @@ struct MacBrowseView: View {
         }
     }
 
+    private var readyToSend: [RecipeDraft] {
+        harvest.recipes.filter {
+            $0.reviewState == .needsReview && $0.standards.requiredPassed && ($0.image?.hasLocalFile ?? false)
+        }
+    }
+
+    private var deliveryBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "iphone.and.arrow.forward")
+                .font(.title3).foregroundStyle(MacTheme.green)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Approve & Send to Stocked").font(.callout.weight(.semibold))
+                Text("Approval adds the recipe to the Mac kitchen and publishes its image-complete copy for Stocked iOS.")
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            if !readyToSend.isEmpty {
+                Button("Send \(readyToSend.count) Ready") {
+                    harvest.setReviewState(.approved, for: Set(readyToSend.map(\.id)))
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(MacTheme.green.opacity(0.07))
+    }
+
     private var reviewFilterRow: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
@@ -693,6 +900,17 @@ struct MacBrowseView: View {
             .buttonStyle(.borderless)
             .foregroundStyle(onlyImageless ? MacTheme.gold : .secondary)
             .help("Show only recipes missing an image")
+            Button { onlyNeedsAttention.toggle() } label: {
+                Image(systemName: onlyNeedsAttention ? "exclamationmark.triangle.fill" : "exclamationmark.triangle")
+            }
+            .buttonStyle(.borderless).foregroundStyle(onlyNeedsAttention ? .orange : .secondary)
+            .help("Show only recipes with warnings, missing fields, or low confidence")
+            Menu {
+                Picker("Sort recipes", selection: $reviewSort) {
+                    ForEach(ReviewSort.allCases) { Text($0.rawValue).tag($0) }
+                }
+            } label: { Image(systemName: "arrow.up.arrow.down.circle") }
+            .menuStyle(.borderlessButton).frame(width: 24)
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
     }
@@ -700,13 +918,15 @@ struct MacBrowseView: View {
     @ViewBuilder
     private var reviewBulkBar: some View {
         let shown = reviewVisible
-        let reviewable = shown.filter { $0.reviewState == .needsReview }
+        let reviewable = shown.filter {
+            $0.reviewState == .needsReview && $0.standards.requiredPassed && ($0.image?.hasLocalFile ?? false)
+        }
         if shown.count > 1 {
             HStack(spacing: 6) {
                 Text("\(shown.count) shown").font(.caption).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 if !reviewable.isEmpty {
-                    Button("Approve \(reviewable.count)") {
+                    Button("Approve & Send \(reviewable.count)") {
                         harvest.setReviewState(.approved, for: Set(reviewable.map(\.id)))
                     }
                     .font(.caption)
@@ -746,6 +966,12 @@ struct MacBrowseView: View {
                                     .padding(.horizontal, 4).padding(.vertical, 1)
                                     .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
                             }
+                            if !draft.warnings.isEmpty || !draft.exportProblems.isEmpty {
+                                Text("needs attention")
+                                    .font(.system(size: 9, weight: .medium)).foregroundStyle(.orange)
+                                    .padding(.horizontal, 4).padding(.vertical, 1)
+                                    .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
+                            }
                             if !draft.source.host.isEmpty {
                                 Text(draft.source.host).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
@@ -759,7 +985,8 @@ struct MacBrowseView: View {
                 .padding(.vertical, 2)
                 .tag(draft.id)
                 .contextMenu {
-                    Button("Approve") { harvest.setReviewState(.approved, for: [draft.id]) }
+                    Button("Approve & Send to Stocked") { harvest.setReviewState(.approved, for: [draft.id]) }
+                        .disabled(!draft.standards.requiredPassed || !(draft.image?.hasLocalFile ?? false))
                     Button("Reject") { harvest.setReviewState(.rejected, for: [draft.id]) }
                     Divider()
                     Button("Add to Stocked") {

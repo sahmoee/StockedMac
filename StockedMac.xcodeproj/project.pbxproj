@@ -272,7 +272,7 @@
 				CODE_SIGN_ENTITLEMENTS = StockedMac/StockedMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 88;
+				CURRENT_PROJECT_VERSION = 104;
 				DEVELOPMENT_TEAM = 5DV5N49VG8;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -284,7 +284,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 4.27;
+				MARKETING_VERSION = 4.43;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sowens.StockedMac;
 				PRODUCT_NAME = Stocked;
 				SDKROOT = macosx;
@@ -306,7 +306,7 @@
 				CODE_SIGN_ENTITLEMENTS = StockedMac/StockedMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 88;
+				CURRENT_PROJECT_VERSION = 104;
 				DEVELOPMENT_TEAM = 5DV5N49VG8;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -318,7 +318,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 4.27;
+				MARKETING_VERSION = 4.43;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sowens.StockedMac;
 				PRODUCT_NAME = Stocked;
 				SDKROOT = macosx;
