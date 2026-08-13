@@ -9,6 +9,8 @@ The fastest path is deliberately short: import one recipe, review it, then appro
 
 - Direct import from a recipe URL, pasted recipe text, or recipe screenshots
 - Optional small-batch website discovery instead of open-ended mining
+- Searchable filters for birthdays, drinks, holidays, cuisines, diets, seasons, and cooking methods
+- A shared multi-source queue so recipes can be previewed and collected before importing
 - Curation with guaranteed images before publish
 - Cloud sync of approved recipes to the shared backend
 - Native SwiftUI macOS app
@@ -22,8 +24,11 @@ The fastest path is deliberately short: import one recipe, review it, then appro
    image-complete copy is published for Stocked iOS.
 
 If you do not have a recipe in mind, **Explore websites** can search a small batch of up
-to three trusted sources. Select the results you want and import them directly; browsing
-does not need to run continuously.
+to three trusted sources. Choose optional category filters, preview individual results,
+and add selections from multiple searches to one queue. Import the queue when it contains
+the recipes you want; browsing does not need to run continuously. Sources that explicitly
+rate-limit or block automated access are removed from automatic discovery but remain
+available for direct links.
 
 ## Requirements
 
@@ -46,6 +51,8 @@ already), and run.
 
 - `StockedMac/` — app sources (views, sync, kitchen tools)
 - `default-sources.json` — seed recipe sources
+- `worker-build/worker.py` — offline parser used to build the bundled local helper
+- `scripts/harvest-recipes.py` — optional gzip-aware batch sitemap harvester
 
 ## License
 

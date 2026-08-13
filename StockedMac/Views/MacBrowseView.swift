@@ -16,6 +16,7 @@ struct MacBrowseView: View {
     @State private var sourceSearch = ""
     @State private var selectedSourceIDs: Set<String> = []
     @State private var showSourcePicker = false
+    @State private var showCategoryPicker = false
     @State private var selectedFoundLinks: Set<String> = []
     @State private var inlineBrowser: String? = nil
     @State private var directURL = ""
@@ -45,7 +46,10 @@ struct MacBrowseView: View {
     // MARK: - Source grouping
 
     private var browsableSources: [SourceProfile] {
-        harvest.sources.filter { $0.enabled && $0.discoveryMode.supportsDiscovery }
+        harvest.sources.filter {
+            $0.enabled && $0.discoveryEnabled && $0.discoveryMode.supportsDiscovery
+                && $0.health != .blocked && $0.health != .paused
+        }
     }
 
     private var filteredSources: [SourceProfile] {
@@ -369,6 +373,30 @@ struct MacBrowseView: View {
                     }
                 }
 
+                Button { showCategoryPicker.toggle() } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                            .foregroundStyle(harvest.settings.selectedBrowseCategoryIDs.isEmpty ? Color.secondary : MacTheme.gold)
+                        Text(categorySelectionLabel).font(.callout).lineLimit(1)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 9).padding(.vertical, 6)
+                    .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showCategoryPicker, arrowEdge: .bottom) {
+                    RecipeCategoryMultiPicker(selection: Binding(
+                        get: { Set(harvest.settings.selectedBrowseCategoryIDs) },
+                        set: { selected in
+                            harvest.settings.selectedBrowseCategoryIDs = Array(selected).sorted()
+                            harvest.applyCategoryFilterToCurrentReport()
+                            harvest.scheduleSettingsSave()
+                        }
+                    ))
+                }
+
                 findButtonRow
 
                 if selectedSources.count > 3 {
@@ -427,7 +455,8 @@ struct MacBrowseView: View {
 
     private var defaultDiscoverySources: [SourceProfile] {
         let favorite = browsableSources.filter { harvest.settings.favoriteSourceIDs.contains($0.id) }
-        if let first = favorite.first ?? harvest.recentSources.first(where: { $0.enabled && $0.discoveryMode.supportsDiscovery }) ?? browsableSources.first {
+        let recentIDs = Set(harvest.recentSources.map(\.id))
+        if let first = favorite.first ?? browsableSources.first(where: { recentIDs.contains($0.id) }) ?? browsableSources.first {
             return [first]
         }
         return []
@@ -452,6 +481,13 @@ struct MacBrowseView: View {
         case 1:  return picked[0].name
         default: return "\(picked[0].name) + \(picked.count - 1) more"
         }
+    }
+
+    private var categorySelectionLabel: String {
+        let selected = harvest.settings.selectedBrowseCategoryIDs.compactMap { RecipeBrowseTaxonomy.byID[$0]?.name }
+        if selected.isEmpty { return "All recipe categories" }
+        if selected.count == 1 { return selected[0] }
+        return "\(selected[0]) + \(selected.count - 1) more"
     }
 
     // MARK: Queue / import card
@@ -640,9 +676,9 @@ struct MacBrowseView: View {
 
                     HStack(spacing: 8) {
                         let count = selectedFoundLinks.intersection(Set(links.map(\.url))).count
-                        Button(count == 0 ? "Select recipes to import" : "Import \(count) Selected") {
+                        Button(count == 0 ? "Select recipes to queue" : "Add \(count) to Queue") {
                             let urls = links.filter { selectedFoundLinks.contains($0.url) }.map(\.url)
-                            harvest.importDirect(urls)
+                            harvest.appendImportURLs(urls)
                             selectedFoundLinks.removeAll()
                         }
                         .buttonStyle(.borderedProminent)
@@ -1031,6 +1067,69 @@ struct MacBrowseView: View {
             .foregroundStyle(color)
             .padding(.horizontal, 4).padding(.vertical, 1)
             .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 3))
+    }
+}
+
+private struct RecipeCategoryMultiPicker: View {
+    @Binding var selection: Set<String>
+    @State private var search = ""
+
+    private var visibleGroups: [(String, [RecipeBrowseCategory])] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return RecipeBrowseTaxonomy.groupOrder.compactMap { group in
+            let values = RecipeBrowseTaxonomy.categories(in: group).filter {
+                query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
+            }
+            return values.isEmpty ? nil : (group, values)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Birthday, drinks, holiday, cuisine…", text: $search)
+                    .textFieldStyle(.plain)
+                if !search.isEmpty {
+                    Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless).foregroundStyle(.secondary)
+                }
+            }
+            .padding(10)
+            Divider()
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(visibleGroups, id: \.0) { group, values in
+                        Text(group).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            .padding(.top, 8)
+                        ForEach(values) { category in
+                            Button {
+                                if selection.contains(category.id) { selection.remove(category.id) }
+                                else { selection.insert(category.id) }
+                            } label: {
+                                HStack {
+                                    Image(systemName: selection.contains(category.id) ? "checkmark.square.fill" : "square")
+                                        .foregroundStyle(selection.contains(category.id) ? MacTheme.gold : .secondary)
+                                    Text(category.name).foregroundStyle(.primary)
+                                    Spacer()
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12).padding(.bottom, 10)
+            }
+            Divider()
+            HStack {
+                Text("\(selection.count) selected").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Clear") { selection.removeAll() }.disabled(selection.isEmpty)
+            }
+            .buttonStyle(.borderless).padding(10)
+        }
+        .frame(width: 360, height: 440)
     }
 }
 

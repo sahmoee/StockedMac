@@ -16,6 +16,9 @@ Features
 - Graceful Ctrl-C: saves a checkpoint on interrupt so the next run resumes.
 - Checkpoint resume: already-harvested sources are skipped on restart.
 - Per-source daily-request-limit guard (no more than N HTTP requests per run).
+- Gzip sitemap support and browser-compatible request headers.
+- Automatically quarantines sources returning 401/402/403/429/451 in a local
+  harvest-source-health.json file, without rewriting the shipped source catalog.
 - Dry-run mode: prints what would be fetched without making any network calls.
 
 Usage
@@ -46,6 +49,7 @@ Usage
 """
 
 import argparse
+import gzip
 import json
 import os
 import sys
@@ -66,6 +70,7 @@ REPO_ROOT = SCRIPT_DIR.parent
 SOURCES_FILE = REPO_ROOT / "default-sources.json"
 DEFAULT_OUTPUT = REPO_ROOT / "harvested-urls.txt"
 CHECKPOINT_FILE = REPO_ROOT / "harvest-checkpoint.json"
+HEALTH_FILE = REPO_ROOT / "harvest-source-health.json"
 
 # ---------------------------------------------------------------------------
 # XML namespace helpers for sitemap parsing
@@ -106,9 +111,17 @@ signal.signal(signal.SIGINT, _handle_sigint)
 
 def _fetch(url: str, timeout: int = 20) -> bytes:
     """Download *url* and return the raw bytes. Raises urllib.error.URLError on failure."""
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    req = urllib.request.Request(url, headers={
+        "User-Agent": USER_AGENT,
+        "Accept": "application/xml,text/xml,text/html;q=0.9,*/*;q=0.1",
+        "Accept-Encoding": "gzip",
+        "Accept-Language": "en-US,en;q=0.9",
+    })
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+        data = resp.read()
+        if resp.headers.get("Content-Encoding", "").lower() == "gzip" or data[:2] == b"\x1f\x8b":
+            return gzip.decompress(data)
+        return data
 
 
 def _fetch_xml(url: str, timeout: int = 20) -> ET.Element:
@@ -175,6 +188,11 @@ def harvest_sitemap(
     request_budget[0] -= 1
     try:
         root = _fetch_xml(sitemap_url)
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 402, 403, 429, 451}:
+            raise SourceAccessLimited(sitemap_url, exc.code) from exc
+        print(f"  [warn] Could not fetch {sitemap_url}: HTTP {exc.code}", file=sys.stderr)
+        return []
     except (urllib.error.URLError, ValueError, OSError) as exc:
         print(f"  [warn] Could not fetch {sitemap_url}: {exc}", file=sys.stderr)
         return []
@@ -229,6 +247,15 @@ def _matches(url: str, include_patterns: list, exclude_patterns: list) -> bool:
     if any(p in url for p in exclude_patterns):
         return False
     return True
+
+
+class SourceAccessLimited(RuntimeError):
+    """The site explicitly refused or limited automated recipe access."""
+
+    def __init__(self, url: str, status: int):
+        super().__init__(f"HTTP {status} from {url}")
+        self.url = url
+        self.status = status
 
 
 # ---------------------------------------------------------------------------
@@ -308,16 +335,24 @@ def harvest_source(source: dict, limit: int, verbose: bool, dry_run: bool) -> li
     for sitemap_url in sitemap_urls:
         if _interrupted or request_budget[0] <= 0:
             break
-        found = harvest_sitemap(
-            sitemap_url,
-            recipe_patterns,
-            excluded_patterns,
-            delay,
-            request_budget,
-            limit,
-            verbose,
-            dry_run,
-        )
+        try:
+            found = harvest_sitemap(
+                sitemap_url,
+                recipe_patterns,
+                excluded_patterns,
+                delay,
+                request_budget,
+                limit,
+                verbose,
+                dry_run,
+            )
+        except SourceAccessLimited as exc:
+            source["discoveryEnabled"] = False
+            source["health"] = "paused" if exc.status == 429 else "blocked"
+            source["notes"] = (source.get("notes", "") +
+                f"\nAutomatic discovery disabled by harvest-recipes.py: HTTP {exc.status}.").strip()
+            print(f"  [limited] HTTP {exc.status}; removing {name} from future automatic harvests.", file=sys.stderr)
+            break
         all_urls.extend(found)
         if verbose:
             print(f"  +{len(found)} URLs (total {len(all_urls)})", flush=True)
@@ -334,6 +369,34 @@ def harvest_source(source: dict, limit: int, verbose: bool, dry_run: bool) -> li
 
     print(f"  Found {len(deduped)} recipe URLs", flush=True)
     return deduped[:limit]
+
+
+def load_source_health(sources: list) -> None:
+    """Apply local access-limit decisions without editing the shipped catalog."""
+    if not HEALTH_FILE.exists():
+        return
+    try:
+        states = json.loads(HEALTH_FILE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return
+    for source in sources:
+        if source.get("id") in states:
+            source.update(states[source["id"]])
+
+
+def persist_source_health(sources: list) -> None:
+    states = {
+        source.get("id"): {
+            "discoveryEnabled": source.get("discoveryEnabled", True),
+            "health": source.get("health", "unknown"),
+            "notes": source.get("notes"),
+        }
+        for source in sources
+        if source.get("id") and source.get("health") in {"paused", "blocked"}
+    }
+    with open(HEALTH_FILE, "w") as handle:
+        json.dump(states, handle, indent=2, ensure_ascii=False)
+        handle.write("\n")
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +500,7 @@ def main() -> int:
 
     # Load sources
     sources = load_sources(SOURCES_FILE)
+    load_source_health(sources)
 
     if args.list:
         print(f"{'ID':<30} {'Name':<35} {'Enabled':<8} {'Sitemaps'}")
@@ -479,6 +543,11 @@ def main() -> int:
         urls = harvest_source(source, args.limit, args.verbose, args.dry_run)
         all_collected[source_id] = urls
         already_done.add(source_id)
+
+    if any(not source.get("discoveryEnabled", True) and source.get("health") in {"paused", "blocked"}
+           for source in work_sources):
+        persist_source_health(sources)
+        print(f"[✓] Saved access-limited source removals to {HEALTH_FILE.name}.")
 
     # Save checkpoint if interrupted or explicitly resuming
     if _interrupted or args.resume:

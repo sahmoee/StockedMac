@@ -725,9 +725,23 @@ final class HarvestModel {
             if let host, Self.countsTowardHostCircuitBreaker(outcome.error) {
                 let streak = (hostFailureStreaks[host] ?? 0) + 1
                 hostFailureStreaks[host] = streak
-                if streak == 8, !trippedHosts.contains(host) {
+                if let disposition = Self.discoveryQuarantineDisposition(for: outcome.error),
+                   !trippedHosts.contains(host) {
                     trippedHosts.insert(host)
-                    log(.warning, "8 straight failures from \(host) — skipping the rest of its URLs this run. Try the built-in browser, or a different method/UA.")
+                    Task { [weak self] in
+                        guard let self else { return }
+                        if let sourceName = try? await self.sourceRegistry.quarantineDiscoveryHost(
+                            host,
+                            health: disposition.health,
+                            reason: disposition.reason
+                        ) {
+                            await self.reload()
+                            self.log(.warning, "Removed \(sourceName) from automatic discovery: \(disposition.reason). Direct links remain available.")
+                        }
+                    }
+                } else if streak == 5, !trippedHosts.contains(host) {
+                    trippedHosts.insert(host)
+                    log(.warning, "5 straight access failures from \(host) — skipping the rest of its URLs this run.")
                 }
             } else if let host {
                 // A parser miss proves the host responded successfully. It is not a
@@ -777,6 +791,28 @@ final class HarvestModel {
             || message.contains("rate limited")
             || message.contains("http 4")
             || message.contains("http 5")
+    }
+
+    /// Permanent access restrictions and explicit request limits should not consume
+    /// another batch on the next Browse pass. Parser misses deliberately do not enter
+    /// this path because they may affect only one malformed page.
+    private static func discoveryQuarantineDisposition(
+        for message: String?
+    ) -> (health: SourceHealth, reason: String)? {
+        guard let message = message?.lowercased() else { return nil }
+        if message.contains("http 429") || message.contains("rate limited") {
+            return (.paused, "the site rate-limited recipe access")
+        }
+        if message.contains("robots.txt") {
+            return (.blocked, "the site disallows automated recipe access")
+        }
+        if message.contains("http 401") || message.contains("http 402")
+            || message.contains("http 403") || message.contains("http 451")
+            || message.contains("paywall") || message.contains("subscription required")
+            || message.contains("blocking automated access") || message.contains("bot wall") {
+            return (.blocked, "recipes require restricted or interactive access")
+        }
+        return nil
     }
 
     private func finishImportRun() async {
@@ -1450,7 +1486,10 @@ final class HarvestModel {
 
     /// Moves to the next crawlable source in the catalog and browses it.
     func browseNextSource() {
-        let eligible = sources.filter { $0.enabled && $0.discoveryMode.supportsDiscovery }
+        let eligible = sources.filter {
+            $0.enabled && $0.discoveryEnabled && $0.discoveryMode.supportsDiscovery
+                && $0.health != .blocked && $0.health != .paused
+        }
         guard !eligible.isEmpty else {
             discoveryFailure = "No enabled source supports browsing."
             return

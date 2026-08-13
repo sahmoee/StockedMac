@@ -19,7 +19,10 @@ import json
 import re
 import sys
 import uuid
+import warnings
 from typing import Any, Callable, Iterable
+
+warnings.filterwarnings("ignore", message=r"urllib3 v2 only supports OpenSSL.*")
 
 SCHEMA_RECIPE_TYPES = {"recipe"}
 SCHEMA_LISTING_TYPES = {"itemlist", "collectionpage", "searchresultspage"}
@@ -221,15 +224,26 @@ def jsonld_scripts(page_html: str) -> list[Any]:
     )
     values: list[Any] = []
     for raw in pattern.findall(page_html):
-        raw = raw.strip()
+        raw = html_module.unescape(raw).strip()
         if raw.startswith("<!--"):
             raw = raw[4:]
         if raw.endswith("-->"):
             raw = raw[:-3]
-        try:
-            values.append(json.loads(raw.strip()))
-        except json.JSONDecodeError:
-            continue
+        raw = re.sub(r"^\s*(?:window\.)?[A-Za-z_$][\w$\.]*\s*=\s*", "", raw.strip())
+        raw = raw.rstrip(";\n\r\t ")
+        candidates = [raw]
+        first_object = min((i for i in (raw.find("{"), raw.find("[")) if i >= 0), default=-1)
+        if first_object > 0:
+            candidates.append(raw[first_object:])
+        for candidate in candidates:
+            try:
+                value, _ = json.JSONDecoder().raw_decode(candidate)
+                if isinstance(value, str):
+                    value = json.loads(value)
+                values.append(value)
+                break
+            except (json.JSONDecodeError, TypeError):
+                continue
     return values
 
 
@@ -485,12 +499,72 @@ def result_from_microdata(page_html: str, url: str) -> dict[str, Any]:
     }
 
 
+def result_from_recipe_card(page_html: str, url: str) -> dict[str, Any]:
+    """Recover standard WordPress recipe cards when their JSON-LD is malformed.
+
+    This remains conservative: both a recognizable recipe-card marker and complete
+    ingredient/method lists are required, so a category page cannot become a recipe.
+    """
+    lowered = page_html.casefold()
+    if not any(marker in lowered for marker in RECIPE_CARD_MARKERS):
+        raise ValueError("No recognized recipe-card markup was found.")
+
+    def class_values(kind: str) -> list[str]:
+        pattern = re.compile(
+            rf"""<(?:li|p|div|span)[^>]*class\s*=\s*["'][^"']*(?:recipe[-_ ]?)?{kind}[^"']*["'][^>]*>(.*?)</(?:li|p|div|span)>""",
+            re.IGNORECASE | re.DOTALL,
+        )
+        return cleaned_list(pattern.findall(page_html))
+
+    ingredients = class_values("ingredient")
+    steps = class_values("instruction") or class_values("direction")
+    # Some cards put the text inside list items whose parent owns the class.
+    if not steps:
+        for block in re.findall(
+            r"""<(?:ol|ul)[^>]*class\s*=\s*["'][^"']*(?:instruction|direction)[^"']*["'][^>]*>(.*?)</(?:ol|ul)>""",
+            page_html,
+            re.IGNORECASE | re.DOTALL,
+        ):
+            steps.extend(cleaned_list(re.findall(r"<li[^>]*>(.*?)</li>", block, re.IGNORECASE | re.DOTALL)))
+
+    title_match = re.search(
+        r"""<h1[^>]*class\s*=\s*["'][^"']*(?:recipe|entry|post)[^"']*["'][^>]*>(.*?)</h1>""",
+        page_html,
+        re.IGNORECASE | re.DOTALL,
+    ) or re.search(r"<h1[^>]*>(.*?)</h1>", page_html, re.IGNORECASE | re.DOTALL)
+    title = cleaned_text(title_match.group(1)) if title_match else None
+    if not title or len(ingredients) < 2 or not steps:
+        raise ValueError("Recipe card is missing a title, ingredients, or instructions.")
+
+    return {
+        "title": title,
+        "summary": None,
+        "canonicalURL": url,
+        "author": None,
+        "imageURL": None,
+        "ingredientSections": ingredient_section(ingredients),
+        "instructionSections": instruction_section(steps),
+        "yield": None,
+        "servings": None,
+        "times": {"prepMinutes": None, "cookMinutes": None, "totalMinutes": None},
+        "nutrition": {},
+        "cuisines": [],
+        "categories": [],
+        "keywords": [],
+        "diets": [],
+        "confidence": 0.58,
+        "warnings": ["Recovered from visible recipe-card markup; review the result carefully."],
+        "parser": "Python recipe-card fallback",
+    }
+
+
 def parse(page_html: str, url: str) -> dict[str, Any]:
     errors: list[str] = []
     for name, parser in (
         ("recipe-scrapers", result_from_recipe_scrapers),
         ("JSON-LD fallback", result_from_jsonld),
         ("microdata fallback", result_from_microdata),
+        ("recipe-card fallback", result_from_recipe_card),
     ):
         try:
             return parser(page_html, url)

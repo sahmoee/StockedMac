@@ -45,7 +45,9 @@ actor PolicyFetcher {
         )
 
         // Fetch the page
-        let request = URLRequest(url: url)
+        var request = URLRequest(url: url)
+        request.setValue(accept, forHTTPHeaderField: "Accept")
+        request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
         let (data, response) = try await http.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -1125,6 +1127,30 @@ actor SourceRegistry {
         sources[index].health = health
         try await persist()
     }
+
+    /// Removes an access-limited host from automatic discovery without deleting it or
+    /// preventing a user from importing a direct link later. The source stays visible
+    /// in Sources so the owner can re-enable it when a limit or paywall changes.
+    func quarantineDiscoveryHost(_ host: String, health: SourceHealth, reason: String) async throws -> String? {
+        let normalizedHost = host.lowercased()
+        guard let index = sources.firstIndex(where: { profile in
+            profile.domains.contains { domain in
+                normalizedHost == domain.lowercased() || normalizedHost.hasSuffix("." + domain.lowercased())
+            }
+        }) else { return nil }
+        sources[index].discoveryEnabled = false
+        sources[index].health = health
+        let marker = "Automatic discovery disabled: \(reason)"
+        if sources[index].notes?.contains(marker) != true {
+            sources[index].notes = [sources[index].notes, marker]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        }
+        let name = sources[index].name
+        try await persist()
+        return name
+    }
     
     func knownSourceURLs() async throws -> Set<String> {
         // This would query the recipe store for all source URLs
@@ -1910,11 +1936,26 @@ nonisolated struct RecipePageDetector {
 
     func inspect(html: String, url: URL, source: SourceProfile) -> RecipePageVerdict {
         let lowercased = html.lowercased()
-        
-        // Check for recipe indicators
-        let hasRecipeSchema = lowercased.contains("schema.org/recipe")
-        let hasIngredients = lowercased.contains("ingredient")
-        let hasInstructions = lowercased.contains("instruction") || lowercased.contains("direction")
+
+        // Modern JSON-LD normally declares a shared schema.org context and then
+        // `"@type": "Recipe"`; it does not contain the literal `schema.org/recipe`.
+        // The old literal-only test therefore mislabeled complete Delish recipe pages
+        // as listings whenever their related-content rail carried six links.
+        let recipeTypePattern = #"\"@type\"\s*:\s*(?:\[\s*)?\"(?:https?://schema\.org/)?recipe\""#
+        let hasJSONLDRecipeType = lowercased.range(
+            of: recipeTypePattern,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+        let hasRecipeSchema = hasJSONLDRecipeType
+            || lowercased.contains("schema.org/recipe")
+            || lowercased.contains("itemtype=\"https://schema.org/recipe\"")
+            || lowercased.contains("itemtype='https://schema.org/recipe'")
+        let hasIngredients = lowercased.contains("recipeingredient")
+            || lowercased.contains("itemprop=\"ingredients\"")
+            || lowercased.contains("itemprop='ingredients'")
+        let hasInstructions = lowercased.contains("recipeinstructions")
+            || lowercased.contains("itemprop=\"instructions\"")
+            || lowercased.contains("itemprop='instructions'")
         
         // Check for listing indicators — use the SOURCE's own recipe URL patterns, so
         // Food Network's "/recipes/" roundups register, not just "/recipe/" sites.
@@ -1925,8 +1966,10 @@ nonisolated struct RecipePageDetector {
             .max() ?? 0
         let hasMultipleRecipeLinks = recipeLinkCount >= 6
 
+        // One complete recipe always outranks related-recipe link counts. A real recipe
+        // page commonly links to dozens of other recipes beneath its card.
         if hasRecipeSchema && hasIngredients && hasInstructions {
-            return RecipePageVerdict(kind: .recipe, evidence: ["Recipe schema found", "Has ingredients and instructions"])
+            return RecipePageVerdict(kind: .recipe, evidence: ["Complete Recipe schema found", "Has recipe ingredients and instructions"])
         } else if hasMultipleRecipeLinks {
             return RecipePageVerdict(kind: .listing, evidence: ["Multiple recipe links found"])
         } else {
