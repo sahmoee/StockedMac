@@ -3,6 +3,13 @@
 Every push should add an entry here so GitHub carries the build/change history.
 Newest at the top. Keep it plain ASCII (see .gitmessage.txt for the commit rules).
 
+## Build 112 — Priority-ranked recipe sources
+
+- Added 40 structured-recipe sources after checking robots and sitemap availability, bringing the built-in catalog to 150.
+- Ranked sources with locally proven successful imports first, currently discovery-friendly sites next, and access-limited/community feeds last.
+- Existing installs now receive new built-ins and priority changes without losing local enabled flags, learned health, or custom sources.
+- Added a reproducible catalog updater that keeps both JSON copies and the compiled Swift fallback identical.
+
 ## Build 111 — Retroactive repairs and required images
 
 - Added a versioned historical repair framework that normalizes old Harvester and shared recipes, then reparses every previous source through a durable, finite, resumable backlog.

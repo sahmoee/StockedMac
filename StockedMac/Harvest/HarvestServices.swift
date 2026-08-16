@@ -1084,7 +1084,22 @@ actor SourceRegistry {
 
         sources.append(contentsOf: additions)
 
-        if !additions.isEmpty || updatedCount > 0 {
+        // The bundled order is a maintained harvest priority: proven successful
+        // sources first, then sites whose robots and sitemap endpoints are currently
+        // discovery-friendly, and feed/limited sources last. Preserve every local
+        // profile (including its enabled flag and learned health), but reapply that
+        // priority on upgrade so an existing install benefits from catalog updates.
+        let previousIDs = sources.map(\.id)
+        let priority = Dictionary(uniqueKeysWithValues: bundled.enumerated().map { ($0.element.id, $0.offset) })
+        let previousOrder = Dictionary(uniqueKeysWithValues: sources.enumerated().map { ($0.element.id, $0.offset) })
+        sources.sort {
+            let lhs = priority[$0.id] ?? (bundled.count + (previousOrder[$0.id] ?? 0))
+            let rhs = priority[$1.id] ?? (bundled.count + (previousOrder[$1.id] ?? 0))
+            return lhs < rhs
+        }
+
+        let reordered = sources.map(\.id) != previousIDs
+        if !additions.isEmpty || updatedCount > 0 || reordered {
             try await persist()
         }
 

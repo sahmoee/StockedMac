@@ -1,5 +1,1609 @@
 [
   {
+    "id": "gimmesomeoven",
+    "name": "Gimme Some Oven",
+    "domains": [
+      "gimmesomeoven.com"
+    ],
+    "baseURL": "https://www.gimmesomeoven.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 2,
+    "maximumConcurrency": 2,
+    "dailyRequestLimit": 150,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.gimmesomeoven.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/resources/"
+    ],
+    "tags": [
+      "American",
+      "Everyday",
+      "Accessible"
+    ],
+    "notes": "Ali Martin's approachable everyday recipes",
+    "health": "unknown"
+  },
+  {
+    "id": "thekitchn",
+    "name": "The Kitchn",
+    "domains": [
+      "thekitchn.com"
+    ],
+    "baseURL": "https://www.thekitchn.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 2,
+    "maximumConcurrency": 2,
+    "dailyRequestLimit": 150,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.thekitchn.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/news/",
+      "/tips/",
+      "/shopping/"
+    ],
+    "tags": [
+      "American",
+      "Everyday",
+      "Home Cooking"
+    ],
+    "notes": "Everyday cooking and kitchen culture",
+    "health": "unknown"
+  },
+  {
+    "id": "therecipecritic",
+    "name": "The Recipe Critic",
+    "domains": [
+      "therecipecritic.com"
+    ],
+    "baseURL": "https://therecipecritic.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 2,
+    "maximumConcurrency": 2,
+    "dailyRequestLimit": 150,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://therecipecritic.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/"
+    ],
+    "tags": [
+      "American",
+      "Family",
+      "Quick"
+    ],
+    "notes": "Family-friendly quick dinner recipes",
+    "health": "unknown"
+  },
+  {
+    "id": "delish",
+    "name": "Delish",
+    "domains": [
+      "delish.com"
+    ],
+    "baseURL": "https://www.delish.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 2,
+    "maximumConcurrency": 2,
+    "dailyRequestLimit": 150,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.delish.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [
+      "/cooking/recipe-ideas/"
+    ],
+    "excludedURLPatterns": [
+      "/restaurants/",
+      "/food-news/"
+    ],
+    "tags": [
+      "American",
+      "Trendy",
+      "Magazine"
+    ],
+    "notes": "Hearst food magazine with trendy recipes",
+    "health": "unknown"
+  },
+  {
+    "id": "tasty",
+    "name": "Tasty",
+    "domains": [
+      "tasty.co"
+    ],
+    "baseURL": "https://tasty.co",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 2,
+    "maximumConcurrency": 2,
+    "dailyRequestLimit": 150,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://tasty.co/sitemap.xml"
+    ],
+    "recipeURLPatterns": [
+      "/recipe/"
+    ],
+    "excludedURLPatterns": [
+      "/compilation/",
+      "/tip/"
+    ],
+    "tags": [
+      "American",
+      "Viral",
+      "Video"
+    ],
+    "notes": "BuzzFeed's viral video recipe platform",
+    "health": "unknown"
+  },
+  {
+    "id": "acouplecooks",
+    "name": "A Couple Cooks",
+    "domains": [
+      "acouplecooks.com"
+    ],
+    "baseURL": "https://www.acouplecooks.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.acouplecooks.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "acozykitchen",
+    "name": "A Cozy Kitchen",
+    "domains": [
+      "acozykitchen.com"
+    ],
+    "baseURL": "https://www.acozykitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.acozykitchen.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "addapinch",
+    "name": "Add a Pinch",
+    "domains": [
+      "addapinch.com"
+    ],
+    "baseURL": "https://addapinch.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://addapinch.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "africanbites",
+    "name": "Immaculate Bites",
+    "domains": [
+      "africanbites.com"
+    ],
+    "baseURL": "https://www.africanbites.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.africanbites.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "alexandracooks",
+    "name": "Alexandra's Kitchen",
+    "domains": [
+      "alexandracooks.com"
+    ],
+    "baseURL": "https://alexandracooks.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://alexandracooks.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "anitalianinmykitchen",
+    "name": "An Italian in My Kitchen",
+    "domains": [
+      "anitalianinmykitchen.com"
+    ],
+    "baseURL": "https://anitalianinmykitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://anitalianinmykitchen.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "barefeetinthekitchen",
+    "name": "Barefeet in the Kitchen",
+    "domains": [
+      "barefeetinthekitchen.com"
+    ],
+    "baseURL": "https://barefeetinthekitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://barefeetinthekitchen.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "bakerbynature",
+    "name": "Baker by Nature",
+    "domains": [
+      "bakerbynature.com"
+    ],
+    "baseURL": "https://bakerbynature.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://bakerbynature.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "bakingmischief",
+    "name": "Baking Mischief",
+    "domains": [
+      "bakingmischief.com"
+    ],
+    "baseURL": "https://bakingmischief.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://bakingmischief.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "bellyfull",
+    "name": "Belly Full",
+    "domains": [
+      "bellyfull.net"
+    ],
+    "baseURL": "https://bellyfull.net",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://bellyfull.net/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "biggerbolderbaking",
+    "name": "Bigger Bolder Baking",
+    "domains": [
+      "biggerbolderbaking.com"
+    ],
+    "baseURL": "https://www.biggerbolderbaking.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.biggerbolderbaking.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "bowlofdelicious",
+    "name": "Bowl of Delicious",
+    "domains": [
+      "bowlofdelicious.com"
+    ],
+    "baseURL": "https://www.bowlofdelicious.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.bowlofdelicious.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "carlsbadcravings",
+    "name": "Carlsbad Cravings",
+    "domains": [
+      "carlsbadcravings.com"
+    ],
+    "baseURL": "https://carlsbadcravings.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://carlsbadcravings.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "chewoutloud",
+    "name": "Chew Out Loud",
+    "domains": [
+      "chewoutloud.com"
+    ],
+    "baseURL": "https://www.chewoutloud.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.chewoutloud.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "closetcooking",
+    "name": "Closet Cooking",
+    "domains": [
+      "closetcooking.com"
+    ],
+    "baseURL": "https://www.closetcooking.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.closetcooking.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "cookiesandcups",
+    "name": "Cookies and Cups",
+    "domains": [
+      "cookiesandcups.com"
+    ],
+    "baseURL": "https://cookiesandcups.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://cookiesandcups.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "copykat",
+    "name": "CopyKat Recipes",
+    "domains": [
+      "copykat.com"
+    ],
+    "baseURL": "https://copykat.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://copykat.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "culinaryhill",
+    "name": "Culinary Hill",
+    "domains": [
+      "culinaryhill.com"
+    ],
+    "baseURL": "https://www.culinaryhill.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.culinaryhill.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "daringgourmet",
+    "name": "The Daring Gourmet",
+    "domains": [
+      "daringgourmet.com"
+    ],
+    "baseURL": "https://www.daringgourmet.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.daringgourmet.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "dinneratthezoo",
+    "name": "Dinner at the Zoo",
+    "domains": [
+      "dinneratthezoo.com"
+    ],
+    "baseURL": "https://www.dinneratthezoo.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.dinneratthezoo.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "eatingbirdfood",
+    "name": "Eating Bird Food",
+    "domains": [
+      "eatingbirdfood.com"
+    ],
+    "baseURL": "https://www.eatingbirdfood.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.eatingbirdfood.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "feastingathome",
+    "name": "Feasting at Home",
+    "domains": [
+      "feastingathome.com"
+    ],
+    "baseURL": "https://www.feastingathome.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.feastingathome.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "feelgoodfoodie",
+    "name": "Feel Good Foodie",
+    "domains": [
+      "feelgoodfoodie.net"
+    ],
+    "baseURL": "https://feelgoodfoodie.net",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://feelgoodfoodie.net/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "fifteenspatulas",
+    "name": "Fifteen Spatulas",
+    "domains": [
+      "fifteenspatulas.com"
+    ],
+    "baseURL": "https://www.fifteenspatulas.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.fifteenspatulas.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "forksoverknives",
+    "name": "Forks Over Knives",
+    "domains": [
+      "forksoverknives.com"
+    ],
+    "baseURL": "https://www.forksoverknives.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.forksoverknives.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "grandbabycakes",
+    "name": "Grandbaby Cakes",
+    "domains": [
+      "grandbaby-cakes.com"
+    ],
+    "baseURL": "https://grandbaby-cakes.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://grandbaby-cakes.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "houseofnasheats",
+    "name": "House of Nash Eats",
+    "domains": [
+      "houseofnasheats.com"
+    ],
+    "baseURL": "https://houseofnasheats.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://houseofnasheats.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "inspiredtaste",
+    "name": "Inspired Taste",
+    "domains": [
+      "inspiredtaste.net"
+    ],
+    "baseURL": "https://www.inspiredtaste.net",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.inspiredtaste.net/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "iowagirleats",
+    "name": "Iowa Girl Eats",
+    "domains": [
+      "iowagirleats.com"
+    ],
+    "baseURL": "https://iowagirleats.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://iowagirleats.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "jocooks",
+    "name": "Jo Cooks",
+    "domains": [
+      "jocooks.com"
+    ],
+    "baseURL": "https://www.jocooks.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.jocooks.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "joyfoodsunshine",
+    "name": "JoyFoodSunshine",
+    "domains": [
+      "joyfoodsunshine.com"
+    ],
+    "baseURL": "https://joyfoodsunshine.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://joyfoodsunshine.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "natashaskitchen",
+    "name": "Natasha's Kitchen",
+    "domains": [
+      "natashaskitchen.com"
+    ],
+    "baseURL": "https://natashaskitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://natashaskitchen.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "noracooks",
+    "name": "Nora Cooks",
+    "domains": [
+      "noracooks.com"
+    ],
+    "baseURL": "https://www.noracooks.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.noracooks.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "preppykitchen",
+    "name": "Preppy Kitchen",
+    "domains": [
+      "preppykitchen.com"
+    ],
+    "baseURL": "https://preppykitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://preppykitchen.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Discovery Friendly"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "alisoneroman",
+    "name": "Alison Roman",
+    "domains": [
+      "alisoneroman.com"
+    ],
+    "baseURL": "https://www.alisoneroman.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.alisoneroman.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Supported Parser"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "bettycrocker",
+    "name": "Betty Crocker",
+    "domains": [
+      "bettycrocker.com"
+    ],
+    "baseURL": "https://www.bettycrocker.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.bettycrocker.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Supported Parser"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "eatingwell",
+    "name": "EatingWell",
+    "domains": [
+      "eatingwell.com"
+    ],
+    "baseURL": "https://www.eatingwell.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.eatingwell.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Supported Parser"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "pickuplimes",
+    "name": "Pick Up Limes",
+    "domains": [
+      "pickuplimes.com"
+    ],
+    "baseURL": "https://www.pickuplimes.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.pickuplimes.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Supported Parser"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "sipandfeast",
+    "name": "Sip and Feast",
+    "domains": [
+      "sipandfeast.com"
+    ],
+    "baseURL": "https://sipandfeast.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://sipandfeast.com/wp-sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Supported Parser"
+    ],
+    "notes": "Supported structured-recipe parser; robots and sitemap endpoints were reachable in the August 2026 source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "dinnerthendessert",
+    "name": "Dinner, then Dessert",
+    "domains": [
+      "dinnerthendessert.com"
+    ],
+    "baseURL": "https://dinnerthendessert.com",
+    "enabled": true,
+    "discoveryEnabled": false,
+    "discoveryMode": "directOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://dinnerthendessert.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/category/",
+      "/tag/",
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "Recipe Site",
+      "Structured Data",
+      "Supported Parser"
+    ],
+    "notes": "Supported structured-recipe parser, but the August 2026 sitemap audit returned 403; direct import remains available and robots policy is always enforced.",
+    "health": "limited"
+  },
+  {
     "id": "allrecipes",
     "name": "Allrecipes",
     "domains": [
@@ -206,39 +1810,6 @@
     "health": "unknown"
   },
   {
-    "id": "thekitchn",
-    "name": "The Kitchn",
-    "domains": [
-      "thekitchn.com"
-    ],
-    "baseURL": "https://www.thekitchn.com",
-    "enabled": true,
-    "discoveryEnabled": true,
-    "discoveryMode": "sitemapOnly",
-    "parserMode": "nativeFirst",
-    "minimumDelaySeconds": 2,
-    "maximumConcurrency": 2,
-    "dailyRequestLimit": 150,
-    "robotsRequired": true,
-    "imageDownloadEnabled": true,
-    "sitemapURLs": [
-      "https://www.thekitchn.com/sitemap.xml"
-    ],
-    "recipeURLPatterns": [],
-    "excludedURLPatterns": [
-      "/news/",
-      "/tips/",
-      "/shopping/"
-    ],
-    "tags": [
-      "American",
-      "Everyday",
-      "Home Cooking"
-    ],
-    "notes": "Everyday cooking and kitchen culture",
-    "health": "unknown"
-  },
-  {
     "id": "simplyrecipes",
     "name": "Simply Recipes",
     "domains": [
@@ -302,40 +1873,6 @@
       "Community"
     ],
     "notes": "Heartland American comfort food community",
-    "health": "unknown"
-  },
-  {
-    "id": "delish",
-    "name": "Delish",
-    "domains": [
-      "delish.com"
-    ],
-    "baseURL": "https://www.delish.com",
-    "enabled": true,
-    "discoveryEnabled": true,
-    "discoveryMode": "sitemapOnly",
-    "parserMode": "nativeFirst",
-    "minimumDelaySeconds": 2,
-    "maximumConcurrency": 2,
-    "dailyRequestLimit": 150,
-    "robotsRequired": true,
-    "imageDownloadEnabled": true,
-    "sitemapURLs": [
-      "https://www.delish.com/sitemap.xml"
-    ],
-    "recipeURLPatterns": [
-      "/cooking/recipe-ideas/"
-    ],
-    "excludedURLPatterns": [
-      "/restaurants/",
-      "/food-news/"
-    ],
-    "tags": [
-      "American",
-      "Trendy",
-      "Magazine"
-    ],
-    "notes": "Hearst food magazine with trendy recipes",
     "health": "unknown"
   },
   {
@@ -693,38 +2230,6 @@
     "health": "unknown"
   },
   {
-    "id": "therecipecritic",
-    "name": "The Recipe Critic",
-    "domains": [
-      "therecipecritic.com"
-    ],
-    "baseURL": "https://therecipecritic.com",
-    "enabled": true,
-    "discoveryEnabled": true,
-    "discoveryMode": "sitemapOnly",
-    "parserMode": "nativeFirst",
-    "minimumDelaySeconds": 2,
-    "maximumConcurrency": 2,
-    "dailyRequestLimit": 150,
-    "robotsRequired": true,
-    "imageDownloadEnabled": true,
-    "sitemapURLs": [
-      "https://therecipecritic.com/sitemap.xml"
-    ],
-    "recipeURLPatterns": [],
-    "excludedURLPatterns": [
-      "/category/",
-      "/tag/"
-    ],
-    "tags": [
-      "American",
-      "Family",
-      "Quick"
-    ],
-    "notes": "Family-friendly quick dinner recipes",
-    "health": "unknown"
-  },
-  {
     "id": "damndelicious",
     "name": "Damn Delicious",
     "domains": [
@@ -786,37 +2291,6 @@
       "Comfort Food"
     ],
     "notes": "Budget-friendly comfort food and easy weeknight dinners",
-    "health": "unknown"
-  },
-  {
-    "id": "gimmesomeoven",
-    "name": "Gimme Some Oven",
-    "domains": [
-      "gimmesomeoven.com"
-    ],
-    "baseURL": "https://www.gimmesomeoven.com",
-    "enabled": true,
-    "discoveryEnabled": true,
-    "discoveryMode": "sitemapOnly",
-    "parserMode": "nativeFirst",
-    "minimumDelaySeconds": 2,
-    "maximumConcurrency": 2,
-    "dailyRequestLimit": 150,
-    "robotsRequired": true,
-    "imageDownloadEnabled": true,
-    "sitemapURLs": [
-      "https://www.gimmesomeoven.com/sitemap.xml"
-    ],
-    "recipeURLPatterns": [],
-    "excludedURLPatterns": [
-      "/category/resources/"
-    ],
-    "tags": [
-      "American",
-      "Everyday",
-      "Accessible"
-    ],
-    "notes": "Ali Martin's approachable everyday recipes",
     "health": "unknown"
   },
   {
@@ -940,40 +2414,6 @@
       "Family"
     ],
     "notes": "Amanda's hearty comfort food and family dinners",
-    "health": "unknown"
-  },
-  {
-    "id": "tasty",
-    "name": "Tasty",
-    "domains": [
-      "tasty.co"
-    ],
-    "baseURL": "https://tasty.co",
-    "enabled": true,
-    "discoveryEnabled": true,
-    "discoveryMode": "sitemapOnly",
-    "parserMode": "nativeFirst",
-    "minimumDelaySeconds": 2,
-    "maximumConcurrency": 2,
-    "dailyRequestLimit": 150,
-    "robotsRequired": true,
-    "imageDownloadEnabled": true,
-    "sitemapURLs": [
-      "https://tasty.co/sitemap.xml"
-    ],
-    "recipeURLPatterns": [
-      "/recipe/"
-    ],
-    "excludedURLPatterns": [
-      "/compilation/",
-      "/tip/"
-    ],
-    "tags": [
-      "American",
-      "Viral",
-      "Video"
-    ],
-    "notes": "BuzzFeed's viral video recipe platform",
     "health": "unknown"
   },
   {

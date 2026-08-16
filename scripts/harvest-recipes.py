@@ -9,7 +9,7 @@ file suitable for pasting into Stocked Mac's import box.
 
 Features
 --------
-- Loads all 100 sources defined in default-sources.json automatically.
+- Loads every priority-ordered source defined in default-sources.json automatically.
 - Resolves sitemap indexes recursively (sitemap index → child sitemaps → URLs).
 - Filters by recipeURLPatterns; excludes by excludedURLPatterns.
 - Respects minimumDelaySeconds between requests.

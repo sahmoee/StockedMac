@@ -2815,7 +2815,7 @@ final class HarvestModel {
 
     // MARK: - Build 92: catalog repair and file import/export
 
-    /// Restores the built-in hundred while keeping custom and imported sources.
+    /// Restores the complete built-in catalog while keeping custom and imported sources.
     func repairSources() {
         Task {
             do {
