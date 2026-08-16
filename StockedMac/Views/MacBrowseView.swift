@@ -1235,6 +1235,7 @@ private struct SourceMultiPicker: View {
     @State private var healthScope: HealthScope = .available
     @State private var categoryScope: String?
     @State private var editingSource: SourceProfile?
+    @State private var deletingSources: [SourceProfile] = []
 
     private var sourceCategories: [String] {
         catalog.flatMap(\.tags).cleanedUnique().sorted {
@@ -1333,12 +1334,38 @@ private struct SourceMultiPicker: View {
             }
             .buttonStyle(.borderless)
             .padding(10)
+
+            if !selected.isEmpty {
+                Divider()
+                Button(role: .destructive) {
+                    deletingSources = catalog.filter { selected.contains($0.id) }
+                } label: {
+                    Label("Delete recipes from selected sources…", systemImage: "trash")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.borderless)
+                .padding(10)
+            }
         }
         .popover(item: $editingSource) { source in
             SourceCategoryEditor(source: source) { updated in
                 harvest.updateSource(updated)
                 editingSource = nil
             }
+        }
+        .alert("Delete recipes from sources?", isPresented: Binding(
+            get: { !deletingSources.isEmpty },
+            set: { if !$0 { deletingSources = [] } }
+        )) {
+            Button("Cancel", role: .cancel) { deletingSources = [] }
+            Button("Delete Everywhere", role: .destructive) {
+                let ids = Set(deletingSources.map(\.id))
+                deletingSources = []
+                harvest.deleteRecipes(from: ids)
+            }
+        } message: {
+            let plan = harvest.sourceRecipeDeletionPlan(sourceIDs: Set(deletingSources.map(\.id)))
+            Text("This removes \(plan.recipeCount) recipe\(plan.recipeCount == 1 ? "" : "s") from the Mac library, shared Stocked library, and Cloudflare cache. It also clears \(plan.queuedURLCount) queued link\(plan.queuedURLCount == 1 ? "" : "s"). This cannot be undone.")
         }
     }
 
@@ -1400,6 +1427,7 @@ private struct SourceMultiPicker: View {
                 .padding(.horizontal, 12).padding(.vertical, 2)
                 .contextMenu {
                     Button("Edit categories…") { editingSource = source }
+                    Button("Delete recipes from this source…", role: .destructive) { deletingSources = [source] }
                     if !source.tags.isEmpty {
                         Divider()
                         ForEach(source.tags, id: \.self) { category in

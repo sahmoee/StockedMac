@@ -6,6 +6,7 @@
 //
 //   POST /harvest/cache   { schemaVersion: 1, recipes: [ … ] }     (chunks of 20)
 //   POST /harvest/image   { id, imageBase64, mediaType }           (one per image)
+//   POST /harvest/delete  { schemaVersion: 1, ids: [ … ] }         (chunks of 20)
 //
 // and every device reads back:
 //
@@ -131,6 +132,22 @@ enum HarvestCloudSync {
             }
         }
         return PushResult(recipes: pushedRecipes, images: pushedImages)
+    }
+
+    static func delete(recipeIDs: Set<UUID>) async throws {
+        guard let base = URL(string: MacBuildConfig.receiptWorkerURL) else {
+            throw MacServiceError.notConfigured("The Stocked Worker URL")
+        }
+        let ids = recipeIDs.map(\.uuidString).sorted()
+        var index = 0
+        while index < ids.count {
+            let chunk = Array(ids[index..<min(index + chunkSize, ids.count)])
+            index += chunkSize
+            try await post([
+                "schemaVersion": 1,
+                "ids": chunk,
+            ], to: base.appendingPathComponent("harvest/delete"))
+        }
     }
 
     // MARK: - Transport

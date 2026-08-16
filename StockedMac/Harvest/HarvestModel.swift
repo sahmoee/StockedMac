@@ -44,6 +44,15 @@ nonisolated struct ImportQueueSnapshot: Sendable {
     var domainCount: Int { Set(entries.map(\.host)).count }
 }
 
+nonisolated struct SourceRecipeDeletionPlan: Sendable {
+    let sourceNames: [String]
+    let draftIDs: Set<UUID>
+    let sharedIDs: Set<UUID>
+    let queuedURLCount: Int
+
+    var recipeCount: Int { draftIDs.union(sharedIDs).count }
+}
+
 nonisolated enum MacRecipeTextParser {
     struct Result: Sendable {
         var title = ""
@@ -1674,6 +1683,55 @@ final class HarvestModel {
                 present(error)
             }
         }
+    }
+
+    func sourceRecipeDeletionPlan(sourceIDs: Set<String>) -> SourceRecipeDeletionPlan {
+        let selectedSources = sources.filter { sourceIDs.contains($0.id) }
+        let domains = Self.normalizedDomains(for: selectedSources)
+        let draftIDs = Set(recipes.filter { Self.matchesSourceURL($0.source.canonicalURL ?? $0.source.url, domains: domains) }.map(\.id))
+        let sharedIDs = Set((kitchen?.recipes ?? []).filter { Self.matchesSourceURL($0.sourceURL, domains: domains) }.map(\.id))
+        let queuedCount = queuedURLs.filter { Self.matchesSourceURL($0, domains: domains) }.count
+        return SourceRecipeDeletionPlan(
+            sourceNames: selectedSources.map(\.name).sorted(),
+            draftIDs: draftIDs,
+            sharedIDs: sharedIDs,
+            queuedURLCount: queuedCount
+        )
+    }
+
+    func deleteRecipes(from sourceIDs: Set<String>) {
+        let plan = sourceRecipeDeletionPlan(sourceIDs: sourceIDs)
+        guard !plan.sourceNames.isEmpty else { return }
+        let domains = Self.normalizedDomains(for: sources.filter { sourceIDs.contains($0.id) })
+        let allIDs = plan.draftIDs.union(plan.sharedIDs)
+
+        Task {
+            do {
+                if !allIDs.isEmpty { try await HarvestCloudSync.delete(recipeIDs: allIDs) }
+                if !plan.draftIDs.isEmpty { try await recipeStore.delete(ids: plan.draftIDs) }
+                kitchen?.deleteRecipe(ids: plan.sharedIDs)
+                importText = queuedURLs.filter { !Self.matchesSourceURL($0, domains: domains) }.joined(separator: "\n")
+                persistImportQueue()
+                persistRetroactiveRefreshURLs(retroactiveRefreshURLs().filter { !Self.matchesSourceURL($0, domains: domains) })
+                selectedRecipeIDs.subtract(plan.draftIDs)
+                if let selectedRecipeID, plan.draftIDs.contains(selectedRecipeID) { self.selectedRecipeID = nil }
+                await reload()
+                log(.warning, "Deleted \(plan.recipeCount) recipe\(plan.recipeCount == 1 ? "" : "s") from \(plan.sourceNames.count) source\(plan.sourceNames.count == 1 ? "" : "s"), including shared cache copies.")
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    private nonisolated static func normalizedDomains(for sources: [SourceProfile]) -> Set<String> {
+        Set(sources.flatMap { source in
+            source.domains + [URL(string: source.baseURL)?.host ?? ""]
+        }.map { $0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) }.filter { !$0.isEmpty })
+    }
+
+    private nonisolated static func matchesSourceURL(_ rawURL: String?, domains: Set<String>) -> Bool {
+        guard let rawURL, let host = URL(string: rawURL)?.host?.lowercased() else { return false }
+        return domains.contains { host == $0 || host.hasSuffix("." + $0) }
     }
 
     func setReviewState(_ state: ReviewState, for ids: Set<UUID>) {
