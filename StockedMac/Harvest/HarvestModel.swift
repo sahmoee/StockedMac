@@ -99,7 +99,7 @@ nonisolated enum MacRecipeTextParser {
 final class HarvestModel {
     /// Increment whenever an import/model fix must be applied to historical recipes.
     /// The versioned pass repairs local records and seeds their sources for bounded reparse.
-    static let currentRecipeRepairRevision = 1
+    static let currentRecipeRepairRevision = 2
 
     // MARK: - Observable state
 
@@ -750,10 +750,14 @@ final class HarvestModel {
             // A clean, high-confidence extraction does not need a human to
             // click Approve; anything with a warning still waits for review.
             let threshold = settings.autoApproveConfidence
-            if threshold > 0,
+            let isCompleteAutopilotRecipe = settings.autopilot
+                && detail.recipe.standards.requiredPassed
+                && detail.recipe.exportProblems.isEmpty
+                && detail.recipe.image?.hasLocalFile == true
+            if (isCompleteAutopilotRecipe || threshold > 0),
                detail.recipe.reviewState == .needsReview,
-               detail.recipe.confidence >= threshold,
-               detail.recipe.warnings.allSatisfy(Self.isNonBlockingImportWarning),
+               (isCompleteAutopilotRecipe || detail.recipe.confidence >= threshold),
+               (isCompleteAutopilotRecipe || detail.recipe.warnings.allSatisfy(Self.isNonBlockingImportWarning)),
                detail.recipe.exportProblems.isEmpty,
                detail.duplicateTitles.isEmpty,
                // The image gate: nothing without a picture on disk auto-approves,
@@ -2097,7 +2101,7 @@ final class HarvestModel {
     /// guided flow safe by default: pasted/listing pages are verified and mined before
     /// import, while Automatic remains an explicit choice in Browse.
     private func migrateSettingsIfNeeded() {
-        guard settings.settingsRevision < 9 else { return }
+        guard settings.settingsRevision < 10 else { return }
         var changes: [String] = []
         if settings.settingsRevision < 2 {
             if settings.userAgent == AppSettings.legacyUserAgent {
@@ -2147,7 +2151,14 @@ final class HarvestModel {
             settings.requireImageForImport = true
             changes.append("historical imports now receive versioned repairs and bounded source refreshes")
         }
-        settings.settingsRevision = 9
+        if settings.settingsRevision < 10 {
+            settings.autopilot = true
+            settings.autoImportVerified = true
+            settings.requireImageForImport = true
+            settings.autoFetchMissingImages = true
+            changes.append("found recipes now import, approve when complete, and sync without intermediate queue or review steps")
+        }
+        settings.settingsRevision = 10
         scheduleSettingsSave()
         log(.info, "New Browse flow defaults applied: \(changes.joined(separator: "; ")).")
     }

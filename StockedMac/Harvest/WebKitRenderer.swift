@@ -18,7 +18,22 @@ final class WebKitRenderer: NSObject {
 
     static let shared = WebKitRenderer()
 
-    private var webView: WKWebView?
+    /// Reuse one renderer for the life of the app. Creating and destroying a WebContent
+    /// process for every fallback page produced thousands of sandbox/XPC teardown lines
+    /// and intermittent cancellation noise during large imports.
+    private lazy var webView: WKWebView = {
+        let configuration = WKWebViewConfiguration()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.mediaTypesRequiringUserActionForPlayback = .all
+        configuration.suppressesIncrementalRendering = true
+        let view = WKWebView(
+            frame: CGRect(x: 0, y: 0, width: 1280, height: 900),
+            configuration: configuration
+        )
+        view.navigationDelegate = self
+        return view
+    }()
     private var continuation: CheckedContinuation<String, Error>?
     private var timeoutTask: Task<Void, Never>?
     private var busy = false
@@ -40,22 +55,11 @@ final class WebKitRenderer: NSObject {
             if !waiters.isEmpty { waiters.removeFirst().resume() }
         }
 
-        let configuration = WKWebViewConfiguration()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        // Ephemeral: no cookies or caches accumulate on disk, and the WebContent
-        // process has less to negotiate with the sandbox (quieter console, too).
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.mediaTypesRequiringUserActionForPlayback = .all
-        configuration.suppressesIncrementalRendering = true
-        let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 1280, height: 900),
-                             configuration: configuration)
+        let view = webView
         view.customUserAgent = userAgent
-        view.navigationDelegate = self
-        webView = view
         defer {
             view.stopLoading()
-            view.navigationDelegate = nil
-            webView = nil
+            view.loadHTMLString("", baseURL: nil)
         }
 
         return try await withCheckedThrowingContinuation { cont in

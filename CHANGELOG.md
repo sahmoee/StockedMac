@@ -3,6 +3,12 @@
 Every push should add an entry here so GitHub carries the build/change history.
 Newest at the top. Keep it plain ASCII (see .gitmessage.txt for the commit rules).
 
+## Build 113 — One-step intake and original images
+
+- Discovery now defaults to immediate import, automatic approval for complete image-backed recipes, and shared-library sync without intermediate queue or review clicks.
+- Existing preference files migrate to the simplified flow while incomplete recipes remain safely visible for attention.
+- Stopped lossy image re-encoding; oversized originals travel by their source URL, and historical recipes enter repair v2 for refresh and republishing.
+
 ## Build 112 — Priority-ranked recipe sources
 
 - Added 40 structured-recipe sources after checking robots and sitemap availability, bringing the built-in catalog to 150.

@@ -17,7 +17,6 @@ struct MacBrowseView: View {
     @State private var selectedSourceIDs: Set<String> = []
     @State private var showSourcePicker = false
     @State private var showCategoryPicker = false
-    @State private var selectedFoundLinks: Set<String> = []
     @State private var inlineBrowser: String? = nil
     @State private var directURL = ""
     @State private var manualRecipeText = ""
@@ -126,9 +125,6 @@ struct MacBrowseView: View {
         .onChange(of: browsableSources.map(\.id)) {
             selectedSourceIDs.formIntersection(Set(browsableSources.map(\.id)))
         }
-        .onChange(of: harvest.isDiscovering) {
-            if harvest.isDiscovering { selectedFoundLinks.removeAll() }
-        }
         .onChange(of: harvest.importText) { harvest.persistImportQueue() }
     }
 
@@ -226,9 +222,9 @@ struct MacBrowseView: View {
     private var quickStartCard: some View {
         MacCard(title: "Add recipes without the hunt", systemImage: "bolt.fill") {
             VStack(alignment: .leading, spacing: 7) {
-                workflowStep(1, "Paste one recipe link, recipe text, or screenshots.")
-                workflowStep(2, "Review only anything Stocked could not verify.")
-                workflowStep(3, "Approve & Send adds it to Stocked iOS automatically.")
+                workflowStep(1, "Choose sources and press Find Recipes.")
+                workflowStep(2, "Found recipes import automatically in finite batches.")
+                workflowStep(3, "Complete recipes approve and sync to Stocked iOS automatically.")
                 Text("Website discovery is optional and limited to a small source batch. It never runs endlessly in the background from this screen.")
                     .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
@@ -455,10 +451,11 @@ struct MacBrowseView: View {
     private func startFind(forceRefresh: Bool = false) {
         let preferred = selectedSources.isEmpty ? defaultDiscoverySources : selectedSources
         let sources = Array(preferred.prefix(5))
-        if sources.count > 1 {
-            harvest.browseSources(withIDs: sources.map(\.id), queueOnly: true, queueResults: false)
-        } else if let source = sources.first {
-            harvest.discover(source, addToQueueOnly: true, forceRefresh: forceRefresh, queueResults: false)
+        guard !sources.isEmpty else { return }
+        if forceRefresh, sources.count == 1, let source = sources.first {
+            harvest.discover(source, forceRefresh: true, queueResults: false)
+        } else {
+            harvest.startAutopilot(sourceIDs: sources.map(\.id))
         }
     }
 
@@ -571,7 +568,7 @@ struct MacBrowseView: View {
                     && harvest.lastImportSummary == nil {
                     MacEmpty(
                         title: "Ready to find recipes",
-                        message: "Choose a source on the left and press Find Recipes. Confirmed recipe pages appear here — select the ones you want and add them to the import queue.",
+                        message: "Choose a source on the left and press Find Recipes. Confirmed recipes import, approve when complete, and sync automatically.",
                         systemImage: "arrow.forward.circle"
                     )
                     .frame(minHeight: 240)
@@ -660,10 +657,8 @@ struct MacBrowseView: View {
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 0)
-                        Button("All") { selectedFoundLinks = Set(links.map(\.url)) }
-                            .buttonStyle(.borderless).font(.caption)
-                        Button("None") { selectedFoundLinks.removeAll() }
-                            .buttonStyle(.borderless).font(.caption)
+                        Label("Automatically importing", systemImage: "arrow.down.circle.fill")
+                            .font(.caption).foregroundStyle(MacTheme.green)
                     }
 
                     HStack(spacing: 6) {
@@ -692,15 +687,8 @@ struct MacBrowseView: View {
                     Divider()
 
                     HStack(spacing: 8) {
-                        let count = selectedFoundLinks.intersection(Set(links.map(\.url))).count
-                        Button(count == 0 ? "Select recipes to queue" : "Add \(count) to Queue") {
-                            let urls = links.filter { selectedFoundLinks.contains($0.url) }.map(\.url)
-                            harvest.appendImportURLs(urls)
-                            selectedFoundLinks.removeAll()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(count == 0)
-
+                        Text("No queue or review step is required for complete recipes.")
+                            .font(.caption).foregroundStyle(.secondary)
                         Spacer(minLength: 0)
 
                         if !report.unverified.isEmpty {
@@ -734,17 +722,9 @@ struct MacBrowseView: View {
     }
 
     private func foundRecipeRow(_ link: DiscoveredLink) -> some View {
-        let isSelected = selectedFoundLinks.contains(link.url)
         return HStack(spacing: 8) {
-            Button {
-                if isSelected { selectedFoundLinks.remove(link.url) }
-                else { selectedFoundLinks.insert(link.url) }
-            } label: {
-                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                    .font(.callout)
-                    .foregroundStyle(isSelected ? MacTheme.gold : .secondary)
-            }
-            .buttonStyle(.plain)
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.callout).foregroundStyle(MacTheme.green)
 
             VStack(alignment: .leading, spacing: 1) {
                 let displayTitle: String = {
@@ -765,11 +745,6 @@ struct MacBrowseView: View {
             .buttonStyle(.borderless).help("Preview in built-in browser")
         }
         .padding(.vertical, 5)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if isSelected { selectedFoundLinks.remove(link.url) }
-            else { selectedFoundLinks.insert(link.url) }
-        }
     }
 
     // MARK: Import progress card

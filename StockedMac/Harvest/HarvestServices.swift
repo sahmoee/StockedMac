@@ -156,7 +156,10 @@ actor ImageStore {
         // Download image
         var request = URLRequest(url: url)
         request.setValue(referer, forHTTPHeaderField: "Referer")
-        request.setValue("image/avif,image/webp,image/jpeg,image/png,image/*;q=0.8",
+        // Prefer full-quality broadly decodable originals. WebP/AVIF remain acceptable
+        // fallbacks, but asking for them first caused some malformed CDN variants to be
+        // selected and generated ImageIO decoder failures in WebKit.
+        request.setValue("image/jpeg,image/png,image/heic,image/webp;q=0.8,image/avif;q=0.7,image/*;q=0.5",
                          forHTTPHeaderField: "Accept")
 
         let (data, response) = try await http.data(for: request)

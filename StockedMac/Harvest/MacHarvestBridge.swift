@@ -11,8 +11,6 @@
 // sharing packages with other devices out-of-band.
 
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
 
 @MainActor
 enum MacHarvestBridge {
@@ -200,53 +198,13 @@ enum MacHarvestBridge {
         return lines.joined(separator: "\n")
     }
 
-    /// Only a modest image travels with the recipe — imageData is synced to the whole
-    /// household, and a 6 MB hero photo per recipe would make every pull pay for it.
-    ///
-    /// Previously anything over 2 MB was simply dropped, which meant nothing: household
-    /// sync strips anything over `MacHouseholdSync.maxSyncedImageBytes` anyway, and a
-    /// typical recipe hero JPEG is 250 KB–1.5 MB. So every harvested photo was admitted
-    /// here and then silently destroyed one step later, and the phone got a recipe with
-    /// no picture. Now the image is downsampled to fit the sync budget instead.
+    /// Preserve original bytes. If an original is too large for the compact household
+    /// payload, sync its source URL instead; iOS deliberately prefers that full-quality
+    /// original and uses embedded data only as an offline fallback.
     private static func imageData(from image: RecipeImage?) -> Data? {
         guard let path = image?.localPath?.nilIfBlank,
               let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               !data.isEmpty else { return nil }
-        if data.count <= MacHouseholdSync.maxSyncedImageBytes { return data }
-        return downsampled(data, toAtMost: MacHouseholdSync.maxSyncedImageBytes)
-    }
-
-    /// Re-encodes to a JPEG small enough to sync. Tries progressively smaller edges and
-    /// qualities; returns nil rather than a still-oversize blob, so the caller keeps the
-    /// `imageURL` and the phone falls back to loading it from the web.
-    private static func downsampled(_ data: Data, toAtMost limit: Int) -> Data? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-
-        for edge in [1200, 900, 700, 500] as [Int] {
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceThumbnailMaxPixelSize: edge
-            ]
-            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(
-                source, 0, options as CFDictionary
-            ) else { continue }
-
-            for quality in [0.75, 0.6, 0.45] as [Double] {
-                let out = NSMutableData()
-                guard let destination = CGImageDestinationCreateWithData(
-                    out, "public.jpeg" as CFString, 1, nil
-                ) else { return nil }
-                CGImageDestinationAddImage(
-                    destination,
-                    cgImage,
-                    [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary
-                )
-                guard CGImageDestinationFinalize(destination) else { return nil }
-                if out.length > 0, out.length <= limit { return out as Data }
-            }
-        }
-        return nil
+        return data.count <= MacHouseholdSync.maxSyncedImageBytes ? data : nil
     }
 }
