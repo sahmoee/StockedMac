@@ -183,6 +183,12 @@ actor CrawlCoordinator {
         if image == nil, let resolved = resolvedImageURL {
             image = RecipeImage(originalURL: resolved)
         }
+        // Images are a storage invariant, not an approval preference. Enforce it here so
+        // every caller (direct, queued, category, bulk, retry and historical refresh)
+        // fails before an image-less draft can enter the library.
+        guard image?.hasLocalFile == true else {
+            throw CompanionError.parseFailed("A usable recipe image could not be downloaded")
+        }
 
         // ---- Ingredients ---------------------------------------------------
         let ingredientSections = settings.parseIngredientStructure

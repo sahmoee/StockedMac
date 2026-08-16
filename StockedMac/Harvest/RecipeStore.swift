@@ -14,6 +14,18 @@ actor RecipeStore {
         return recipes.sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    /// Recurring invariant sweep. Harvester records are imports by definition, so an
+    /// absent local image makes the record invalid regardless of review state or batch.
+    @discardableResult
+    func purgeImageLessImports() throws -> Int {
+        try loadIfNeeded()
+        let before = recipes.count
+        recipes.removeAll { $0.image?.hasLocalFile != true }
+        let removed = before - recipes.count
+        if removed > 0 { try persist() }
+        return removed
+    }
+
     func count() throws -> Int {
         try loadIfNeeded()
         return recipes.count
@@ -72,6 +84,9 @@ actor RecipeStore {
     private func merge(_ incoming: RecipeDraft) throws -> RecipeDraft {
         try loadIfNeeded()
         var recipe = incoming
+        guard recipe.image?.hasLocalFile == true else {
+            throw CompanionError.persistence("Recipe not imported because it has no usable image.")
+        }
         recipe.categories = enrichedCategories(for: recipe)
         recipe.refreshFingerprint()
 

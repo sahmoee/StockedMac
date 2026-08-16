@@ -99,7 +99,7 @@ nonisolated enum MacRecipeTextParser {
 final class HarvestModel {
     /// Increment whenever an import/model fix must be applied to historical recipes.
     /// The versioned pass repairs local records and seeds their sources for bounded reparse.
-    static let currentRecipeRepairRevision = 3
+    static let currentRecipeRepairRevision = 4
 
     // MARK: - Observable state
 
@@ -353,6 +353,13 @@ final class HarvestModel {
 
     func reload() async {
         do {
+            let removedDrafts = try await recipeStore.purgeImageLessImports()
+            var removedShared = 0
+            if let kitchen {
+                let invalid = Set(kitchen.recipes.filter(Self.isImportedWithoutUsableImage).map(\.id))
+                removedShared = invalid.count
+                kitchen.deleteRecipe(ids: invalid)
+            }
             recipes = try await recipeStore.all()
             sources = try await sourceRegistry.all()
             duplicateGroups = (try? await recipeStore.duplicateGroups()) ?? []
@@ -366,9 +373,20 @@ final class HarvestModel {
             }
             statusMessage = "\(recipes.count) recipes • \(sources.count) sources"
             updateDockBadge()
+            if removedDrafts + removedShared > 0 {
+                log(.warning, "Removed \(removedDrafts + removedShared) previously imported recipe\(removedDrafts + removedShared == 1 ? "" : "s") without a usable image.")
+            }
         } catch {
             present(error)
         }
+    }
+
+    private static func isImportedWithoutUsableImage(_ recipe: UserRecipe) -> Bool {
+        guard recipe.sourceURL?.nilIfBlank != nil else { return false }
+        if let data = recipe.imageData, !data.isEmpty { return false }
+        guard let raw = recipe.imageURL?.nilIfBlank,
+              let url = URL(string: raw), url.scheme == "https", url.host != nil else { return true }
+        return false
     }
 
     // MARK: - Dashboard
@@ -2107,6 +2125,12 @@ final class HarvestModel {
     /// guided flow safe by default: pasted/listing pages are verified and mined before
     /// import, while Automatic remains an explicit choice in Browse.
     private func migrateSettingsIfNeeded() {
+        // This is no longer user-adjustable behavior: every launch repairs stale defaults.
+        if !settings.requireImageForImport || !settings.downloadImages {
+            settings.requireImageForImport = true
+            settings.downloadImages = true
+            scheduleSettingsSave()
+        }
         guard settings.settingsRevision < 10 else { return }
         var changes: [String] = []
         if settings.settingsRevision < 2 {

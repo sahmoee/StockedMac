@@ -1,5 +1,6 @@
 # Changelog
 
+- Made usable downloaded images a permanent ingestion invariant across direct, category, queued, automatic, retry, refresh, and bulk imports. Every library reload continuously removes older image-less Harvester imports and image-less source-backed shared recipes, and publishes their deletions through household sync.
 - Recipe categories now travel into every newly imported recipe using structured metadata plus conservative title/source taxonomy inference. Historical repair v3 backfills the same categories into previously imported Mac drafts and the shared Stocked iOS library, without importing category or roundup pages as recipes.
 
 Every push should add an entry here so GitHub carries the build/change history.
