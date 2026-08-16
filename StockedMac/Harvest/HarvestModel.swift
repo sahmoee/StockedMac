@@ -97,6 +97,9 @@ nonisolated enum MacRecipeTextParser {
 @MainActor
 @Observable
 final class HarvestModel {
+    /// Increment whenever an import/model fix must be applied to historical recipes.
+    /// The versioned pass repairs local records and seeds their sources for bounded reparse.
+    static let currentRecipeRepairRevision = 1
 
     // MARK: - Observable state
 
@@ -140,6 +143,7 @@ final class HarvestModel {
     var sourceCacheSummaries: [String: SourceDiscoveryCacheSummary] = [:]
     /// Number of category/listing pages whose mined recipe links can be reused offline.
     var cachedMinedPageCount = 0
+    var retroactiveRefreshRemaining = 0
     /// Build 101: the category catalog — one entry per source, each holding the categories
     /// discovered on it (organized, with a cached-recipe count). Browseable and cached.
     var sourceCategories: [String: SourceCategoryCatalog] = [:]
@@ -215,6 +219,9 @@ final class HarvestModel {
     /// URLs owned by the current batch but not yet resolved. Cancellation puts these
     /// back at the front of the durable queue instead of losing them.
     @ObservationIgnored private var activeImportPending: Set<String> = []
+    @ObservationIgnored private var activeRetroactiveRefresh: Set<String> = []
+    @ObservationIgnored private var retroactiveRunActive = false
+    @ObservationIgnored private var retroactiveAttemptedThisRun: Set<String> = []
 
     /// The kitchen this Harvester feeds. Set once at launch by `StockedMacApp`.
     ///
@@ -317,6 +324,7 @@ final class HarvestModel {
             reloadMiningCacheCount()
             loadCategoryCatalog()
             await reload()
+            await runRetroactiveRecipeRepairsIfNeeded()
             // Bring back the last browse and apply today's category selection to the
             // unfiltered saved report. Changing filters never destroys cached links.
             if let restored = loadLastReport() {
@@ -545,7 +553,11 @@ final class HarvestModel {
         }
     }
 
-    private func beginImport(_ urls: [String], parserModeOverride: ParserMode? = nil) {
+    private func beginImport(
+        _ urls: [String],
+        parserModeOverride: ParserMode? = nil,
+        forceRefresh: Bool = false
+    ) {
         guard !urls.isEmpty else {
             errorMessage = "Enter at least one http or https recipe URL."
             return
@@ -588,7 +600,7 @@ final class HarvestModel {
             // Skip what the library already holds BEFORE spending requests on it —
             // re-running a big queue no longer re-fetches every known recipe.
             var urls = urls
-            if activeSettings.skipAlreadyImported,
+            if activeSettings.skipAlreadyImported, !forceRefresh,
                let known = try? await store.knownSourceURLs(), !known.isEmpty {
                 let before = urls.count
                 urls = urls.filter { !known.contains($0) }
@@ -667,6 +679,8 @@ final class HarvestModel {
                 : "Imported \(self.importProgress.succeeded), failed \(self.importProgress.failed)"
             self.importTask = nil
             if cancelled {
+                self.retroactiveRunActive = false
+                self.activeRetroactiveRefresh.removeAll()
                 self.retryQueue.removeAll()
                 self.pendingAutoApproval.removeAll()
                 self.isRetryPass = false
@@ -714,6 +728,13 @@ final class HarvestModel {
 
     private func record(_ outcome: ImportOutcome) {
         activeImportPending.remove(outcome.url)
+        if activeRetroactiveRefresh.contains(outcome.url), outcome.error != "Canceled" {
+            activeRetroactiveRefresh.remove(outcome.url)
+            retroactiveAttemptedThisRun.insert(outcome.url)
+            if outcome.detail?.recipe.image?.hasLocalFile == true {
+                removeRetroactiveRefreshURL(outcome.url)
+            }
+        }
         importProgress.completed += 1
         importProgress.currentURL = outcome.url
         let host = URL(string: outcome.url)?.host?.lowercased()
@@ -746,6 +767,9 @@ final class HarvestModel {
                 message += " • auto-approved"
             }
             log(detail.duplicateTitles.isEmpty ? .success : .warning, message, url: outcome.url)
+            if detail.wasUpdate, detail.recipe.reviewState == .approved {
+                handOver([detail.recipe])
+            }
         } else if outcome.error == "Canceled" {
             // A cancelled import is the user's decision, not a failure — no red row.
         } else if !outcome.mined.isEmpty {
@@ -916,6 +940,22 @@ final class HarvestModel {
         // visible as status for older preference files but no longer gates delivery.
         syncApprovedToCloud()
 
+        // A historical refresh is a finite, shrinking backlog. Continue in bounded
+        // batches while idle; Stop cancels the chain and leaves every unfinished URL on
+        // disk for the next launch or manual Resume.
+        if retroactiveRunActive {
+            if retroactiveRefreshRemaining > 0 {
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(2))
+                    self?.refreshNextHistoricalBatch()
+                }
+                return
+            }
+            retroactiveRunActive = false
+            statusMessage = "Historical recipe refresh complete."
+            log(.success, "Every previously imported source has been refreshed for repair v\(Self.currentRecipeRepairRevision).")
+        }
+
         // Selected sources first, then auto-rotate, until both runs are used up.
         if !autopilotStopRequested, !isDiscovering, advanceSourceRotation() {
             return
@@ -942,6 +982,7 @@ final class HarvestModel {
     }
 
     func cancelImport() {
+        retroactiveRunActive = false
         importTask?.cancel()
         statusMessage = "Stopping after the active requests finish…"
     }
@@ -1903,6 +1944,139 @@ final class HarvestModel {
         NSWorkspace.shared.activateFileViewerSelecting([paths.root])
     }
 
+    // MARK: - Versioned historical repairs
+
+    /// Applies every repair revision once, then reparses a finite slice of old source
+    /// pages. The durable backlog means quitting, cancellation, or a rate limit cannot
+    /// make historical recipes miss a future parser fix.
+    private func runRetroactiveRecipeRepairsIfNeeded() async {
+        loadRetroactiveRefreshCount()
+        guard settings.recipeRepairRevision < Self.currentRecipeRepairRevision else {
+            if retroactiveRefreshRemaining > 0 { refreshNextHistoricalBatch() }
+            return
+        }
+
+        let repairedDrafts = (try? await recipeStore.repairExisting()) ?? 0
+        await reload()
+        let repairedShared = repairSharedRecipeLibrary()
+
+        var sources = retroactiveRefreshURLs()
+        sources.append(contentsOf: recipes.compactMap {
+            $0.source.canonicalURL?.nilIfBlank ?? $0.source.url.nilIfBlank
+        })
+        if let kitchen {
+            sources.append(contentsOf: kitchen.recipes.compactMap(\.sourceURL))
+        }
+        persistRetroactiveRefreshURLs(sources)
+
+        settings.recipeRepairRevision = Self.currentRecipeRepairRevision
+        scheduleSettingsSave()
+        log(.success, "Historical repair v\(Self.currentRecipeRepairRevision): normalized \(repairedDrafts) imported draft\(repairedDrafts == 1 ? "" : "s") and \(repairedShared) shared recipe\(repairedShared == 1 ? "" : "s"); \(retroactiveRefreshRemaining) source page\(retroactiveRefreshRemaining == 1 ? "" : "s") queued for bounded refresh.")
+        refreshNextHistoricalBatch()
+    }
+
+    /// Public so Recipe Sync can advance the backlog without changing normal imports.
+    func refreshNextHistoricalBatch() {
+        guard !isImporting, !isDiscovering, !isBulkVerifying else {
+            statusMessage = "Historical refresh will continue when current recipe work finishes."
+            return
+        }
+        let allURLs = retroactiveRefreshURLs()
+        let urls = allURLs.filter { !retroactiveAttemptedThisRun.contains($0) }
+        if urls.isEmpty, !allURLs.isEmpty {
+            retroactiveRunActive = false
+            statusMessage = "Historical refresh paused — \(allURLs.count) source\(allURLs.count == 1 ? "" : "s") still need an image and will retry next launch."
+            return
+        }
+        guard !urls.isEmpty else {
+            retroactiveRefreshRemaining = 0
+            statusMessage = "Every historical recipe has the latest repair."
+            return
+        }
+        let batch = Array(urls.prefix(max(1, settings.retroactiveRefreshBatchSize)))
+        activeRetroactiveRefresh = Set(batch)
+        retroactiveRunActive = true
+        statusMessage = "Refreshing \(batch.count) historical recipe\(batch.count == 1 ? "" : "s")…"
+        beginImport(batch, forceRefresh: true)
+    }
+
+    func restartHistoricalRefresh() {
+        retroactiveAttemptedThisRun.removeAll()
+        refreshNextHistoricalBatch()
+    }
+
+    private func retroactiveRefreshURLs() -> [String] {
+        guard let text = try? String(contentsOf: paths.retroactiveRefreshFile, encoding: .utf8) else {
+            return []
+        }
+        var seen = Set<String>()
+        return text.components(separatedBy: .newlines).compactMap { raw in
+            guard let parsed = try? URLSafety.validatedRemoteURL(raw) else { return nil }
+            let normalized = URLSafety.normalized(parsed).absoluteString
+            return seen.insert(normalized).inserted ? normalized : nil
+        }
+    }
+
+    private func persistRetroactiveRefreshURLs(_ rawURLs: [String]) {
+        var seen = Set<String>()
+        let urls = rawURLs.compactMap { raw -> String? in
+            guard let parsed = try? URLSafety.validatedRemoteURL(raw) else { return nil }
+            let normalized = URLSafety.normalized(parsed).absoluteString
+            return seen.insert(normalized).inserted ? normalized : nil
+        }
+        try? Data(urls.joined(separator: "\n").utf8)
+            .write(to: paths.retroactiveRefreshFile, options: .atomic)
+        retroactiveRefreshRemaining = urls.count
+    }
+
+    private func removeRetroactiveRefreshURL(_ rawURL: String) {
+        guard let parsed = try? URLSafety.validatedRemoteURL(rawURL) else { return }
+        let key = URLSafety.normalized(parsed).absoluteString
+        persistRetroactiveRefreshURLs(retroactiveRefreshURLs().filter { $0 != key })
+    }
+
+    private func loadRetroactiveRefreshCount() {
+        retroactiveRefreshRemaining = retroactiveRefreshURLs().count
+    }
+
+    /// Backfills optional provenance/categories added after older household recipes were
+    /// created. Future local model repairs can be appended here under a new revision.
+    private func repairSharedRecipeLibrary() -> Int {
+        guard let kitchen else { return 0 }
+        var repaired = 0
+        for snapshot in kitchen.recipes {
+            let metadata = Self.sourceMetadata(from: snapshot.notes)
+            let sourceURL = snapshot.sourceURL?.nilIfBlank ?? metadata.url
+            let normalizedURL = sourceURL.flatMap { try? URLSafety.validatedRemoteURL($0) }
+                .map { URLSafety.normalized($0).absoluteString }
+            let sourceName = snapshot.sourceName?.nilIfBlank
+                ?? metadata.name
+                ?? normalizedURL.flatMap { URL(string: $0)?.host }
+            let categories = ((snapshot.categories ?? []) + snapshot.tags).cleanedUnique()
+            guard normalizedURL != snapshot.sourceURL
+                    || sourceName != snapshot.sourceName
+                    || categories != (snapshot.categories ?? []) else { continue }
+            kitchen.updateRecipe(id: snapshot.id) { recipe in
+                recipe.sourceURL = normalizedURL
+                recipe.sourceName = sourceName
+                recipe.categories = categories
+            }
+            repaired += 1
+        }
+        return repaired
+    }
+
+    private static func sourceMetadata(from notes: String) -> (name: String?, url: String?) {
+        guard let line = notes.components(separatedBy: .newlines)
+            .first(where: { $0.lowercased().hasPrefix("source:") }) else { return (nil, nil) }
+        let value = line.dropFirst("Source:".count).trimmingCharacters(in: .whitespaces)
+        let parts = value.components(separatedBy: " — ")
+        if parts.count > 1 {
+            return (parts[0].nilIfBlank, parts.dropFirst().joined(separator: " — ").nilIfBlank)
+        }
+        return value.hasPrefix("http") ? (URL(string: value)?.host, value) : (value.nilIfBlank, nil)
+    }
+
     func open(_ urlString: String) {
         guard let url = URL(string: urlString),
               url.scheme != nil else {
@@ -1923,7 +2097,7 @@ final class HarvestModel {
     /// guided flow safe by default: pasted/listing pages are verified and mined before
     /// import, while Automatic remains an explicit choice in Browse.
     private func migrateSettingsIfNeeded() {
-        guard settings.settingsRevision < 8 else { return }
+        guard settings.settingsRevision < 9 else { return }
         var changes: [String] = []
         if settings.settingsRevision < 2 {
             if settings.userAgent == AppSettings.legacyUserAgent {
@@ -1968,7 +2142,12 @@ final class HarvestModel {
             settings.scanLimit = max(settings.scanLimit, 100)
             changes.append("recipe intake now favors complete text over optional images and uses larger finite batches")
         }
-        settings.settingsRevision = 8
+        if settings.settingsRevision < 9 {
+            settings.retroactiveRefreshBatchSize = max(1, settings.retroactiveRefreshBatchSize)
+            settings.requireImageForImport = true
+            changes.append("historical imports now receive versioned repairs and bounded source refreshes")
+        }
+        settings.settingsRevision = 9
         scheduleSettingsSave()
         log(.info, "New Browse flow defaults applied: \(changes.joined(separator: "; ")).")
     }
@@ -2419,7 +2598,7 @@ final class HarvestModel {
             cloudSyncStatus = "The Worker key isn't configured (Secrets.xcconfig), so nothing can upload."
             return
         }
-        let batch = approvedRecipes
+        let batch = approvedRecipes.filter { $0.image?.hasLocalFile == true }
         guard !batch.isEmpty else {
             cloudSyncStatus = "Nothing approved to sync yet."
             return

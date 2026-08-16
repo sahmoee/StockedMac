@@ -289,6 +289,11 @@ nonisolated struct AppSettings: Codable, Sendable {
     /// own until stopped. Sub-standard recipes (missing image / failed standards) still
     /// wait in Review. Turning this off restores the step-by-step, review-first flow.
     var autopilot: Bool
+    /// Version of the last library-wide repair applied to historical imports. Bump
+    /// `HarvestModel.currentRecipeRepairRevision` when future fixes need backfilling.
+    var recipeRepairRevision: Int
+    /// Historical source pages refreshed per maintenance pass. Finite by design.
+    var retroactiveRefreshBatchSize: Int
 
     static var defaults: AppSettings {
         AppSettings(
@@ -314,7 +319,7 @@ nonisolated struct AppSettings: Codable, Sendable {
             rememberBrowsedSources: true,
             lastBrowsedSourceID: nil,
             recentSourceIDs: [],
-            requireImageForImport: false,
+            requireImageForImport: true,
             autoFetchMissingImages: true,
             verifyBeforeImport: false,
             cloudSyncEnabled: true,
@@ -324,7 +329,7 @@ nonisolated struct AppSettings: Codable, Sendable {
             requireStandardsForAutoApprove: false,
             useWebKitFallback: true,
             importSpacingSeconds: 0,
-            settingsRevision: 8,
+            settingsRevision: 9,
             queueCap: 2_000,
             bulkVerifyBatchSize: 200,
             importBatchSize: 50,
@@ -334,7 +339,9 @@ nonisolated struct AppSettings: Codable, Sendable {
             selectedBrowseCategoryIDs: [],
             reuseCachedDiscoveryResults: true,
             preferDirectRecipes: true,
-            autopilot: true
+            autopilot: true,
+            recipeRepairRevision: 0,
+            retroactiveRefreshBatchSize: 20
         )
     }
 
@@ -367,7 +374,7 @@ nonisolated extension AppSettings {
         case bulkVerifyBatchSize, importBatchSize, scanLimit
         case favoriteSourceIDs, lastSelectedSourceIDs
         case selectedBrowseCategoryIDs, reuseCachedDiscoveryResults
-        case preferDirectRecipes, autopilot
+        case preferDirectRecipes, autopilot, recipeRepairRevision, retroactiveRefreshBatchSize
     }
 
     init(from decoder: Decoder) throws {
@@ -410,6 +417,8 @@ nonisolated extension AppSettings {
         reuseCachedDiscoveryResults = (try? c.decodeIfPresent(Bool.self, forKey: .reuseCachedDiscoveryResults)) ?? true
         preferDirectRecipes     = (try? c.decodeIfPresent(Bool.self, forKey: .preferDirectRecipes)) ?? d.preferDirectRecipes
         autopilot               = (try? c.decodeIfPresent(Bool.self, forKey: .autopilot)) ?? d.autopilot
+        recipeRepairRevision    = (try? c.decodeIfPresent(Int.self, forKey: .recipeRepairRevision)) ?? 0
+        retroactiveRefreshBatchSize = (try? c.decodeIfPresent(Int.self, forKey: .retroactiveRefreshBatchSize)) ?? d.retroactiveRefreshBatchSize
     }
 }
 
@@ -1004,7 +1013,7 @@ nonisolated extension RecipeDraft {
             StandardsCheck(
                 label: "Image saved to disk",
                 passed: image?.hasLocalFile ?? false,
-                required: false,
+                required: true,
                 detail: image == nil ? "No image at all" : (image?.hasLocalFile == true ? nil : "URL known, bytes missing")
             ),
             StandardsCheck(

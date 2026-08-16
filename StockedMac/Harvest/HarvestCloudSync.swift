@@ -39,6 +39,7 @@ enum HarvestCloudSync {
         guard let base = URL(string: MacBuildConfig.receiptWorkerURL) else {
             throw MacServiceError.notConfigured("The Stocked Worker URL")
         }
+        let drafts = drafts.filter { $0.image?.hasLocalFile == true }
         var pushedRecipes = 0
         var pushedImages = 0
 
@@ -90,6 +91,12 @@ enum HarvestCloudSync {
     static func pushKitchenRecipes(_ recipes: [UserRecipe]) async throws -> PushResult {
         guard let base = URL(string: MacBuildConfig.receiptWorkerURL) else {
             throw MacServiceError.notConfigured("The Stocked Worker URL")
+        }
+        let recipes = recipes.filter { recipe in
+            if let data = recipe.imageData, !data.isEmpty { return true }
+            guard let raw = recipe.imageURL?.nilIfBlank,
+                  let url = URL(string: raw), url.scheme == "https", url.host != nil else { return false }
+            return true
         }
         var pushedRecipes = 0
         var pushedImages = 0

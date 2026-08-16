@@ -3,6 +3,12 @@
 Every push should add an entry here so GitHub carries the build/change history.
 Newest at the top. Keep it plain ASCII (see .gitmessage.txt for the commit rules).
 
+## Build 111 — Retroactive repairs and required images
+
+- Added a versioned historical repair framework that normalizes old Harvester and shared recipes, then reparses every previous source through a durable, finite, resumable backlog.
+- Restored images as a hard requirement for approval, Mac handoff, Worker publication, and household sync; recovered images update existing shared recipes instead of being skipped as duplicates.
+- Added historical repair status, adjustable batch size, and manual resume controls to Recipe Sync.
+
 ## Build 110 — Higher-throughput recipe intake
 
 - Implemented twenty import improvements covering optional images, simpler approval, larger adjustable finite batches, five-source browsing, multi-engine accumulation, stronger URL normalization, content-based duplicate merging, and richer categories.

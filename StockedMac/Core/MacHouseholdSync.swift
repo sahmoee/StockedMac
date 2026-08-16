@@ -667,6 +667,7 @@ final class MacHouseholdSync {
 
         if syncRecipes, let rows = payload["userRecipes"] as? [[String: Any]] {
             let remote = rows.compactMap { decode(UserRecipe.self, from: $0) }
+                .filter { $0.imageData != nil || $0.imageURL?.nilIfBlank != nil }
             let deleted = Set((payload["userRecipeDeleted"] as? [String]) ?? [])
                 .union(pendingRecipeDeletes)
             var merged = store.recipes

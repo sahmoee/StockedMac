@@ -2,9 +2,9 @@
 
 Build 110 implements these twenty changes to simplify intake and retain more valid recipes:
 
-1. Recipes no longer require an image to enter the shared library.
-2. A missing image is advisory in review instead of blocking approval.
-3. Worker payloads omit the local image route when no local image exists, avoiding broken thumbnails.
+1. Images are a hard requirement before a recipe enters the shared library.
+2. Missing images remain visible in Review and block approval until recovered.
+3. Worker payloads never publish recipes with missing images or broken image routes.
 4. Automatic image recovery runs before approved recipes are handed to the shared library.
 5. One valid ingredient is sufficient for a structurally complete recipe.
 6. One valid method step is sufficient for a structurally complete recipe.
@@ -23,4 +23,15 @@ Build 110 implements these twenty changes to simplify intake and retain more val
 19. URL normalization strips a broader set of advertising and newsletter parameters before deduplication.
 20. Identical recipe content now merges by content fingerprint, while same-title recipes from different sources remain allowed.
 
-Mined categories are also enriched with cuisine and diet labels when recipes cross into the shared Mac/iOS model. All limits remain adjustable in Find & Import, cancellation remains recoverable, and rate-limited URLs remain deferred rather than retried in a loop.
+Mined categories are also enriched with cuisine and diet labels when recipes cross into the shared Mac/iOS model. All limits remain adjustable in Find & Import, cancellation remains recoverable, rate-limited URLs remain deferred rather than retried in a loop, and image-less recipes never cross app or cloud boundaries.
+
+## Making future fixes retroactive
+
+Every historical repair is versioned by `HarvestModel.currentRecipeRepairRevision`. When a future model, parser, normalization, attribution, category, or image fix should apply to existing data:
+
+1. Add the local transformation to `RecipeStore.repairExisting()` and/or `HarvestModel.repairSharedRecipeLibrary()`.
+2. Increment `HarvestModel.currentRecipeRepairRevision`.
+3. Build and launch. The app repairs local records once, seeds every historical HTTP source into `retroactive-refresh.txt`, and reparses that durable backlog in adjustable finite batches.
+4. Verify the Recipe Sync screen reaches zero historical sources. Stop is safe: unfinished URLs remain on disk and resume later.
+
+Stocked iOS independently reruns missing-image backfill on every launch until no further progress is possible, so improvements to its image resolver also apply to older database recipes.

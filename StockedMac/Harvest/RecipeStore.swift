@@ -124,6 +124,45 @@ actor RecipeStore {
         try persist()
     }
 
+    /// Applies decode-safe normalization to every historical draft. Future migrations
+    /// belong here and are activated by bumping HarvestModel.currentRecipeRepairRevision.
+    func repairExisting() throws -> Int {
+        try loadIfNeeded()
+        var repaired = 0
+        for index in recipes.indices {
+            var recipe = recipes[index]
+            let before = try? JSONCoding.encoder().encode(recipe)
+            if let parsed = try? URLSafety.validatedRemoteURL(recipe.source.url) {
+                recipe.source.url = URLSafety.normalized(parsed).absoluteString
+            }
+            if let canonical = recipe.source.canonicalURL,
+               let parsed = try? URLSafety.validatedRemoteURL(canonical) {
+                recipe.source.canonicalURL = URLSafety.normalized(parsed).absoluteString
+            }
+            recipe.source.host = URL(string: recipe.source.canonicalURL ?? recipe.source.url)?.host
+                ?? recipe.source.host
+            recipe.source.attribution = SourceAttribution.displayName(
+                host: recipe.source.host,
+                sourceName: recipe.source.attribution,
+                author: recipe.source.author
+            )
+            recipe.categories = recipe.categories.cleanedUnique()
+            recipe.cuisines = recipe.cuisines.cleanedUnique()
+            recipe.diets = recipe.diets.cleanedUnique()
+            recipe.keywords = recipe.keywords.cleanedUnique()
+            recipe.warnings = recipe.warnings.cleanedUnique()
+            recipe.refreshFingerprint()
+            let after = try? JSONCoding.encoder().encode(recipe)
+            if before != after {
+                recipe.updatedAt = Date()
+                recipes[index] = recipe
+                repaired += 1
+            }
+        }
+        if repaired > 0 { try persist() }
+        return repaired
+    }
+
     @discardableResult
     func setReviewState(_ state: ReviewState, for ids: Set<UUID>) throws -> [RecipeDraft] {
         try loadIfNeeded()

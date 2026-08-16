@@ -22,9 +22,10 @@ enum MacHarvestBridge {
     /// only the fallback for personal recipes without a source.
     @discardableResult
     static func add(_ drafts: [RecipeDraft], to store: MacKitchenStore) -> Int {
-        var existingSources = Set(store.recipes.compactMap { recipe in
-            recipe.sourceURL.flatMap { try? URLSafety.validatedRemoteURL($0) }
-                .map { URLSafety.normalized($0).absoluteString }
+        var existingSources: [String: UUID] = Dictionary(uniqueKeysWithValues: store.recipes.compactMap { recipe in
+            guard let key = recipe.sourceURL.flatMap({ try? URLSafety.validatedRemoteURL($0) })
+                .map({ URLSafety.normalized($0).absoluteString }) else { return nil }
+            return (key, recipe.id)
         })
         var personalTitles = Set(store.recipes.filter { $0.sourceURL?.nilIfBlank == nil }
             .map { normalizedTitle($0.title) })
@@ -32,17 +33,40 @@ enum MacHarvestBridge {
         for draft in drafts {
             let titleKey = normalizedTitle(draft.title)
             guard !titleKey.isEmpty else { continue }
+            // A recipe does not cross into either app until its image bytes are usable.
+            guard draft.image?.hasLocalFile == true else { continue }
             let source = draft.source.canonicalURL?.nilIfBlank ?? draft.source.url.nilIfBlank
             let sourceKey = source.flatMap { try? URLSafety.validatedRemoteURL($0) }
                 .map { URLSafety.normalized($0).absoluteString }
             if let sourceKey {
-                guard !existingSources.contains(sourceKey) else { continue }
-                existingSources.insert(sourceKey)
+                if let existingID = existingSources[sourceKey] {
+                    let incoming = userRecipe(from: draft)
+                    store.updateRecipe(id: existingID) { current in
+                        current.title = incoming.title
+                        current.description = incoming.description
+                        current.cookTime = incoming.cookTime
+                        current.prepTime = incoming.prepTime
+                        current.servings = incoming.servings
+                        current.difficulty = incoming.difficulty
+                        current.cuisine = incoming.cuisine
+                        current.tags = incoming.tags
+                        current.categories = incoming.categories
+                        current.ingredients = incoming.ingredients
+                        current.instructions = incoming.instructions
+                        current.notes = incoming.notes
+                        current.sourceURL = incoming.sourceURL
+                        current.sourceName = incoming.sourceName
+                        current.imageURL = incoming.imageURL
+                        current.imageData = incoming.imageData
+                    }
+                    continue
+                }
             } else {
                 guard !personalTitles.contains(titleKey) else { continue }
                 personalTitles.insert(titleKey)
             }
             store.addRecipe(userRecipe(from: draft))
+            if let sourceKey { existingSources[sourceKey] = store.recipes.last?.id }
             added += 1
         }
         return added

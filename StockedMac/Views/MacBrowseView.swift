@@ -911,7 +911,7 @@ struct MacBrowseView: View {
 
     private var readyToSend: [RecipeDraft] {
         harvest.recipes.filter {
-            $0.reviewState == .needsReview && $0.standards.requiredPassed
+            $0.reviewState == .needsReview && $0.standards.requiredPassed && ($0.image?.hasLocalFile ?? false)
         }
     }
 
@@ -921,7 +921,7 @@ struct MacBrowseView: View {
                 .font(.title3).foregroundStyle(MacTheme.green)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Approve & Send to Stocked").font(.callout.weight(.semibold))
-                Text("Approval adds the recipe to the Mac library and Stocked iOS. Images are optional and can be recovered later.")
+                Text("Approval adds the recipe to the Mac library and Stocked iOS after its required image is saved.")
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength: 8)
@@ -972,7 +972,7 @@ struct MacBrowseView: View {
     private var reviewBulkBar: some View {
         let shown = reviewVisible
         let reviewable = shown.filter {
-            $0.reviewState == .needsReview && $0.standards.requiredPassed
+            $0.reviewState == .needsReview && $0.standards.requiredPassed && ($0.image?.hasLocalFile ?? false)
         }
         if shown.count > 1 {
             HStack(spacing: 6) {
@@ -1039,7 +1039,7 @@ struct MacBrowseView: View {
                 .tag(draft.id)
                 .contextMenu {
                     Button("Approve & Send to Stocked") { harvest.setReviewState(.approved, for: [draft.id]) }
-                        .disabled(!draft.standards.requiredPassed)
+                        .disabled(!draft.standards.requiredPassed || !(draft.image?.hasLocalFile ?? false))
                     Button("Reject") { harvest.setReviewState(.rejected, for: [draft.id]) }
                     Divider()
                     Button("Add to Stocked") {

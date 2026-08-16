@@ -368,6 +368,19 @@ private struct MacRecipeSyncView: View {
                     }
                 }
             }
+            Section("Historical repairs") {
+                LabeledContent("Sources remaining", value: "\(harvest.retroactiveRefreshRemaining)")
+                Stepper(value: Binding(
+                    get: { harvest.settings.retroactiveRefreshBatchSize },
+                    set: { harvest.settings.retroactiveRefreshBatchSize = $0; harvest.scheduleSettingsSave() }
+                ), in: 1...100, step: 5) {
+                    Text("Refresh \(harvest.settings.retroactiveRefreshBatchSize) per batch")
+                }
+                Button("Retry historical refresh") { harvest.restartHistoricalRefresh() }
+                    .disabled(harvest.retroactiveRefreshRemaining == 0 || harvest.isImporting)
+                Text("Future repair revisions normalize every saved recipe and reparse old source pages in a durable, shrinking queue. Recipes without recovered images remain excluded from sync.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }.formStyle(.grouped).padding()
     }
 }

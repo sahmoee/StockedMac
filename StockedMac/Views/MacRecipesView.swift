@@ -713,12 +713,14 @@ struct MacRecipeEditor: View {
     @State private var sourceURL = ""
     @State private var categoriesText = ""
     @State private var tagsText = ""
+    @State private var imageURL = ""
     @State private var loaded = false
 
     private let difficulties = ["Easy", "Medium", "Hard"]
 
     private var isValid: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (recipe?.imageData != nil || URL(string: imageURL)?.scheme == "https")
     }
 
     var body: some View {
@@ -753,6 +755,12 @@ struct MacRecipeEditor: View {
                 Section("Original source") {
                     TextField("Publisher or author", text: $sourceName)
                     TextField("Recipe URL", text: $sourceURL)
+                }
+
+                Section("Required image") {
+                    TextField("HTTPS image URL", text: $imageURL)
+                    Text("Every recipe must have an image before it can be saved or synced.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section("Ingredients — one per line, \"name, amount\"") {
@@ -807,6 +815,7 @@ struct MacRecipeEditor: View {
         sourceURL = recipe.sourceURL ?? ""
         categoriesText = (recipe.categories ?? []).joined(separator: ", ")
         tagsText = recipe.tags.joined(separator: ", ")
+        imageURL = recipe.imageURL ?? ""
         ingredientsText = recipe.ingredients
             .map { $0.amount.isEmpty ? $0.name : "\($0.name), \($0.amount)" }
             .joined(separator: "\n")
@@ -828,6 +837,7 @@ struct MacRecipeEditor: View {
         result.sourceURL   = sourceURL.nilIfBlank
         result.categories  = Self.parseList(categoriesText)
         result.tags        = Self.parseList(tagsText)
+        result.imageURL    = imageURL.nilIfBlank
         result.ingredients = Self.parseIngredients(ingredientsText)
         result.instructions = stepsText
             .split(separator: "\n", omittingEmptySubsequences: true)
