@@ -362,12 +362,38 @@ final class HarvestModel {
 
     func reload() async {
         do {
-            let removedDrafts = try await recipeStore.purgeImageLessImports()
-            var removedShared = 0
+            let removedDraftIDs = try await recipeStore.purgeImageLessImports()
+            var removedSharedIDs = Set<UUID>()
             if let kitchen {
+                // Household payloads from older clients may contain only an image URL.
+                // Resolve those candidates before enforcing the byte-level invariant so
+                // a valid full-quality photo is retained and a dead/hotlink-blocked URL
+                // is removed. This runs on every reload but already-valid bytes skip I/O.
+                let before = kitchen.recipes
+                let hydrated = await MacRecipeImagePolicy.hydrate(before)
+                let hydratedByID = Dictionary(hydrated.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                for index in kitchen.recipes.indices {
+                    guard let resolved = hydratedByID[kitchen.recipes[index].id],
+                          !MacRecipeImagePolicy.isUsable(kitchen.recipes[index].imageData) else { continue }
+                    kitchen.recipes[index].imageData = resolved.imageData
+                }
+                if hydrated.count != before.count || hydrated.contains(where: { recipe in
+                    guard let old = before.first(where: { $0.id == recipe.id }) else { return false }
+                    return !MacRecipeImagePolicy.isUsable(old.imageData) && MacRecipeImagePolicy.isUsable(recipe.imageData)
+                }) {
+                    kitchen.save()
+                }
                 let invalid = Set(kitchen.recipes.filter(Self.isImportedWithoutUsableImage).map(\.id))
-                removedShared = invalid.count
+                removedSharedIDs = invalid
                 kitchen.deleteRecipe(ids: invalid)
+            }
+            let removedIDs = removedDraftIDs.union(removedSharedIDs)
+            if !removedIDs.isEmpty {
+                do {
+                    try await HarvestCloudSync.delete(recipeIDs: removedIDs)
+                } catch {
+                    log(.warning, "Local image cleanup succeeded, but shared-cache cleanup will retry: \(error.localizedDescription)")
+                }
             }
             recipes = try await recipeStore.all()
             sources = try await sourceRegistry.all()
@@ -382,8 +408,8 @@ final class HarvestModel {
             }
             statusMessage = "\(recipes.count) recipes • \(sources.count) sources"
             updateDockBadge()
-            if removedDrafts + removedShared > 0 {
-                log(.warning, "Removed \(removedDrafts + removedShared) previously imported recipe\(removedDrafts + removedShared == 1 ? "" : "s") without a usable image.")
+            if !removedIDs.isEmpty {
+                log(.warning, "Removed \(removedIDs.count) previously imported recipe\(removedIDs.count == 1 ? "" : "s") without a usable image.")
             }
         } catch {
             present(error)
@@ -391,11 +417,7 @@ final class HarvestModel {
     }
 
     private static func isImportedWithoutUsableImage(_ recipe: UserRecipe) -> Bool {
-        guard recipe.sourceURL?.nilIfBlank != nil else { return false }
-        if let data = recipe.imageData, !data.isEmpty { return false }
-        guard let raw = recipe.imageURL?.nilIfBlank,
-              let url = URL(string: raw), url.scheme == "https", url.host != nil else { return true }
-        return false
+        !MacRecipeImagePolicy.isUsable(recipe.imageData)
     }
 
     // MARK: - Dashboard

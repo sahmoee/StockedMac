@@ -715,12 +715,14 @@ struct MacRecipeEditor: View {
     @State private var tagsText = ""
     @State private var imageURL = ""
     @State private var loaded = false
+    @State private var isResolvingImage = false
+    @State private var imageError: String?
 
     private let difficulties = ["Easy", "Medium", "Hard"]
 
     private var isValid: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (recipe?.imageData != nil || URL(string: imageURL)?.scheme == "https")
+            && (MacRecipeImagePolicy.isUsable(recipe?.imageData) || URL(string: imageURL)?.scheme == "https")
     }
 
     var body: some View {
@@ -759,8 +761,12 @@ struct MacRecipeEditor: View {
 
                 Section("Required image") {
                     TextField("HTTPS image URL", text: $imageURL)
-                    Text("Every recipe must have an image before it can be saved or synced.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    if let imageError {
+                        Text(imageError).font(.caption).foregroundStyle(.red)
+                    } else {
+                        Text("The image is downloaded and decoded before this recipe can be saved.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("Ingredients — one per line, \"name, amount\"") {
@@ -788,9 +794,14 @@ struct MacRecipeEditor: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(recipe == nil ? "Add" : "Save") { commit() }
+                Button {
+                    Task { await commit() }
+                } label: {
+                    if isResolvingImage { ProgressView().controlSize(.small) }
+                    else { Text(recipe == nil ? "Add" : "Save") }
+                }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!isValid)
+                    .disabled(!isValid || isResolvingImage)
             }
             .padding(14)
         }
@@ -822,7 +833,10 @@ struct MacRecipeEditor: View {
         stepsText = recipe.instructions.joined(separator: "\n")
     }
 
-    private func commit() {
+    private func commit() async {
+        isResolvingImage = true
+        imageError = nil
+        defer { isResolvingImage = false }
         var result = recipe ?? UserRecipe(title: "")
         result.title       = title.trimmingCharacters(in: .whitespacesAndNewlines)
         result.description = summary
@@ -838,6 +852,22 @@ struct MacRecipeEditor: View {
         result.categories  = Self.parseList(categoriesText)
         result.tags        = Self.parseList(tagsText)
         result.imageURL    = imageURL.nilIfBlank
+        if !MacRecipeImagePolicy.isUsable(result.imageData) || result.imageURL != recipe?.imageURL {
+            guard let imageURL = result.imageURL else {
+                imageError = "Add an HTTPS image URL."
+                return
+            }
+            do {
+                result.imageData = try await MacRecipeImagePolicy.download(imageURL, referer: result.sourceURL)
+            } catch {
+                imageError = error.localizedDescription
+                return
+            }
+        }
+        guard MacRecipeImagePolicy.isUsable(result.imageData) else {
+            imageError = "This recipe needs a usable image before it can be saved."
+            return
+        }
         result.ingredients = Self.parseIngredients(ingredientsText)
         result.instructions = stepsText
             .split(separator: "\n", omittingEmptySubsequences: true)

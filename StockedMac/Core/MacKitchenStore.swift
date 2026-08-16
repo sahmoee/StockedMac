@@ -442,6 +442,7 @@ final class MacKitchenStore {
     // MARK: - Recipes
 
     func addRecipe(_ recipe: UserRecipe) {
+        guard MacRecipeImagePolicy.isUsable(recipe.imageData) else { return }
         var copy = recipe
         copy.updatedAt = nowMillis
         copy.lastWriterID = writerID
@@ -451,7 +452,10 @@ final class MacKitchenStore {
 
     func updateRecipe(id: UUID, _ change: (inout UserRecipe) -> Void) {
         guard let index = recipes.firstIndex(where: { $0.id == id }) else { return }
-        change(&recipes[index])
+        var updated = recipes[index]
+        change(&updated)
+        guard MacRecipeImagePolicy.isUsable(updated.imageData) else { return }
+        recipes[index] = updated
         stampRecipe(at: index)
     }
 

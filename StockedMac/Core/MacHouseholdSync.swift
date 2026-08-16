@@ -432,7 +432,7 @@ final class MacHouseholdSync {
         pendingRecipeDeletes.removeAll()
         pendingMealDeletes.removeAll()
 
-        apply(response["household"] as? [String: Any] ?? response, into: store)
+        await apply(response["household"] as? [String: Any] ?? response, into: store)
         lastPulledAt = Date().timeIntervalSince1970 * 1000
         persistIdentity()
         status = .synced(Date())
@@ -470,7 +470,7 @@ final class MacHouseholdSync {
         status = .syncing
         guard let response = await post("/household/pull",
                                         ["code": code, "since": lastPulledAt]) else { return }
-        apply(response["household"] as? [String: Any] ?? response, into: store)
+        await apply(response["household"] as? [String: Any] ?? response, into: store)
         lastPulledAt = Date().timeIntervalSince1970 * 1000
         persistIdentity()
         status = .synced(Date())
@@ -528,9 +528,7 @@ final class MacHouseholdSync {
     private func recipesForPayload(_ store: MacKitchenStore) -> [[String: Any]] {
         // Only sync recipes that have an image — imageless recipes render poorly
         // on iOS and unnecessarily inflate the payload.
-        let withImages = store.recipes.filter { r in
-            r.imageData != nil || (r.imageURL?.nilIfBlank != nil)
-        }
+        let withImages = store.recipes.filter { MacRecipeImagePolicy.isUsable($0.imageData) }
         var dicts = withImages.compactMap(userRecipeDict)
         guard !dicts.isEmpty else { return dicts }
 
@@ -607,7 +605,7 @@ final class MacHouseholdSync {
 
     /// Fold a household payload into the local store. Merge by id, last-write-wins with the
     /// shared tie-break, tombstones applied last so a remote delete beats a stale remote add.
-    private func apply(_ payload: [String: Any]?, into store: MacKitchenStore) {
+    private func apply(_ payload: [String: Any]?, into store: MacKitchenStore) async {
         guard let payload else { return }
 
         if let name = payload["name"] as? String, !name.isEmpty { householdName = name }
@@ -666,8 +664,8 @@ final class MacHouseholdSync {
         }
 
         if syncRecipes, let rows = payload["userRecipes"] as? [[String: Any]] {
-            let remote = rows.compactMap { decode(UserRecipe.self, from: $0) }
-                .filter { $0.imageData != nil || $0.imageURL?.nilIfBlank != nil }
+            let decoded = rows.compactMap { decode(UserRecipe.self, from: $0) }
+            let remote = await MacRecipeImagePolicy.hydrate(decoded)
             let deleted = Set((payload["userRecipeDeleted"] as? [String]) ?? [])
                 .union(pendingRecipeDeletes)
             var merged = store.recipes

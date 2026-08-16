@@ -394,7 +394,11 @@ nonisolated struct AppPaths: Sendable {
 
         return AppPaths(
             root: root,
-            recipesFile: root.appendingPathComponent("recipes.json"),
+            // Harvester drafts and the shared Stocked recipe library are different
+            // Codable schemas. They previously collided at recipes.json, repeatedly
+            // renaming the valid shared library as "corrupt". Keep them permanently
+            // separate; MacKitchenStore remains the sole owner of recipes.json.
+            recipesFile: root.appendingPathComponent("harvest-recipes.json"),
             settingsFile: root.appendingPathComponent("settings.json"),
             logFile: root.appendingPathComponent("log.json"),
             sourcesFile: root.appendingPathComponent("sources.json"),

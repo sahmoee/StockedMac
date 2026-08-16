@@ -198,13 +198,13 @@ enum MacHarvestBridge {
         return lines.joined(separator: "\n")
     }
 
-    /// Preserve original bytes. If an original is too large for the compact household
-    /// payload, sync its source URL instead; iOS deliberately prefers that full-quality
-    /// original and uses embedded data only as an offline fallback.
+    /// Preserve original bytes in the Mac library. Household transport may omit an
+    /// oversized embedded copy, but local display and validation never accept a URL-only
+    /// promise as though it were an image.
     private static func imageData(from image: RecipeImage?) -> Data? {
         guard let path = image?.localPath?.nilIfBlank,
               let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               !data.isEmpty else { return nil }
-        return data.count <= MacHouseholdSync.maxSyncedImageBytes ? data : nil
+        return MacRecipeImagePolicy.isUsable(data) ? data : nil
     }
 }

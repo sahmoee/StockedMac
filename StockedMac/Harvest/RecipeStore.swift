@@ -17,13 +17,12 @@ actor RecipeStore {
     /// Recurring invariant sweep. Harvester records are imports by definition, so an
     /// absent local image makes the record invalid regardless of review state or batch.
     @discardableResult
-    func purgeImageLessImports() throws -> Int {
+    func purgeImageLessImports() throws -> Set<UUID> {
         try loadIfNeeded()
-        let before = recipes.count
+        let removedIDs = Set(recipes.filter { $0.image?.hasLocalFile != true }.map(\.id))
         recipes.removeAll { $0.image?.hasLocalFile != true }
-        let removed = before - recipes.count
-        if removed > 0 { try persist() }
-        return removed
+        if !removedIDs.isEmpty { try persist() }
+        return removedIDs
     }
 
     func count() throws -> Int {
@@ -260,7 +259,7 @@ actor RecipeStore {
             loaded = true
             recipes = []
             throw CompanionError.persistence(
-                "recipes.json could not be read (\(error.localizedDescription)). "
+                "harvest-recipes.json could not be read (\(error.localizedDescription)). "
                     + "It was preserved as \(backup.lastPathComponent) and a new library was started."
             )
         }

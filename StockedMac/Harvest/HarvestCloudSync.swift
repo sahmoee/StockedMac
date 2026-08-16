@@ -93,12 +93,7 @@ enum HarvestCloudSync {
         guard let base = URL(string: MacBuildConfig.receiptWorkerURL) else {
             throw MacServiceError.notConfigured("The Stocked Worker URL")
         }
-        let recipes = recipes.filter { recipe in
-            if let data = recipe.imageData, !data.isEmpty { return true }
-            guard let raw = recipe.imageURL?.nilIfBlank,
-                  let url = URL(string: raw), url.scheme == "https", url.host != nil else { return false }
-            return true
-        }
+        let recipes = recipes.filter { MacRecipeImagePolicy.isUsable($0.imageData) }
         var pushedRecipes = 0
         var pushedImages = 0
 

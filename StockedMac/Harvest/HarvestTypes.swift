@@ -840,7 +840,7 @@ nonisolated extension RecipeImage {
     /// True when the image bytes are actually on disk, not merely promised by a URL.
     var hasLocalFile: Bool {
         guard let path = localPath, !path.isEmpty else { return false }
-        return FileManager.default.fileExists(atPath: path)
+        return ImageStore.isUsableImageFile(at: URL(fileURLWithPath: path))
     }
 }
 
