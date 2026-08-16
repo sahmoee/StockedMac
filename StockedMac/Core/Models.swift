@@ -218,6 +218,11 @@ nonisolated struct UserRecipe: Identifiable, Codable, Sendable, Equatable {
     var notes:        String   = ""
     var imageData:    Data?
     var imageURL:     String?
+    /// Additive source metadata shared with iOS. Optional fields keep every legacy
+    /// on-disk and household payload decode-compatible.
+    var sourceURL:    String?   = nil
+    var sourceName:   String?   = nil
+    var categories:   [String]? = nil
     var isFavorited:  Bool     = false
     var dateCreated:  Date     = Date()
     var cookCount:    Int      = 0          // how many times this recipe has been cooked

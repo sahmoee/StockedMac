@@ -345,40 +345,8 @@ actor DiscoveryEngine {
             if !recipeURLs.isEmpty { break }
         }
 
-        // Build 102: a recipe — not just a cached category — must always be the goal.
-        // If the whole chain (plus its budgeted mining) still found nothing to confirm
-        // or even check, keep opening the categories it already knows about, one at a
-        // time, until a real recipe turns up or every known hub has been tried. This is
-        // what guarantees a run always ends with something importable instead of just a
-        // list of browseable, unmined hub pages.
-        if recipeURLs.isEmpty, unverifiedURLs.isEmpty, !minedCategories.isEmpty {
-            let unmined = minedCategories.indices.filter { minedCategories[$0].recipeURLs.isEmpty }
-            if !unmined.isEmpty {
-                notes.append("Nothing confirmed yet; opening more of the \(minedCategories.count) known categories to find a real recipe.")
-            }
-            for index in unmined {
-                if Task.isCancelled { break }
-                guard let url = URL(string: minedCategories[index].url) else { continue }
-                do {
-                    let page = try await fetcher.fetch(
-                        url, source: source, settings: settings,
-                        accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
-                    )
-                    var recSeen = Set<String>()
-                    let recipes = Self.extractLinks(from: page.text, base: page.finalURL)
-                        .filter { Self.classify($0, source: source) == .recipe && recSeen.insert($0).inserted }
-                    if !recipes.isEmpty {
-                        minedCategories[index].recipeURLs = recipes
-                        recipeURLs.append(contentsOf: recipes)
-                        notes.append("Found \(recipes.count) recipe(s) on \(minedCategories[index].name) — a run never ends with only cached categories.")
-                        break
-                    }
-                } catch is CancellationError {
-                    break
-                } catch {
-                    continue
-                }
-            }
+        if recipeURLs.isEmpty, !minedCategories.isEmpty {
+            notes.append("No recipe was confirmed within this scan budget. Cached categories remain available for a later targeted scan.")
         }
 
         // Dedupe, drop what's already imported, cap to the run budget — loudly.
@@ -387,9 +355,10 @@ actor DiscoveryEngine {
         if settings.skipAlreadyImported {
             deduplicated = deduplicated.filter { !knownSourceURLs.contains($0) }
         }
-        if deduplicated.count > level.candidateCap {
-            notes.append("Capped at \(level.candidateCap) of \(deduplicated.count) candidates (\(level.label) speed).")
-            deduplicated = Array(deduplicated.prefix(level.candidateCap))
+        let candidateLimit = max(1, min(level.candidateCap, settings.scanLimit))
+        if deduplicated.count > candidateLimit {
+            notes.append("Capped at \(candidateLimit) of \(deduplicated.count) candidates (your scan limit).")
+            deduplicated = Array(deduplicated.prefix(candidateLimit))
         }
 
         let confirmed = deduplicated.map { DiscoveredLink(url: $0, title: nil, imageURL: nil) }

@@ -32,13 +32,6 @@ struct MacCommands: Commands {
 
             Divider()
 
-            Button("Import from a Stocked backup…") { runImport() }
-                .keyboardShortcut("o", modifiers: .command)
-            Button("Export a backup…") { runExport() }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-
-            Divider()
-
             // Recipes as a spreadsheet, and the same spreadsheet back again as a removal
             // list. No shortcut on the removal item: it is destructive, and every
             // convenient chord is already spoken for.
@@ -50,62 +43,26 @@ struct MacCommands: Commands {
         // Section switching, in the order the sidebar shows them.
         CommandGroup(after: .sidebar) {
             Divider()
-            ForEach(MacSection.allCases) { section in
+            ForEach(MacSection.recipeManagerSections) { section in
                 Button(section.rawValue) { navigation.section = section }
                     .keyboardShortcut(section.shortcut, modifiers: .command)
             }
         }
 
-        // Everything kitchen-shaped, in its own top-level menu. A Mac app is allowed a
-        // domain menu, and burying "Sync now" under View would be worse than adding one.
-        CommandMenu("Kitchen") {
-            Button("Sync now") {
-                Task { await sync.syncNow(store: store) }
+        CommandMenu("Recipes") {
+            Button("Sync recipes now") {
+                Task {
+                    await sync.syncNow(store: store)
+                    harvest.syncKitchenToCloud(store.recipes)
+                }
             }
             .keyboardShortcut("r", modifiers: .command)
             .disabled(!sync.isJoined || sync.status.isBusy)
 
-            Button("Refresh household") {
-                Task { await sync.refreshPresence() }
-            }
-            .disabled(!sync.isJoined)
-
-            // The escape hatch, mirrored from the Household screen. Someone who has just
-            // joined on this Mac and can't see the phone's food will look in the menus
-            // before they look for a button.
-            Button("Pull everything down again") {
+            Button("Pull all recipes down again") {
                 Task { await sync.resyncEverything(into: store) }
             }
             .disabled(!sync.isJoined || sync.status.isBusy)
-
-            Divider()
-
-            Button("What can I cook right now?") { navigation.section = .cook }
-                .keyboardShortcut("k", modifiers: [.command, .shift])
-
-            Divider()
-
-            Button("Ask for a recipe…") { navigation.recipeAIMode = .ask }
-                .keyboardShortcut("g", modifiers: .command)
-
-            Button("Bring a recipe in…") { navigation.recipeAIMode = .bring }
-                .keyboardShortcut("i", modifiers: [.command, .shift])
-
-            Divider()
-
-            Button("Put checked groceries away") {
-                store.stockCheckedGrocery()
-            }
-            .keyboardShortcut("p", modifiers: [.command, .shift])
-            .disabled(!store.grocery.contains { $0.isChecked })
-
-            Button("Clear checked items") { store.clearCheckedGrocery() }
-                .disabled(!store.grocery.contains { $0.isChecked })
-
-            Divider()
-
-            Button("Add everything I'm low on to the list") { addLowStockToList() }
-                .disabled(store.lowStock.isEmpty)
         }
 
         // The Harvester's own actions, kept under one menu the way the standalone

@@ -129,6 +129,7 @@ struct MacBrowseView: View {
         .onChange(of: harvest.isDiscovering) {
             if harvest.isDiscovering { selectedFoundLinks.removeAll() }
         }
+        .onChange(of: harvest.importText) { harvest.persistImportQueue() }
     }
 
     // MARK: - Pane switcher
@@ -399,6 +400,14 @@ struct MacBrowseView: View {
 
                 findButtonRow
 
+                Stepper(value: Binding(
+                    get: { harvest.settings.scanLimit },
+                    set: { harvest.settings.scanLimit = $0; harvest.scheduleSettingsSave() }
+                ), in: 5...500, step: 5) {
+                    Text("Scan up to \(harvest.settings.scanLimit) recipes")
+                        .font(.caption)
+                }
+
                 if selectedSources.count > 3 {
                     Label("Only the first 3 selected sources will be checked in this pass.", systemImage: "info.circle")
                         .font(.caption2).foregroundStyle(.orange)
@@ -506,8 +515,16 @@ struct MacBrowseView: View {
                     }
                     .font(.callout)
                 } else {
+                    Stepper(value: Binding(
+                        get: { harvest.settings.importBatchSize },
+                        set: { harvest.settings.importBatchSize = $0; harvest.scheduleSettingsSave() }
+                    ), in: 1...200, step: 5) {
+                        Text("Import \(harvest.settings.importBatchSize) per batch")
+                            .font(.caption)
+                    }
                     HStack(spacing: 6) {
-                        Button("Import \(harvest.queuedURLCount)") { harvest.importURLs() }
+                        let count = min(harvest.queuedURLCount, harvest.settings.importBatchSize)
+                        Button("Import \(count)") { harvest.importURLs() }
                             .buttonStyle(.borderedProminent).controlSize(.large)
                         Spacer(minLength: 0)
                         Button { harvest.clearQueue() } label: {
@@ -713,7 +730,7 @@ struct MacBrowseView: View {
         }
         // Keep discovery useful and finite. A source can expose thousands of archive
         // URLs; showing a focused batch prevents Browse from becoming another mine.
-        return Array(result.prefix(60))
+        return Array(result.prefix(max(1, harvest.settings.scanLimit)))
     }
 
     private func foundRecipeRow(_ link: DiscoveredLink) -> some View {

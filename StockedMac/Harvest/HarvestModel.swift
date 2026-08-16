@@ -212,6 +212,9 @@ final class HarvestModel {
     /// URLs that failed this run and are eligible for one retry.
     @ObservationIgnored private var retryQueue: [String] = []
     @ObservationIgnored private var isRetryPass = false
+    /// URLs owned by the current batch but not yet resolved. Cancellation puts these
+    /// back at the front of the durable queue instead of losing them.
+    @ObservationIgnored private var activeImportPending: Set<String> = []
 
     /// The kitchen this Harvester feeds. Set once at launch by `StockedMacApp`.
     ///
@@ -250,6 +253,7 @@ final class HarvestModel {
             initialSettings = .defaults
         }
         settings = initialSettings
+        importText = (try? String(contentsOf: resolved.paths.importQueueFile, encoding: .utf8)) ?? ""
 
         recipeStore = RecipeStore(fileURL: resolved.paths.recipesFile)
         settingsStore = SettingsStore(fileURL: resolved.paths.settingsFile)
@@ -410,6 +414,7 @@ final class HarvestModel {
         let batch = (batchSize > 0 && all.count > batchSize) ? Array(all.prefix(batchSize)) : all
         let rest = Array(all.dropFirst(batch.count))
         importText = rest.joined(separator: "\n")
+        persistImportQueue()
         if !rest.isEmpty {
             log(.info, "Importing \(batch.count) URLs; \(rest.count) stay queued for the next batch.")
         }
@@ -425,23 +430,30 @@ final class HarvestModel {
             .compactMap { try? URLSafety.validatedRemoteURL($0) }
             .map { URLSafety.normalized($0).absoluteString }
             .filter { seen.insert($0).inserted }
-        beginImport(urls, parserModeOverride: parserModeOverride)
+        let batchSize = max(1, settings.importBatchSize)
+        let batch = Array(urls.prefix(batchSize))
+        let remainder = Array(urls.dropFirst(batch.count))
+        if !remainder.isEmpty { _ = prependImportURLs(remainder) }
+        beginImport(batch, parserModeOverride: parserModeOverride)
     }
 
     /// Appends URLs to the import box without disturbing what is already typed.
     func appendImportURLs(_ rawURLs: [String]) {
         let existing = Set(parsedImportURLs())
         var seen = Set<String>()
+        let available = max(0, settings.queueCap - existing.count)
         let additions = rawURLs
             .compactMap { try? URLSafety.validatedRemoteURL($0) }
             .map { URLSafety.normalized($0).absoluteString }
             .filter { seen.insert($0).inserted && !existing.contains($0) }
+            .prefix(available)
         guard !additions.isEmpty else {
             statusMessage = "No new recipe URLs were found in that."
             return
         }
         let prefix = importText.nilIfBlank.map { $0 + "\n" } ?? ""
         importText = prefix + additions.joined(separator: "\n")
+        persistImportQueue()
         statusMessage = "Added \(additions.count) URL\(additions.count == 1 ? "" : "s")"
     }
 
@@ -454,14 +466,27 @@ final class HarvestModel {
     func prependImportURLs(_ rawURLs: [String]) -> Int {
         let existing = Set(parsedImportURLs())
         var seen = Set<String>()
+        let available = max(0, settings.queueCap - existing.count)
         let additions = rawURLs
             .compactMap { try? URLSafety.validatedRemoteURL($0) }
             .map { URLSafety.normalized($0).absoluteString }
             .filter { seen.insert($0).inserted && !existing.contains($0) }
+            .prefix(available)
         guard !additions.isEmpty else { return 0 }
         let suffix = importText.nilIfBlank.map { "\n" + $0 } ?? ""
         importText = additions.joined(separator: "\n") + suffix
+        persistImportQueue()
         return additions.count
+    }
+
+    /// Saves the queue independently of app settings and recipe data. The Browse text
+    /// editor calls this as it changes, and every programmatic queue mutation calls it.
+    func persistImportQueue() {
+        do {
+            try Data(importText.utf8).write(to: paths.importQueueFile, options: .atomic)
+        } catch {
+            log(.warning, "Could not cache the import queue: \(error.localizedDescription)")
+        }
     }
 
     /// Pulls every http(s) URL out of the clipboard, whatever it is wrapped in.
@@ -547,6 +572,7 @@ final class HarvestModel {
         }
 
         isImporting = true
+        activeImportPending = Set(urls)
         importProgress = ImportProgress(
             completed: 0, total: urls.count, succeeded: 0, failed: 0, currentURL: nil
         )
@@ -565,6 +591,7 @@ final class HarvestModel {
                 let before = urls.count
                 urls = urls.filter { !known.contains($0) }
                 let skipped = before - urls.count
+                self?.activeImportPending.formIntersection(urls)
                 if skipped > 0 {
                     self?.importProgress.total = urls.count
                     self?.log(.info, "Skipped \(skipped) URL\(skipped == 1 ? "" : "s") already in the library.")
@@ -641,10 +668,11 @@ final class HarvestModel {
                 self.retryQueue.removeAll()
                 self.pendingAutoApproval.removeAll()
                 self.isRetryPass = false
-                if !self.minedURLs.isEmpty {
-                    self.log(.warning, "Stopped — discarded \(self.minedURLs.count) freshly mined links. What imported so far is kept; browse again to re-find the rest.")
-                    self.minedURLs.removeAll()
-                }
+                let recoverable = Array(self.activeImportPending) + self.pendingManualImportURLs + self.minedURLs
+                self.pendingManualImportURLs.removeAll()
+                self.minedURLs.removeAll()
+                let restored = self.prependImportURLs(recoverable)
+                self.log(.info, "Stopped safely — restored \(restored) unfinished or newly mined link\(restored == 1 ? "" : "s") to the queue.")
                 await self.reload()
             } else {
                 await self.finishImportRun()
@@ -683,6 +711,7 @@ final class HarvestModel {
     }
 
     private func record(_ outcome: ImportOutcome) {
+        activeImportPending.remove(outcome.url)
         importProgress.completed += 1
         importProgress.currentURL = outcome.url
         let host = URL(string: outcome.url)?.host?.lowercased()
@@ -719,7 +748,9 @@ final class HarvestModel {
             // A cancelled import is the user's decision, not a failure — no red row.
         } else if !outcome.mined.isEmpty {
             importProgress.failed += 1
-            log(.info, "Skipped category page.", url: outcome.url)
+            persistMinedLinks(outcome.mined, for: outcome.url)
+            let added = prependImportURLs(outcome.mined)
+            log(.info, "Category page cached; queued \(added) newly found recipe link\(added == 1 ? "" : "s").", url: outcome.url)
         } else {
             importProgress.failed += 1
             if let host, Self.countsTowardHostCircuitBreaker(outcome.error) {
@@ -748,7 +779,10 @@ final class HarvestModel {
                 // network outage and must never suppress hundreds of later recipes.
                 hostFailureStreaks[host] = 0
             }
-            if settings.retryFailedImports, !isRetryPass, Self.isRetryable(outcome.error) {
+            if Self.isRateLimited(outcome.error) {
+                _ = prependImportURLs([outcome.url])
+                log(.warning, "Rate limited; deferred this URL to a later import instead of retrying in a loop.", url: outcome.url)
+            } else if settings.retryFailedImports, !isRetryPass, Self.isRetryable(outcome.error) {
                 retryQueue.append(outcome.url)
             } else if !lastFailures.contains(where: { $0.url == outcome.url }) {
                 lastFailures.append(ImportFailure(url: outcome.url, reason: outcome.error ?? "Import failed"))
@@ -769,8 +803,12 @@ final class HarvestModel {
             || message.contains("network")
             || message.contains("connection")
             || message.contains("http 5")
-            || message.contains("http 429")
             || message.contains("could not be read")
+    }
+
+    private static func isRateLimited(_ message: String?) -> Bool {
+        guard let message = message?.lowercased() else { return false }
+        return message.contains("http 429") || message.contains("rate limit")
     }
 
     /// Only transport/access failures participate in the per-host breaker. Parser and
@@ -1140,6 +1178,7 @@ final class HarvestModel {
         }
         let prefix = importText.nilIfBlank.map { $0 + "\n" } ?? ""
         importText = prefix + additions.joined(separator: "\n")
+        persistImportQueue()
         statusMessage = "Queued \(additions.count) verified recipe URL\(additions.count == 1 ? "" : "s")"
     }
 
@@ -1873,7 +1912,7 @@ final class HarvestModel {
     /// guided flow safe by default: pasted/listing pages are verified and mined before
     /// import, while Automatic remains an explicit choice in Browse.
     private func migrateSettingsIfNeeded() {
-        guard settings.settingsRevision < 6 else { return }
+        guard settings.settingsRevision < 7 else { return }
         var changes: [String] = []
         if settings.settingsRevision < 2 {
             if settings.userAgent == AppSettings.legacyUserAgent {
@@ -1900,7 +1939,12 @@ final class HarvestModel {
             settings.cloudSyncEnabled = true
             changes.append("approved recipes now publish to the shared Stocked recipe database automatically")
         }
-        settings.settingsRevision = 6
+        if settings.settingsRevision < 7 {
+            settings.scanLimit = 50
+            if settings.importBatchSize == 0 { settings.importBatchSize = 25 }
+            changes.append("browse and import now use explicit finite batches and preserve stopped work")
+        }
+        settings.settingsRevision = 7
         scheduleSettingsSave()
         log(.info, "New Browse flow defaults applied: \(changes.joined(separator: "; ")).")
     }
@@ -1950,6 +1994,7 @@ final class HarvestModel {
     }
 
     private func noteBreakerSkip(_ url: String) {
+        activeImportPending.remove(url)
         skippedByBreaker += 1
         importProgress.completed += 1
         importProgress.currentURL = url
@@ -1989,6 +2034,7 @@ final class HarvestModel {
                 keep.append(url)
             }
             importText = keep.joined(separator: "\n")
+            persistImportQueue()
             let removed = duplicates + alreadyImported + failedEarlier + invalid
             statusMessage = removed == 0
                 ? "Queue is clean — \(keep.count) unique new URLs."
@@ -2003,6 +2049,7 @@ final class HarvestModel {
         guard entries.contains(url) else { return }
         rememberQueueForUndo()
         importText = entries.filter { $0 != url }.joined(separator: "\n")
+        persistImportQueue()
         statusMessage = "Removed 1 URL · \(queuedURLCount) remain"
     }
 
@@ -2015,6 +2062,7 @@ final class HarvestModel {
         let value = entries.remove(at: index)
         entries.insert(value, at: 0)
         importText = entries.joined(separator: "\n")
+        persistImportQueue()
         statusMessage = "Moved that recipe to the front of the queue."
     }
 
@@ -2022,6 +2070,7 @@ final class HarvestModel {
         guard !importText.isEmpty else { return }
         rememberQueueForUndo()
         importText = ""
+        persistImportQueue()
         statusMessage = "Queue cleared. Undo is available."
     }
 
@@ -2031,6 +2080,7 @@ final class HarvestModel {
         guard let previous = queueUndoText else { return }
         let current = importText
         importText = previous
+        persistImportQueue()
         queueUndoText = current
         statusMessage = "Queue restored · \(queuedURLCount) URL\(queuedURLCount == 1 ? "" : "s")"
     }
@@ -2212,8 +2262,12 @@ final class HarvestModel {
                         if let resolvedURL, resolvedURL != url {
                             self?.log(.success, "Web Story resolved to its publisher recipe page.", url: resolvedURL)
                         }
-                    case .listing:
+                    case .listing(let mined):
                         dropped += 1
+                        self?.persistMinedLinks(mined, for: url)
+                        for found in mined where !keep.contains(found) && !rest.contains(found) {
+                            keep.append(found)
+                        }
                         self?.bulkVerifyProgress.failed += 1
                         self?.log(.info, "Category page — not a recipe, skipped.", url: url)
                     case .other:
@@ -2238,6 +2292,7 @@ final class HarvestModel {
                 final = Array(final.prefix(self.settings.queueCap))
             }
             self.importText = final.joined(separator: "\n")
+            self.persistImportQueue()
             self.isBulkVerifying = false
             self.bulkVerifyTask = nil
             var summary = "Verified \(batch.count): kept \(keep.count)"
@@ -2515,7 +2570,7 @@ final class HarvestModel {
             return
         }
         let chosen: [String] = sourceIDs.isEmpty
-            ? eligible.map(\.id)
+            ? Array(eligible.map(\.id).prefix(max(1, settings.autoRotateSourceCount)))
             : eligible.map(\.id).filter { sourceIDs.contains($0) }
         guard !chosen.isEmpty else {
             discoveryFailure = "None of the selected sources can browse."

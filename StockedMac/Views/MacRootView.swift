@@ -28,6 +28,10 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
     /// recovery, cloud cache. Build 100 folds the review library in too, so Browse
     /// is now the single place recipes are found, imported, AND approved.
     case browse    = "Browse"
+    case categories = "Categories"
+    case sync = "Recipe Sync"
+
+    static let recipeManagerSections: [MacSection] = [.recipes, .browse, .categories, .sync]
 
     var id: String { rawValue }
 
@@ -43,6 +47,8 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
         case .tools:     return "wrench.and.screwdriver"
         case .household: return "person.2"
         case .browse:    return "globe"
+        case .categories: return "square.grid.2x2"
+        case .sync: return "arrow.triangle.2.circlepath"
         }
     }
 
@@ -59,6 +65,8 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
         case .tools:     return "8"
         case .household: return "9"
         case .browse:    return "b"
+        case .categories: return "3"
+        case .sync: return "4"
         }
     }
 }
@@ -72,7 +80,7 @@ nonisolated enum MacRecipeAIMode: Sendable {
 @MainActor
 @Observable
 final class MacNavigation {
-    var section: MacSection = .home
+    var section: MacSection = .recipes
     /// Raised by ⌘N and the toolbar's + button; each section decides what "new" means.
     var isAddingItem = false
     var searchText = ""
@@ -108,15 +116,25 @@ struct MacRootView: View {
             guard sync.isJoined, !sync.status.isBusy else { return }
             Task { await sync.pull(into: store) }
         }
+        .onAppear {
+            sync.syncInventory = false
+            sync.syncGrocery = false
+            sync.syncPlan = false
+            sync.syncRecipes = true
+            sync.persistPreferences()
+            if !MacSection.recipeManagerSections.contains(navigation.section) {
+                navigation.section = .recipes
+            }
+        }
     }
 
     // MARK: - Sidebar
 
     private var sidebar: some View {
         List(selection: Binding(get: { navigation.section },
-                                set: { navigation.section = $0 ?? .home })) {
-            Section("Kitchen") {
-                ForEach(MacSection.allCases) { section in
+                                set: { navigation.section = $0 ?? .recipes })) {
+            Section("Recipe Manager") {
+                ForEach(MacSection.recipeManagerSections) { section in
                     Label {
                         HStack {
                             Text(section.rawValue)
@@ -166,6 +184,10 @@ struct MacRootView: View {
             let queued = harvest.queuedURLCount
             return queued > 0 ? "\(queued)" : nil
         case .household:
+            return sync.isJoined ? "\(max(1, sync.members.count))" : nil
+        case .categories:
+            return harvest.allCategories.isEmpty ? nil : "\(harvest.allCategories.count)"
+        case .sync:
             return sync.isJoined ? "\(max(1, sync.members.count))" : nil
         }
     }
@@ -224,6 +246,8 @@ struct MacRootView: View {
         case .tools:     MacToolsView()
         case .household: MacHouseholdView()
         case .browse:    MacBrowseView()
+        case .categories: MacRecipeCategoriesView()
+        case .sync: MacRecipeSyncView()
         }
     }
 
@@ -243,10 +267,7 @@ struct MacRootView: View {
     }
 
     private var supportsAdding: Bool {
-        switch navigation.section {
-        case .home, .cook, .insights, .tools, .household, .browse: return false
-        default: return true
-        }
+        navigation.section == .recipes
     }
 
     private var addLabel: String {
@@ -257,5 +278,96 @@ struct MacRootView: View {
         case .plan:      return "Plan a meal"
         default:         return "Add"
         }
+    }
+}
+
+private struct MacRecipeCategoriesView: View {
+    @Environment(HarvestModel.self) private var harvest
+    @State private var search = ""
+
+    private var categories: [SourceCategory] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return harvest.allCategories }
+        return harvest.allCategories.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+                || $0.sourceName.localizedCaseInsensitiveContains(query)
+                || ($0.group?.localizedCaseInsensitiveContains(query) ?? false)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                TextField("Search categories", text: $search).textFieldStyle(.roundedBorder)
+                Spacer()
+                Button("Import all cached") { harvest.importAllReadyCategories() }
+                    .disabled(harvest.readyCategoryCount == 0 || harvest.isImporting)
+            }.padding()
+            Divider()
+            if categories.isEmpty {
+                MacEmpty(title: "No mined categories yet",
+                         message: "Find recipes from a website. Categories discovered during that bounded scan are cached here automatically.",
+                         systemImage: "square.grid.2x2")
+            } else {
+                List(categories) { category in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(category.name).font(.headline)
+                            Text("\(category.sourceName) · \(category.group ?? "Other")")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text(category.isReady ? "\(category.recipeCount) cached" : "Not scanned")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button(category.isReady ? "Import" : "Scan") {
+                            harvest.importCategory(category)
+                        }.disabled(harvest.isImporting)
+                    }.padding(.vertical, 3)
+                }
+            }
+        }
+    }
+}
+
+private struct MacRecipeSyncView: View {
+    @Environment(MacKitchenStore.self) private var store
+    @Environment(MacHouseholdSync.self) private var sync
+    @Environment(HarvestModel.self) private var harvest
+    @State private var code = ""
+    @State private var name = ""
+
+    var body: some View {
+        Form {
+            Section("Stocked iOS recipe sync") {
+                Text("This Mac shares only recipes. Inventory, groceries, and meal plans stay out of this app.")
+                    .foregroundStyle(.secondary)
+                if sync.isJoined {
+                    LabeledContent("Household", value: sync.householdName.nilIfBlank ?? sync.code)
+                    LabeledContent("Status", value: sync.status.message)
+                    LabeledContent("Recipes", value: "\(store.recipes.count)")
+                    Button("Sync recipes now") {
+                        Task {
+                            await sync.syncNow(store: store)
+                            harvest.syncKitchenToCloud(store.recipes)
+                        }
+                    }.disabled(sync.status.isBusy)
+                    ForEach(sync.members) { member in
+                        Label("\(member.name) · \(member.displayLabel)",
+                              systemImage: member.isOnline ? "circle.fill" : "circle")
+                    }
+                } else {
+                    TextField("Your name", text: $name)
+                    TextField("Household code from Stocked iOS", text: $code)
+                    Button("Join and sync recipes") {
+                        Task {
+                            if await sync.join(code: code, as: name) {
+                                await sync.resyncEverything(into: store)
+                                harvest.syncKitchenToCloud(store.recipes)
+                            }
+                        }
+                    }
+                }
+            }
+        }.formStyle(.grouped).padding()
     }
 }

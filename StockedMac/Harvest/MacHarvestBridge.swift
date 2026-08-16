@@ -74,10 +74,17 @@ enum MacHarvestBridge {
 
         recipe.cuisine = draft.cuisines.first ?? ""
         recipe.tags = tags(for: draft)
+        recipe.categories = draft.categories.cleanedUnique()
         recipe.ingredients = ingredients(from: draft.ingredientSections)
         recipe.instructions = instructions(from: draft.instructionSections)
         recipe.notes = notes(for: draft)
         recipe.imageURL = draft.image?.originalURL
+        recipe.sourceURL = draft.source.canonicalURL?.nilIfBlank ?? draft.source.url.nilIfBlank
+        recipe.sourceName = SourceAttribution.displayName(
+            host: draft.source.host,
+            sourceName: draft.source.attribution,
+            author: draft.source.author
+        )
         recipe.imageData = imageData(from: draft.image)
         return recipe
     }

@@ -356,6 +356,7 @@ nonisolated struct AppPaths: Sendable {
     let miningResultCache: URL
     let categoryCatalog: URL
     let lastDiscoveryReport: URL
+    let importQueueFile: URL
     
     static func liveOrTemporary() -> (paths: AppPaths, warning: String?) {
         let appSupport = FileManager.default.urls(
@@ -402,7 +403,8 @@ nonisolated struct AppPaths: Sendable {
             sourceDiscoveryCache: sourceDiscoveryCache,
             miningResultCache: miningResultCache,
             categoryCatalog: categoryCatalog,
-            lastDiscoveryReport: root.appendingPathComponent("last-discovery.json")
+            lastDiscoveryReport: root.appendingPathComponent("last-discovery.json"),
+            importQueueFile: root.appendingPathComponent("import-queue.txt")
         )
     }
     

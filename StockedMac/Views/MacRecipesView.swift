@@ -13,35 +13,24 @@ import SwiftUI
 struct MacRecipesView: View {
     @Environment(MacKitchenStore.self) private var store
     @Environment(MacNavigation.self) private var navigation
+    @Environment(HarvestModel.self) private var harvest
     @Environment(\.colorScheme) private var scheme
 
     @State private var selection: UUID?
     @State private var search = ""
     @State private var sort: Sort = .name
-    @State private var availability: Availability = .all
     @State private var favoritesOnly = false
     @State private var selectedCuisine = ""
     @State private var selectedTag = ""
     @State private var selectedDifficulty = ""
     @State private var selectedRole = ""
     @State private var editingID: UUID?
-    @State private var planning: UserRecipe?
     @FocusState private var searchFocused: Bool
 
     private enum Sort: String, CaseIterable, Identifiable {
         case name     = "Name"
         case recent   = "Recently added"
-        case cookable = "Fewest missing"
         case favorites = "Favorites first"
-        case cooked = "Most cooked"
-        var id: String { rawValue }
-    }
-
-    private enum Availability: String, CaseIterable, Identifiable {
-        case all = "Any availability"
-        case ready = "Ready to cook"
-        case close = "Missing 1–2"
-        case shopping = "Needs shopping"
         var id: String { rawValue }
     }
 
@@ -83,31 +72,12 @@ struct MacRecipesView: View {
         if !selectedRole.isEmpty {
             items = items.filter { $0.dishRole.rawValue == selectedRole }
         }
-        switch availability {
-        case .all: break
-        case .ready: items = items.filter { store.missingIngredients(for: $0).isEmpty }
-        case .close: items = items.filter { (1...2).contains(store.missingIngredients(for: $0).count) }
-        case .shopping: items = items.filter { !store.missingIngredients(for: $0).isEmpty }
-        }
-
         switch sort {
         case .name:   items.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         case .recent: items.sort { $0.dateCreated > $1.dateCreated }
-        case .cookable:
-            items.sort {
-                let left  = store.missingIngredients(for: $0).count
-                let right = store.missingIngredients(for: $1).count
-                if left != right { return left < right }
-                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-            }
         case .favorites:
             items.sort {
                 if $0.isFavorited != $1.isFavorited { return $0.isFavorited }
-                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-            }
-        case .cooked:
-            items.sort {
-                if $0.cookCount != $1.cookCount { return $0.cookCount > $1.cookCount }
                 return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
             }
         }
@@ -121,7 +91,6 @@ struct MacRecipesView: View {
 
     private var activeFilterCount: Int {
         (search.nilIfBlank == nil ? 0 : 1)
-            + (availability == .all ? 0 : 1)
             + (favoritesOnly ? 1 : 0)
             + (selectedCuisine.isEmpty ? 0 : 1)
             + (selectedTag.isEmpty ? 0 : 1)
@@ -140,9 +109,7 @@ struct MacRecipesView: View {
             Divider()
             Group {
                 if let recipe = current {
-                    MacRecipeDetail(recipe: recipe,
-                                    onEdit: { editingID = recipe.id },
-                                    onPlan: { planning = recipe })
+                    MacRecipeDetail(recipe: recipe, onEdit: { editingID = recipe.id })
                 } else if store.recipes.isEmpty {
                     MacEmpty(title: "No recipes yet",
                              message: "Add one with the + button, or join your household to bring "
@@ -170,8 +137,8 @@ struct MacRecipesView: View {
                 store.updateRecipe(id: recipe.id) { $0 = updated }
             }
         }
-        .sheet(item: $planning) { recipe in
-            MacPlanRecipeSheet(recipe: recipe)
+        .onChange(of: store.recipes.map { "\($0.id):\($0.updatedAt)" }) {
+            harvest.syncKitchenToCloud(store.recipes)
         }
         .onChange(of: rows.map(\.id)) {
             let ids = Set(rows.map(\.id))
@@ -243,11 +210,6 @@ struct MacRecipesView: View {
                         Button(recipe.isFavorited ? "Remove from favourites" : "Add to favourites") {
                             store.toggleFavorite(recipeID: recipe.id)
                         }
-                        Button("Plan this…") { planning = recipe }
-                        Divider()
-                        Button("Add what's missing to the list") {
-                            store.addMissingIngredients(for: recipe)
-                        }
                         Button("Copy ingredients") { copyIngredients(recipe) }
                         Divider()
                         Button("Delete", role: .destructive) {
@@ -283,8 +245,7 @@ struct MacRecipesView: View {
     }
 
     private func indexRow(_ recipe: UserRecipe) -> some View {
-        let missing = store.missingIngredients(for: recipe)
-        return HStack(spacing: 9) {
+        HStack(spacing: 9) {
             recipeThumbnail(recipe, size: 44)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
@@ -296,16 +257,8 @@ struct MacRecipesView: View {
                     Text(recipe.title).font(.callout.weight(.medium)).lineLimit(1)
                 }
                 HStack(spacing: 6) {
-                    if missing.isEmpty {
-                        Label("ready", systemImage: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(MacTheme.green)
-                            .labelStyle(.titleAndIcon)
-                    } else {
-                        Text("needs \(missing.count)")
-                            .font(.caption)
-                            .foregroundStyle(missing.count <= 2 ? MacTheme.low : .secondary)
-                    }
+                    Text(recipe.sourceName?.nilIfBlank ?? "Personal recipe")
+                        .font(.caption).foregroundStyle(.secondary)
                     if !recipe.cookTime.isEmpty {
                         Text("· \(recipe.cookTime)").font(.caption).foregroundStyle(.secondary)
                     }
@@ -324,14 +277,11 @@ struct MacRecipesView: View {
         }
         .padding(.vertical, 3)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(recipe.title), \(missing.isEmpty ? "ready to cook" : "missing \(missing.count) ingredients")")
+        .accessibilityLabel(recipe.title)
     }
 
     private var filterMenu: some View {
         Menu {
-            Picker("Availability", selection: $availability) {
-                ForEach(Availability.allCases) { Text($0.rawValue).tag($0) }
-            }
             Toggle("Favorites only", isOn: $favoritesOnly)
             Divider()
             facetMenu("Cuisine", values: cuisines, selection: $selectedCuisine)
@@ -415,7 +365,6 @@ struct MacRecipesView: View {
 
     private func resetFilters() {
         search = ""
-        availability = .all
         favoritesOnly = false
         selectedCuisine = ""
         selectedTag = ""
@@ -481,13 +430,9 @@ struct MacRecipesView: View {
 struct MacRecipeDetail: View {
     let recipe: UserRecipe
     let onEdit: () -> Void
-    let onPlan: () -> Void
 
     @Environment(MacKitchenStore.self) private var store
-    @Environment(MacNavigation.self) private var navigation
     @Environment(\.colorScheme) private var scheme
-
-    private var missing: [String] { store.missingIngredients(for: recipe) }
 
     var body: some View {
         ScrollView {
@@ -508,7 +453,17 @@ struct MacRecipeDetail: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                statusCard
+                if recipe.sourceName?.nilIfBlank != nil || recipe.sourceURL?.nilIfBlank != nil {
+                    MacCard(title: "Source", systemImage: "link") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(recipe.sourceName?.nilIfBlank ?? "Original source")
+                            if let source = recipe.sourceURL?.nilIfBlank,
+                               let url = URL(string: source) {
+                                Link(source, destination: url).font(.caption).lineLimit(1)
+                            }
+                        }
+                    }
+                }
 
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 14) {
@@ -547,7 +502,6 @@ struct MacRecipeDetail: View {
                 .buttonStyle(.borderless)
                 .help(recipe.isFavorited ? "Remove from favourites" : "Add to favourites")
                 Button("Edit…", action: onEdit)
-                Button("Plan this…", action: onPlan)
                 Menu {
                     Button("Copy full recipe") { copyRecipe() }
                     Button("Copy ingredients") { copyIngredients() }
@@ -617,36 +571,6 @@ struct MacRecipeDetail: View {
         NSPasteboard.general.setString(value, forType: .string)
     }
 
-    private var statusCard: some View {
-        MacCard {
-            HStack(alignment: .center, spacing: 12) {
-                Image(systemName: missing.isEmpty ? "checkmark.circle.fill" : "cart.badge.plus")
-                    .font(.system(size: 20))
-                    .foregroundStyle(missing.isEmpty ? MacTheme.green : MacTheme.low)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(missing.isEmpty
-                         ? "You can cook this right now."
-                         : "You're missing \(missing.count) ingredient\(missing.count == 1 ? "" : "s").")
-                        .font(.callout.weight(.medium))
-                    if !missing.isEmpty {
-                        Text(missing.joined(separator: ", "))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                Spacer(minLength: 8)
-                if !missing.isEmpty {
-                    Button("Add \(missing.count) to the list") {
-                        store.addMissingIngredients(for: recipe)
-                        navigation.section = .grocery
-                    }
-                }
-            }
-        }
-    }
-
     private var ingredientsCard: some View {
         MacCard(title: "Ingredients", systemImage: "list.bullet",
                 footnote: "\(recipe.ingredients.count)") {
@@ -655,15 +579,12 @@ struct MacRecipeDetail: View {
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(recipe.ingredients) { ingredient in
-                        let onHand = store.hasOnHand(ingredient.name)
                         HStack(alignment: .firstTextBaseline, spacing: 7) {
-                            Image(systemName: onHand ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 11))
-                                .foregroundStyle(onHand ? MacTheme.green : Color.secondary.opacity(0.5))
+                            Image(systemName: "circle.fill")
+                                .font(.system(size: 5)).foregroundStyle(.secondary)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(ingredient.name)
                                     .font(.callout)
-                                    .foregroundStyle(onHand ? .primary : .secondary)
                                 if let prep = ingredient.prep, !prep.isEmpty {
                                     Text(prep).font(.caption).foregroundStyle(.tertiary)
                                 }
@@ -788,6 +709,10 @@ struct MacRecipeEditor: View {
     @State private var ingredientsText = ""
     @State private var stepsText = ""
     @State private var notes = ""
+    @State private var sourceName = ""
+    @State private var sourceURL = ""
+    @State private var categoriesText = ""
+    @State private var tagsText = ""
     @State private var loaded = false
 
     private let difficulties = ["Easy", "Medium", "Hard"]
@@ -821,6 +746,13 @@ struct MacRecipeEditor: View {
                     Picker("Role", selection: $role) {
                         ForEach(DishRole.allCases, id: \.self) { Text($0.label).tag($0) }
                     }
+                    TextField("Categories (comma separated)", text: $categoriesText)
+                    TextField("Tags (comma separated)", text: $tagsText)
+                }
+
+                Section("Original source") {
+                    TextField("Publisher or author", text: $sourceName)
+                    TextField("Recipe URL", text: $sourceURL)
                 }
 
                 Section("Ingredients — one per line, \"name, amount\"") {
@@ -854,7 +786,7 @@ struct MacRecipeEditor: View {
             }
             .padding(14)
         }
-        .frame(width: 560, height: 700)
+        .frame(width: 580, height: 780)
         .onAppear(perform: load)
     }
 
@@ -871,6 +803,10 @@ struct MacRecipeEditor: View {
         cuisine    = recipe.cuisine
         role       = recipe.dishRole
         notes      = recipe.notes
+        sourceName = recipe.sourceName ?? ""
+        sourceURL = recipe.sourceURL ?? ""
+        categoriesText = (recipe.categories ?? []).joined(separator: ", ")
+        tagsText = recipe.tags.joined(separator: ", ")
         ingredientsText = recipe.ingredients
             .map { $0.amount.isEmpty ? $0.name : "\($0.name), \($0.amount)" }
             .joined(separator: "\n")
@@ -888,6 +824,10 @@ struct MacRecipeEditor: View {
         result.cuisine     = cuisine
         result.dishRole    = role
         result.notes       = notes
+        result.sourceName  = sourceName.nilIfBlank
+        result.sourceURL   = sourceURL.nilIfBlank
+        result.categories  = Self.parseList(categoriesText)
+        result.tags        = Self.parseList(tagsText)
         result.ingredients = Self.parseIngredients(ingredientsText)
         result.instructions = stepsText
             .split(separator: "\n", omittingEmptySubsequences: true)
@@ -911,6 +851,16 @@ struct MacRecipeEditor: View {
             let amount = String(trimmed[trimmed.index(after: comma)...])
                 .trimmingCharacters(in: .whitespaces)
             return RecipeIngredient(name: name.isEmpty ? trimmed : name, amount: amount)
+        }
+    }
+
+    private static func parseList(_ text: String) -> [String] {
+        var seen = Set<String>()
+        return text.split(separator: ",").compactMap {
+            let value = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { return nil }
+            let key = value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            return seen.insert(key).inserted ? value : nil
         }
     }
 }

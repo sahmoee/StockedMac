@@ -183,7 +183,7 @@ enum HarvestCloudSync {
             },
             "instructions": draft.instructionSections.flatMap(\.steps).filter { !$0.isEmpty },
             "sourceURL": draft.source.url,
-            "importedBy": "Stocked Mac",
+            "importedBy": "recipe-manager",
             "importedAt": ISO8601DateFormatter().string(from: draft.updatedAt),
             "attribution": SourceAttribution.displayName(
                 host: draft.source.host,
@@ -205,24 +205,42 @@ enum HarvestCloudSync {
     }
 
     private static func kitchenPayload(for recipe: UserRecipe) -> [String: Any] {
+        let source = recipe.sourceName?.nilIfBlank
+            ?? sourceMetadata(from: recipe.notes).name
+            ?? URL(string: recipe.sourceURL ?? "")?.host
+            ?? "Personal recipe"
+        let sourceURL = recipe.sourceURL?.nilIfBlank ?? sourceMetadata(from: recipe.notes).url
+        let categories = (recipe.categories ?? recipe.tags).cleanedUnique()
         var dict: [String: Any] = [
             "id": recipe.id.uuidString,
             "title": recipe.title,
             "description": recipe.description,
             "cuisine": recipe.cuisine,
-            "tags": recipe.tags,
+            "tags": Array((recipe.tags + categories).cleanedUnique().prefix(12)),
+            "categories": categories,
             "ingredients": recipe.ingredients.map { ["name": $0.name, "amount": $0.amount] },
             "instructions": recipe.instructions,
-            "importedBy": "Stocked Mac",
+            "importedBy": "recipe-manager",
             "importedAt": ISO8601DateFormatter().string(from: recipe.dateCreated),
-            "attribution": "Stocked Mac",
+            "attribution": source,
             "servings": max(1, recipe.servings),
             "prepTime": recipe.prepTime,
             "cookTime": recipe.cookTime,
         ]
+        if let sourceURL { dict["sourceURL"] = sourceURL }
         if let imageURL = recipe.imageURL?.nilIfBlank { dict["imageURL"] = imageURL }
         if recipe.imageData != nil { dict["image"] = "/harvest/img/\(recipe.id.uuidString).jpg" }
         return dict
+    }
+
+    private static func sourceMetadata(from notes: String) -> (name: String?, url: String?) {
+        guard let line = notes.components(separatedBy: .newlines)
+            .first(where: { $0.lowercased().hasPrefix("source:") }) else { return (nil, nil) }
+        let value = line.dropFirst("Source:".count).trimmingCharacters(in: .whitespaces)
+        let parts = value.components(separatedBy: " — ")
+        if parts.count > 1 { return (parts[0].nilIfBlank, parts.dropFirst().joined(separator: " — ").nilIfBlank) }
+        if value.hasPrefix("http") { return (URL(string: value)?.host, value) }
+        return (value.nilIfBlank, nil)
     }
 
     private static func minutesLabel(_ minutes: Int) -> String {

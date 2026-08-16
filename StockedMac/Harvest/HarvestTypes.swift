@@ -263,6 +263,9 @@ nonisolated struct AppSettings: Codable, Sendable {
     /// How many URLs one Import press takes. 0 = everything queued; otherwise the
     /// first N import and the rest stay queued for the next press.
     var importBatchSize: Int
+    /// Maximum candidate recipes a single browse pass may retain. This explicit budget
+    /// prevents an open-ended catalog crawl while still caching partial discoveries.
+    var scanLimit: Int
     /// Sources starred in the multi-source picker. IDs are used so catalog updates can
     /// rename or reorder a source without losing the user's curated set.
     var favoriteSourceIDs: [String]
@@ -321,10 +324,11 @@ nonisolated struct AppSettings: Codable, Sendable {
             requireStandardsForAutoApprove: true,
             useWebKitFallback: true,
             importSpacingSeconds: 0,
-            settingsRevision: 6,
+            settingsRevision: 7,
             queueCap: 500,
             bulkVerifyBatchSize: 100,
-            importBatchSize: 0,
+            importBatchSize: 25,
+            scanLimit: 50,
             favoriteSourceIDs: [],
             lastSelectedSourceIDs: [],
             selectedBrowseCategoryIDs: [],
@@ -360,7 +364,7 @@ nonisolated extension AppSettings {
         case cloudSyncEnabled, autoRotateSourceCount
         case preferredCrawlMethod, crawlAggressiveness, requireStandardsForAutoApprove
         case useWebKitFallback, importSpacingSeconds, settingsRevision, queueCap
-        case bulkVerifyBatchSize, importBatchSize
+        case bulkVerifyBatchSize, importBatchSize, scanLimit
         case favoriteSourceIDs, lastSelectedSourceIDs
         case selectedBrowseCategoryIDs, reuseCachedDiscoveryResults
         case preferDirectRecipes, autopilot
@@ -399,6 +403,7 @@ nonisolated extension AppSettings {
         queueCap                = (try? c.decodeIfPresent(Int.self, forKey: .queueCap)) ?? d.queueCap
         bulkVerifyBatchSize     = (try? c.decodeIfPresent(Int.self, forKey: .bulkVerifyBatchSize)) ?? d.bulkVerifyBatchSize
         importBatchSize         = (try? c.decodeIfPresent(Int.self, forKey: .importBatchSize)) ?? d.importBatchSize
+        scanLimit                = (try? c.decodeIfPresent(Int.self, forKey: .scanLimit)) ?? d.scanLimit
         favoriteSourceIDs       = (try? c.decodeIfPresent([String].self, forKey: .favoriteSourceIDs)) ?? d.favoriteSourceIDs
         lastSelectedSourceIDs   = (try? c.decodeIfPresent([String].self, forKey: .lastSelectedSourceIDs)) ?? d.lastSelectedSourceIDs
         selectedBrowseCategoryIDs = (try? c.decodeIfPresent([String].self, forKey: .selectedBrowseCategoryIDs)) ?? []

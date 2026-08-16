@@ -60,6 +60,13 @@ struct StockedMacApp: App {
                     store.sync = sync
                     store.writerID = sync.memberID
                     store.load()
+                    // StockedMac is recipe-only. Keep household transport compatible
+                    // with iOS while excluding every non-recipe collection.
+                    sync.syncInventory = false
+                    sync.syncGrocery = false
+                    sync.syncPlan = false
+                    sync.syncRecipes = true
+                    sync.persistPreferences()
                     // The Harvester needs to know where the kitchen is, or an approved
                     // recipe stays in the Harvester's own library until somebody presses
                     // "Add to Stocked". Handing it the store here is what makes a
@@ -111,18 +118,6 @@ struct StockedMacApp: App {
                 .frame(width: 560, height: 520)
         }
 
-        // A glanceable summary that doesn't require the window. The whole reason to have
-        // a Mac app open all day is that the answer to "what do I need to use up?" should
-        // cost one click, not a window switch.
-        MenuBarExtra {
-            MacMenuBarView()
-                .environment(store)
-                .environment(sync)
-                .frame(width: 300)
-        } label: {
-            Image(systemName: "refrigerator")
-        }
-        .menuBarExtraStyle(.window)
     }
 }
 

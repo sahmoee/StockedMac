@@ -3,6 +3,13 @@
 Every push should add an entry here so GitHub carries the build/change history.
 Newest at the top. Keep it plain ASCII (see .gitmessage.txt for the commit rules).
 
+## Build 109 — Recipe Manager
+
+- Converted the visible Mac app into a dedicated recipe manager: Recipes, Find & Import, Categories, and Recipe Sync.
+- Added source publisher, source URL, and recipe categories to the shared Mac/iOS recipe model and cloud payloads; imported recipes no longer attribute their source to StockedMac.
+- Added adjustable scan and import limits, a durable queue, cancellation recovery, cached partial mining results, category-page queue expansion, rate-limit deferral, and finite source rotation.
+- Disabled non-recipe household collections on Mac while preserving recipe collaboration with Stocked iOS.
+
 ## Build 108 — Version 4.43
 
 - The complete Recipes library now backfills to the shared iPhone and iPad catalog on launch, including recipes created before automatic Harvester publishing existed.
