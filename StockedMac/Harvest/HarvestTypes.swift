@@ -58,7 +58,7 @@ nonisolated struct RecipeDraft: Identifiable, Codable, Sendable {
         updatedAt: Date = Date()
     ) {
         self.id = id
-        self.title = title
+        self.title = RecipeTitlePolicy.cleaned(title)
         self.summary = summary
         self.source = source
         self.image = image
@@ -585,6 +585,12 @@ nonisolated struct DiscoveredLink: Codable, Sendable {
     var url: String
     var title: String?
     var imageURL: String?
+
+    init(url: String, title: String?, imageURL: String?) {
+        self.url = url
+        self.title = title.map(RecipeTitlePolicy.cleaned)?.nilIfBlank
+        self.imageURL = imageURL
+    }
 }
 
 // MARK: - Category catalog (Build 101)

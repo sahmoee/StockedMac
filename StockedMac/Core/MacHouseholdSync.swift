@@ -665,7 +665,11 @@ final class MacHouseholdSync {
 
         if syncRecipes, let rows = payload["userRecipes"] as? [[String: Any]] {
             let decoded = rows.compactMap { decode(UserRecipe.self, from: $0) }
-            let remote = await MacRecipeImagePolicy.hydrate(decoded)
+            let remote = await MacRecipeImagePolicy.hydrate(decoded).map { incoming in
+                var cleaned = incoming
+                cleaned.title = RecipeTitlePolicy.cleaned(cleaned.title)
+                return cleaned
+            }
             let deleted = Set((payload["userRecipeDeleted"] as? [String]) ?? [])
                 .union(pendingRecipeDeletes)
             var merged = store.recipes

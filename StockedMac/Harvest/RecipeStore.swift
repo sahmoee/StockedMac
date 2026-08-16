@@ -147,6 +147,7 @@ actor RecipeStore {
         for index in recipes.indices {
             var recipe = recipes[index]
             let before = try? JSONCoding.encoder().encode(recipe)
+            recipe.title = RecipeTitlePolicy.cleaned(recipe.title)
             if let parsed = try? URLSafety.validatedRemoteURL(recipe.source.url) {
                 recipe.source.url = URLSafety.normalized(parsed).absoluteString
             }

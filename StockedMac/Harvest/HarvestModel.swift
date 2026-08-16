@@ -108,7 +108,7 @@ nonisolated enum MacRecipeTextParser {
 final class HarvestModel {
     /// Increment whenever an import/model fix must be applied to historical recipes.
     /// The versioned pass repairs local records and seeds their sources for bounded reparse.
-    static let currentRecipeRepairRevision = 4
+    static let currentRecipeRepairRevision = 5
 
     // MARK: - Observable state
 
@@ -1309,6 +1309,18 @@ final class HarvestModel {
         }
     }
 
+    /// The category control follows the selected sources. Site-derived category IDs are
+    /// source-scoped, so two sites can use the same label without sharing selection state.
+    func browseCategories(for sourceIDs: Set<String>) -> [SourceCategory] {
+        sourceIDs.flatMap { sourceCategories[$0]?.categories ?? [] }.sorted { lhs, rhs in
+            if lhs.sourceName != rhs.sourceName {
+                return lhs.sourceName.localizedCaseInsensitiveCompare(rhs.sourceName) == .orderedAscending
+            }
+            if lhs.recipeCount != rhs.recipeCount { return lhs.recipeCount > rhs.recipeCount }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
     private func categoryFilteredReport(
         _ raw: DiscoveryReport,
         source explicitSource: SourceProfile? = nil,
@@ -1316,37 +1328,28 @@ final class HarvestModel {
     ) -> DiscoveryReport {
         var report = raw
         let selected = Set(settings.selectedBrowseCategoryIDs)
-        let source = explicitSource ?? sources.first { $0.id == raw.sourceID }
-        let sourceSignals = ([source?.name].compactMap { $0 } + (source?.tags ?? []))
-            .joined(separator: " ")
+        _ = explicitSource // Retained for call-site compatibility with cached reports.
 
-        var savedSignals: [String: String] = [:]
-        for recipe in recipes {
-            let signals = ([recipe.title, recipe.summary].compactMap { $0 }
-                + recipe.categories + recipe.cuisines + recipe.keywords + recipe.diets)
-                .joined(separator: " ")
-            savedSignals[Self.discoveryURLKey(recipe.source.url)] = signals
-            if let canonical = recipe.source.canonicalURL {
-                savedSignals[Self.discoveryURLKey(canonical)] = signals
+        let sourceCategorySelection = (sourceCategories[raw.sourceID]?.categories ?? [])
+            .filter { selected.contains($0.id) }
+        var categoryRecipeURLs = Set<String>()
+        for category in sourceCategorySelection {
+            for url in cachedMinedLinks(for: category.url) ?? [] {
+                categoryRecipeURLs.insert(Self.discoveryURLKey(url))
             }
         }
 
         func keep(_ link: DiscoveredLink) -> Bool {
-            let supplemental = sourceSignals + " " + (savedSignals[Self.discoveryURLKey(link.url)] ?? "")
-            return RecipeBrowseTaxonomy.matches(
-                link,
-                selectedIDs: selected,
-                supplementalText: supplemental
-            )
+            categoryRecipeURLs.contains(Self.discoveryURLKey(link.url))
         }
 
-        if !selected.isEmpty {
+        if !sourceCategorySelection.isEmpty {
             report.candidates = raw.candidates.filter(keep)
             report.confirmed = raw.confirmed.filter(keep)
             report.unverified = raw.unverified.filter {
                 keep(DiscoveredLink(url: $0, title: nil, imageURL: nil))
             }
-            let names = selected.compactMap { RecipeBrowseTaxonomy.byID[$0]?.name }.sorted()
+            let names = sourceCategorySelection.map(\.name).cleanedUnique().sorted()
             let selection = names.prefix(4).joined(separator: ", ")
                 + (names.count > 4 ? " +\(names.count - 4) more" : "")
             report.notes.insert(
@@ -2161,10 +2164,13 @@ final class HarvestModel {
                 snapshot.sourceURL ?? "",
             ] + snapshot.tags + (snapshot.categories ?? []))
             let categories = ((snapshot.categories ?? []) + snapshot.tags + inferred).cleanedUnique()
-            guard normalizedURL != snapshot.sourceURL
+            let title = RecipeTitlePolicy.cleaned(snapshot.title)
+            guard title != snapshot.title
+                    || normalizedURL != snapshot.sourceURL
                     || sourceName != snapshot.sourceName
                     || categories != (snapshot.categories ?? []) else { continue }
             kitchen.updateRecipe(id: snapshot.id) { recipe in
+                recipe.title = title
                 recipe.sourceURL = normalizedURL
                 recipe.sourceName = sourceName
                 recipe.categories = categories

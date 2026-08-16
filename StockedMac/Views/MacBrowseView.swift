@@ -121,6 +121,9 @@ struct MacBrowseView: View {
         }
         .onChange(of: selectedSourceIDs) {
             harvest.settings.lastSelectedSourceIDs = Array(selectedSourceIDs).sorted()
+            let validCategories = Set(harvest.browseCategories(for: selectedSourceIDs).map(\.id))
+            harvest.settings.selectedBrowseCategoryIDs.removeAll { !validCategories.contains($0) }
+            harvest.applyCategoryFilterToCurrentReport()
             harvest.scheduleSettingsSave()
         }
         .onChange(of: browsableSources.map(\.id)) {
@@ -473,7 +476,7 @@ struct MacBrowseView: View {
                 }
                 .buttonStyle(.plain)
                 .popover(isPresented: $showCategoryPicker, arrowEdge: .bottom) {
-                    RecipeCategoryMultiPicker(selection: Binding(
+                    SourceRecipeCategoryMultiPicker(categories: sourceCategoryOptions, selection: Binding(
                         get: { Set(harvest.settings.selectedBrowseCategoryIDs) },
                         set: { selected in
                             harvest.settings.selectedBrowseCategoryIDs = Array(selected).sorted()
@@ -579,10 +582,16 @@ struct MacBrowseView: View {
     }
 
     private var categorySelectionLabel: String {
-        let selected = harvest.settings.selectedBrowseCategoryIDs.compactMap { RecipeBrowseTaxonomy.byID[$0]?.name }
-        if selected.isEmpty { return "All recipe categories" }
+        let names = Dictionary(uniqueKeysWithValues: sourceCategoryOptions.map { ($0.id, $0.name) })
+        let selected = harvest.settings.selectedBrowseCategoryIDs.compactMap { names[$0] }
+        if sourceCategoryOptions.isEmpty { return "Scan source for categories" }
+        if selected.isEmpty { return "All \(selectedSources.count == 1 ? selectedSources[0].name : "selected source") categories" }
         if selected.count == 1 { return selected[0] }
         return "\(selected[0]) + \(selected.count - 1) more"
+    }
+
+    private var sourceCategoryOptions: [SourceCategory] {
+        harvest.browseCategories(for: selectedSourceIDs)
     }
 
     // MARK: Queue / import card
@@ -817,9 +826,9 @@ struct MacBrowseView: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 let displayTitle: String = {
-                    if let t = link.title, !t.isEmpty { return t }
+                    if let t = link.title, !t.isEmpty { return RecipeTitlePolicy.cleaned(t) }
                     if let comp = URL(string: link.url)?.lastPathComponent, !comp.isEmpty {
-                        return comp.replacingOccurrences(of: "-", with: " ")
+                        return RecipeTitlePolicy.cleaned(comp.replacingOccurrences(of: "-", with: " "))
                     }
                     return link.url
                 }()
@@ -1151,14 +1160,18 @@ struct MacBrowseView: View {
     }
 }
 
-private struct RecipeCategoryMultiPicker: View {
+private struct SourceRecipeCategoryMultiPicker: View {
+    let categories: [SourceCategory]
     @Binding var selection: Set<String>
     @State private var search = ""
 
-    private var visibleGroups: [(String, [RecipeBrowseCategory])] {
+    private var visibleGroups: [(String, [SourceCategory])] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        return RecipeBrowseTaxonomy.groupOrder.compactMap { group in
-            let values = RecipeBrowseTaxonomy.categories(in: group).filter {
+        let grouped = Dictionary(grouping: categories) { category in
+            category.sourceName + " · " + (category.group ?? "Other")
+        }
+        return grouped.keys.sorted().compactMap { group in
+            let values = (grouped[group] ?? []).filter {
                 query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
             }
             return values.isEmpty ? nil : (group, values)
@@ -1169,7 +1182,7 @@ private struct RecipeCategoryMultiPicker: View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Birthday, drinks, holiday, cuisine…", text: $search)
+                TextField("Search this source's categories…", text: $search)
                     .textFieldStyle(.plain)
                 if !search.isEmpty {
                     Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
