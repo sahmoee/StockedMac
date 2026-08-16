@@ -17,21 +17,32 @@ import UniformTypeIdentifiers
 @MainActor
 enum MacHarvestBridge {
 
-    /// Copies drafts into the kitchen's recipe library. Skips a draft when a recipe with
-    /// the same title (case-insensitive) already exists, so pressing the button twice
-    /// cannot fill the library with duplicates. Returns how many were actually added.
+    /// Copies drafts into the shared recipe library. Source URLs are the identity for web
+    /// recipes, so two genuinely different recipes may share a title; title matching is
+    /// only the fallback for personal recipes without a source.
     @discardableResult
     static func add(_ drafts: [RecipeDraft], to store: MacKitchenStore) -> Int {
-        var existing = Set(store.recipes.map { normalizedTitle($0.title) })
+        var existingSources = Set(store.recipes.compactMap { recipe in
+            recipe.sourceURL.flatMap { try? URLSafety.validatedRemoteURL($0) }
+                .map { URLSafety.normalized($0).absoluteString }
+        })
+        var personalTitles = Set(store.recipes.filter { $0.sourceURL?.nilIfBlank == nil }
+            .map { normalizedTitle($0.title) })
         var added = 0
         for draft in drafts {
-            let key = normalizedTitle(draft.title)
-            guard !key.isEmpty, !existing.contains(key) else { continue }
-            // Skip recipes without an image — the iOS app shows a blank placeholder
-            // for imageless recipes and they look out of place in the library.
-            guard draft.image != nil else { continue }
+            let titleKey = normalizedTitle(draft.title)
+            guard !titleKey.isEmpty else { continue }
+            let source = draft.source.canonicalURL?.nilIfBlank ?? draft.source.url.nilIfBlank
+            let sourceKey = source.flatMap { try? URLSafety.validatedRemoteURL($0) }
+                .map { URLSafety.normalized($0).absoluteString }
+            if let sourceKey {
+                guard !existingSources.contains(sourceKey) else { continue }
+                existingSources.insert(sourceKey)
+            } else {
+                guard !personalTitles.contains(titleKey) else { continue }
+                personalTitles.insert(titleKey)
+            }
             store.addRecipe(userRecipe(from: draft))
-            existing.insert(key)
             added += 1
         }
         return added
@@ -74,7 +85,7 @@ enum MacHarvestBridge {
 
         recipe.cuisine = draft.cuisines.first ?? ""
         recipe.tags = tags(for: draft)
-        recipe.categories = draft.categories.cleanedUnique()
+        recipe.categories = (draft.categories + draft.cuisines + draft.diets).cleanedUnique()
         recipe.ingredients = ingredients(from: draft.ingredientSections)
         recipe.instructions = instructions(from: draft.instructionSections)
         recipe.notes = notes(for: draft)

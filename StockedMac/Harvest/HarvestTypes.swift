@@ -299,12 +299,12 @@ nonisolated struct AppSettings: Codable, Sendable {
             parserMode: .nativeFirst,
             downloadImages: true,
             parseIngredientStructure: true,
-            maximumConcurrentJobs: 3,
+            maximumConcurrentJobs: 4,
             // On by default: the sandboxed App Store build can no longer spawn the bundled
             // Python worker, so the Stocked Worker is the only model-backed parser left for
             // pages the native/microdata/heuristic engines cannot fully extract.
             useWorkerFallback: true,
-            autoApproveConfidence: 0.9,
+            autoApproveConfidence: 0.78,
             retryFailedImports: true,
             autoImportVerified: false,
             skipAlreadyImported: true,
@@ -314,21 +314,21 @@ nonisolated struct AppSettings: Codable, Sendable {
             rememberBrowsedSources: true,
             lastBrowsedSourceID: nil,
             recentSourceIDs: [],
-            requireImageForImport: true,
+            requireImageForImport: false,
             autoFetchMissingImages: true,
-            verifyBeforeImport: true,
+            verifyBeforeImport: false,
             cloudSyncEnabled: true,
-            autoRotateSourceCount: 3,
+            autoRotateSourceCount: 5,
             preferredCrawlMethod: .auto,
             crawlAggressiveness: .balanced,
-            requireStandardsForAutoApprove: true,
+            requireStandardsForAutoApprove: false,
             useWebKitFallback: true,
             importSpacingSeconds: 0,
-            settingsRevision: 7,
-            queueCap: 500,
-            bulkVerifyBatchSize: 100,
-            importBatchSize: 25,
-            scanLimit: 50,
+            settingsRevision: 8,
+            queueCap: 2_000,
+            bulkVerifyBatchSize: 200,
+            importBatchSize: 50,
+            scanLimit: 100,
             favoriteSourceIDs: [],
             lastSelectedSourceIDs: [],
             selectedBrowseCategoryIDs: [],
@@ -746,7 +746,10 @@ nonisolated enum URLSafety {
         // Remove common tracking parameters
         if var queryItems = components?.queryItems {
             let trackingNames: Set<String> = [
-                "fbclid", "gclid", "igsh", "igshid", "mc_cid", "mc_eid", "ref", "source"
+                "fbclid", "gclid", "dclid", "gbraid", "wbraid", "igsh", "igshid",
+                "mc_cid", "mc_eid", "mkt_tok", "vero_id", "oly_anon_id", "oly_enc_id",
+                "ref", "source", "campaign", "campaignid", "adgroupid", "adid",
+                "soc_src", "soc_trk", "srsltid", "spm", "ncid", "cmpid"
             ]
             queryItems = queryItems.filter { item in
                 let name = item.name.lowercased()
@@ -754,6 +757,8 @@ nonisolated enum URLSafety {
             }
             components?.queryItems = queryItems.isEmpty ? nil : queryItems
         }
+        if let host = components?.host { components?.host = host.lowercased() }
+        if components?.path == "/" { components?.path = "" }
         return components?.url ?? url
     }
 }
@@ -985,21 +990,21 @@ nonisolated extension RecipeDraft {
                 detail: title.isEmpty ? "No title" : nil
             ),
             StandardsCheck(
-                label: "At least 3 ingredients",
-                passed: ingredientCount >= 3,
+                label: "Has ingredients",
+                passed: ingredientCount >= 1,
                 required: true,
                 detail: "\(ingredientCount) found"
             ),
             StandardsCheck(
-                label: "At least 2 method steps",
-                passed: stepCount >= 2,
+                label: "Has a method",
+                passed: stepCount >= 1,
                 required: true,
                 detail: "\(stepCount) found"
             ),
             StandardsCheck(
                 label: "Image saved to disk",
                 passed: image?.hasLocalFile ?? false,
-                required: true,
+                required: false,
                 detail: image == nil ? "No image at all" : (image?.hasLocalFile == true ? nil : "URL known, bytes missing")
             ),
             StandardsCheck(
@@ -1011,7 +1016,7 @@ nonisolated extension RecipeDraft {
             StandardsCheck(
                 label: "Honest attribution",
                 passed: !SourceAttribution.isGeneric(attribution),
-                required: true,
+                required: false,
                 detail: attribution
             ),
             StandardsCheck(

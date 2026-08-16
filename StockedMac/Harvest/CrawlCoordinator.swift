@@ -237,7 +237,7 @@ actor CrawlCoordinator {
         let duplicates = try await store.duplicates(for: saved)
         return ImportOutcomeDetail(
             recipe: saved,
-            wasUpdate: existed,
+            wasUpdate: existed || saved.id != draft.id,
             duplicateTitles: duplicates.map(\.title)
         )
     }

@@ -18,6 +18,9 @@ grocery, meal-planning, cooking, and analytics surfaces are intentionally absent
 - Cloud sync of approved recipes to the shared backend
 - Native SwiftUI macOS app
 
+The latest high-throughput intake changes are recorded in
+[`docs/RECIPE-IMPORT-IMPROVEMENTS.md`](docs/RECIPE-IMPORT-IMPROVEMENTS.md).
+
 ## Import a recipe
 
 1. Open **Find & Import** and use **Quick import**.

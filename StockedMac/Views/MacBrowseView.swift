@@ -332,7 +332,7 @@ struct MacBrowseView: View {
         return MacCard(title: "Explore websites (optional)", systemImage: "sparkle.magnifyingglass",
                 footnote: "\(browsableSources.count) sources") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Use this only when you do not already have a recipe. Pick up to three trusted sites; Stocked returns confirmed recipe pages and stops.")
+                Text("Use this only when you do not already have a recipe. Pick up to five trusted sites; Stocked returns confirmed recipe pages and stops.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Button { showSourcePicker.toggle() } label: {
                     HStack(spacing: 7) {
@@ -408,8 +408,8 @@ struct MacBrowseView: View {
                         .font(.caption)
                 }
 
-                if selectedSources.count > 3 {
-                    Label("Only the first 3 selected sources will be checked in this pass.", systemImage: "info.circle")
+                if selectedSources.count > 5 {
+                    Label("Only the first 5 selected sources will be checked in this pass.", systemImage: "info.circle")
                         .font(.caption2).foregroundStyle(.orange)
                 }
 
@@ -454,7 +454,7 @@ struct MacBrowseView: View {
 
     private func startFind(forceRefresh: Bool = false) {
         let preferred = selectedSources.isEmpty ? defaultDiscoverySources : selectedSources
-        let sources = Array(preferred.prefix(3))
+        let sources = Array(preferred.prefix(5))
         if sources.count > 1 {
             harvest.browseSources(withIDs: sources.map(\.id), queueOnly: true, queueResults: false)
         } else if let source = sources.first {
@@ -478,7 +478,7 @@ struct MacBrowseView: View {
             let hasCache = harvest.cacheSummary(for: selectedSources[0].id) != nil
                 && harvest.settings.reuseCachedDiscoveryResults
             return hasCache ? "Use Saved Results" : "Find Recipes"
-        default: return "Find from \(min(3, selectedSources.count)) Sources"
+        default: return "Find from \(min(5, selectedSources.count)) Sources"
         }
     }
 
@@ -911,7 +911,7 @@ struct MacBrowseView: View {
 
     private var readyToSend: [RecipeDraft] {
         harvest.recipes.filter {
-            $0.reviewState == .needsReview && $0.standards.requiredPassed && ($0.image?.hasLocalFile ?? false)
+            $0.reviewState == .needsReview && $0.standards.requiredPassed
         }
     }
 
@@ -921,7 +921,7 @@ struct MacBrowseView: View {
                 .font(.title3).foregroundStyle(MacTheme.green)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Approve & Send to Stocked").font(.callout.weight(.semibold))
-                Text("Approval adds the recipe to the Mac kitchen and publishes its image-complete copy for Stocked iOS.")
+                Text("Approval adds the recipe to the Mac library and Stocked iOS. Images are optional and can be recovered later.")
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength: 8)
@@ -972,7 +972,7 @@ struct MacBrowseView: View {
     private var reviewBulkBar: some View {
         let shown = reviewVisible
         let reviewable = shown.filter {
-            $0.reviewState == .needsReview && $0.standards.requiredPassed && ($0.image?.hasLocalFile ?? false)
+            $0.reviewState == .needsReview && $0.standards.requiredPassed
         }
         if shown.count > 1 {
             HStack(spacing: 6) {
@@ -1039,7 +1039,7 @@ struct MacBrowseView: View {
                 .tag(draft.id)
                 .contextMenu {
                     Button("Approve & Send to Stocked") { harvest.setReviewState(.approved, for: [draft.id]) }
-                        .disabled(!draft.standards.requiredPassed || !(draft.image?.hasLocalFile ?? false))
+                        .disabled(!draft.standards.requiredPassed)
                     Button("Reject") { harvest.setReviewState(.rejected, for: [draft.id]) }
                     Divider()
                     Button("Add to Stocked") {

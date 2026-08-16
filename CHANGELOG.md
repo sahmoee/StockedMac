@@ -3,6 +3,11 @@
 Every push should add an entry here so GitHub carries the build/change history.
 Newest at the top. Keep it plain ASCII (see .gitmessage.txt for the commit rules).
 
+## Build 110 — Higher-throughput recipe intake
+
+- Implemented twenty import improvements covering optional images, simpler approval, larger adjustable finite batches, five-source browsing, multi-engine accumulation, stronger URL normalization, content-based duplicate merging, and richer categories.
+- Preserved resumable queues, partial-result caching, rate-limit deferral, source attribution, and finite stopping rules while increasing the number of useful recipes that reach Stocked iOS.
+
 ## Build 109 — Recipe Manager
 
 - Converted the visible Mac app into a dedicated recipe manager: Recipes, Find & Import, Categories, and Recipe Sync.

@@ -175,6 +175,7 @@ enum HarvestCloudSync {
             "description": draft.summary ?? "",
             "cuisine": draft.cuisines.first ?? "",
             "tags": tags,
+            "categories": (draft.categories + draft.cuisines + draft.diets).cleanedUnique(),
             "ingredients": draft.ingredientSections.flatMap(\.items).map { item -> [String: Any] in
                 let quantity = item.quantityText?.nilIfBlank
                     ?? item.quantity.map { $0 == $0.rounded() ? String(Int($0)) : String($0) }
@@ -182,7 +183,7 @@ enum HarvestCloudSync {
                 return ["name": item.name?.nilIfBlank ?? item.raw, "amount": amount]
             },
             "instructions": draft.instructionSections.flatMap(\.steps).filter { !$0.isEmpty },
-            "sourceURL": draft.source.url,
+            "sourceURL": draft.source.canonicalURL?.nilIfBlank ?? draft.source.url,
             "importedBy": "recipe-manager",
             "importedAt": ISO8601DateFormatter().string(from: draft.updatedAt),
             "attribution": SourceAttribution.displayName(
@@ -191,8 +192,8 @@ enum HarvestCloudSync {
                 author: draft.source.author
             ),
             "confidence": draft.confidence,
-            "image": "/harvest/img/\(draft.id.uuidString).jpg",
         ]
+        if draft.image?.hasLocalFile == true { dict["image"] = "/harvest/img/\(draft.id.uuidString).jpg" }
         if let url = draft.image?.originalURL.nilIfBlank { dict["imageURL"] = url }
         if let servings = draft.servings, servings > 0 { dict["servings"] = max(1, Int(servings.rounded())) }
         if let prep = times.prepMinutes { dict["prepTime"] = minutesLabel(prep) }

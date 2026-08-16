@@ -37,8 +37,14 @@ actor RecipeStore {
         try loadIfNeeded()
         var values = Set<String>()
         for recipe in recipes {
-            if let url = recipe.source.url.nilIfBlank { values.insert(url) }
-            if let canonical = recipe.source.canonicalURL?.nilIfBlank { values.insert(canonical) }
+            if let url = recipe.source.url.nilIfBlank,
+               let parsed = try? URLSafety.validatedRemoteURL(url) {
+                values.insert(URLSafety.normalized(parsed).absoluteString)
+            }
+            if let canonical = recipe.source.canonicalURL?.nilIfBlank,
+               let parsed = try? URLSafety.validatedRemoteURL(canonical) {
+                values.insert(URLSafety.normalized(parsed).absoluteString)
+            }
         }
         return values
     }
@@ -72,6 +78,10 @@ actor RecipeStore {
             ?? recipes.firstIndex {
                 !recipe.sourceFingerprint.isEmpty &&
                     $0.sourceFingerprint == recipe.sourceFingerprint
+            }
+            ?? recipes.firstIndex {
+                guard let fingerprint = recipe.contentFingerprint, !fingerprint.isEmpty else { return false }
+                return $0.contentFingerprint == fingerprint
             }
 
         if let index {

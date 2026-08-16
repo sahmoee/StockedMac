@@ -448,7 +448,9 @@ final class HarvestModel {
             .filter { seen.insert($0).inserted && !existing.contains($0) }
             .prefix(available)
         guard !additions.isEmpty else {
-            statusMessage = "No new recipe URLs were found in that."
+            statusMessage = available == 0
+                ? "The queue is at its \(settings.queueCap)-recipe limit. Import a batch to make room."
+                : "No new recipe URLs were found in that."
             return
         }
         let prefix = importText.nilIfBlank.map { $0 + "\n" } ?? ""
@@ -730,7 +732,7 @@ final class HarvestModel {
             if threshold > 0,
                detail.recipe.reviewState == .needsReview,
                detail.recipe.confidence >= threshold,
-               detail.recipe.warnings.isEmpty,
+               detail.recipe.warnings.allSatisfy(Self.isNonBlockingImportWarning),
                detail.recipe.exportProblems.isEmpty,
                detail.duplicateTitles.isEmpty,
                // The image gate: nothing without a picture on disk auto-approves,
@@ -806,6 +808,15 @@ final class HarvestModel {
             || message.contains("could not be read")
     }
 
+    /// Image recovery and transparent browser fallbacks should not strand an otherwise
+    /// complete recipe in Review. Structural/parser warnings still require attention.
+    private static func isNonBlockingImportWarning(_ warning: String) -> Bool {
+        let value = warning.lowercased()
+        return value.contains("image could not be downloaded")
+            || value.contains("loaded with the built-in browser")
+            || value.contains("followed the web story")
+    }
+
     private static func isRateLimited(_ message: String?) -> Bool {
         guard let message = message?.lowercased() else { return false }
         return message.contains("http 429") || message.contains("rate limit")
@@ -854,6 +865,13 @@ final class HarvestModel {
     }
 
     private func finishImportRun() async {
+        // Recover images before approval hands drafts into the shared library. Images are
+        // optional, but when recovery succeeds the first synced copy should include it.
+        if settings.autoFetchMissingImages {
+            let recovered = await fetchMissingImagesInternal(quiet: true)
+            if recovered > 0 { await reload() }
+        }
+
         if !pendingAutoApproval.isEmpty {
             let ids = pendingAutoApproval
             pendingAutoApproval.removeAll()
@@ -892,13 +910,6 @@ final class HarvestModel {
         lastImportSummary = "Imported \(importProgress.succeeded) · auto-approved \(autoApprovedThisRun) · failed \(importProgress.failed)"
             + (skippedByBreaker > 0 ? " · \(skippedByBreaker) skipped by the circuit breaker" : "")
             + (lastFailures.isEmpty ? "" : " — the failures are listed below with retry.")
-
-        // A recipe whose image download failed gets one more chance before anyone
-        // has to notice — a draft without a picture cannot reach the phone.
-        if settings.autoFetchMissingImages {
-            let recovered = await fetchMissingImagesInternal(quiet: true)
-            if recovered > 0 { await reload() }
-        }
 
         // Approved recipes are part of Stocked's shared catalogue. Publishing is
         // automatic so every Stocked install can discover them; the setting remains
@@ -1071,7 +1082,7 @@ final class HarvestModel {
                 } else if shouldAutoImport,
                           report.confirmed.isEmpty,
                           !report.unverified.isEmpty {
-                    let batch = Array(report.unverified.prefix(60))
+                    let batch = Array(report.unverified.prefix(self.settings.scanLimit))
                     self.log(
                         .info,
                         "Nothing was verified before the run stopped; checking \(batch.count) of the \(report.unverified.count) links it found."
@@ -1912,7 +1923,7 @@ final class HarvestModel {
     /// guided flow safe by default: pasted/listing pages are verified and mined before
     /// import, while Automatic remains an explicit choice in Browse.
     private func migrateSettingsIfNeeded() {
-        guard settings.settingsRevision < 7 else { return }
+        guard settings.settingsRevision < 8 else { return }
         var changes: [String] = []
         if settings.settingsRevision < 2 {
             if settings.userAgent == AppSettings.legacyUserAgent {
@@ -1944,7 +1955,20 @@ final class HarvestModel {
             if settings.importBatchSize == 0 { settings.importBatchSize = 25 }
             changes.append("browse and import now use explicit finite batches and preserve stopped work")
         }
-        settings.settingsRevision = 7
+        if settings.settingsRevision < 8 {
+            settings.maximumConcurrentJobs = max(settings.maximumConcurrentJobs, 4)
+            settings.autoApproveConfidence = min(settings.autoApproveConfidence, 0.78)
+            settings.requireImageForImport = false
+            settings.requireStandardsForAutoApprove = false
+            settings.verifyBeforeImport = false
+            settings.autoRotateSourceCount = max(settings.autoRotateSourceCount, 5)
+            settings.queueCap = max(settings.queueCap, 2_000)
+            settings.bulkVerifyBatchSize = max(settings.bulkVerifyBatchSize, 200)
+            settings.importBatchSize = max(settings.importBatchSize, 50)
+            settings.scanLimit = max(settings.scanLimit, 100)
+            changes.append("recipe intake now favors complete text over optional images and uses larger finite batches")
+        }
+        settings.settingsRevision = 8
         scheduleSettingsSave()
         log(.info, "New Browse flow defaults applied: \(changes.joined(separator: "; ")).")
     }

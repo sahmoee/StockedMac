@@ -258,6 +258,7 @@ actor DiscoveryEngine {
     ) async throws -> DiscoveryOutcome {
         let startedAt = Date()
         let level = settings.crawlAggressiveness
+        let candidateLimit = max(1, min(level.candidateCap, settings.scanLimit))
         let method = resolveMethod(settings.preferredCrawlMethod, source: source)
         var notes: [String] = ["Engine: \(methodLabel(method)) · Speed: \(level.label)"]
         var recipeURLs: [String] = []
@@ -284,7 +285,7 @@ actor DiscoveryEngine {
         for (attempt, engine) in chain.enumerated() {
             if Task.isCancelled { break }
             if attempt > 0 {
-                notes.append("\(methodLabel(chain[attempt - 1])) came up empty; trying \(methodLabel(engine).lowercased()).")
+                notes.append("Continuing with \(methodLabel(engine).lowercased()) until the \(candidateLimit)-recipe scan limit is filled.")
             }
             // Build 102: a stall on one engine — a 429, a robots block, a network drop,
             // or the run being stopped mid-fetch — must never erase what an earlier
@@ -296,26 +297,26 @@ actor DiscoveryEngine {
                 case .feed:
                     let result = try await crawlFeeds(source: source, settings: settings,
                                                       level: level, progress: progress)
-                    recipeURLs = result.urls
+                    recipeURLs.append(contentsOf: result.urls)
                     notes.append(contentsOf: result.notes)
                     if workingSeed == nil { workingSeed = result.workingSeed }
-                    unverifiedURLs = result.unverified
+                    unverifiedURLs.append(contentsOf: result.unverified)
 
                 case .categories:
                     let result = try await crawlListings(source: source, settings: settings,
                                                          level: level, progress: progress)
-                    recipeURLs = result.urls
+                    recipeURLs.append(contentsOf: result.urls)
                     notes.append(contentsOf: result.notes)
                     if workingSeed == nil { workingSeed = result.workingSeed }
 
                 case .sitemap, .auto:
                     let result = try await crawlSitemaps(source: source, settings: settings,
                                                          level: level, progress: progress)
-                    recipeURLs = result.recipeURLs
-                    listingURLs = result.listingURLs
+                    recipeURLs.append(contentsOf: result.recipeURLs)
+                    listingURLs.append(contentsOf: result.listingURLs)
                     notes.append(contentsOf: result.notes)
                     if workingSeed == nil { workingSeed = result.workingSeed }
-                    unverifiedURLs = result.unverified
+                    unverifiedURLs.append(contentsOf: result.unverified)
                 }
             } catch is CancellationError {
                 notes.append("\(methodLabel(engine)) stopped early — importing what it found before stopping.")
@@ -342,7 +343,10 @@ actor DiscoveryEngine {
                 // gathered rather than losing the run over it.
                 notes.append("Category mining stopped early: \(error.localizedDescription)")
             }
-            if !recipeURLs.isEmpty { break }
+            // Categories already folded into `minedCategories` must not be reopened by
+            // the next fallback engine in the same finite pass.
+            listingURLs.removeAll(keepingCapacity: true)
+            if Set(recipeURLs).count >= candidateLimit { break }
         }
 
         if recipeURLs.isEmpty, !minedCategories.isEmpty {
@@ -355,13 +359,21 @@ actor DiscoveryEngine {
         if settings.skipAlreadyImported {
             deduplicated = deduplicated.filter { !knownSourceURLs.contains($0) }
         }
-        let candidateLimit = max(1, min(level.candidateCap, settings.scanLimit))
         if deduplicated.count > candidateLimit {
             notes.append("Capped at \(candidateLimit) of \(deduplicated.count) candidates (your scan limit).")
             deduplicated = Array(deduplicated.prefix(candidateLimit))
         }
 
         let confirmed = deduplicated.map { DiscoveredLink(url: $0, title: nil, imageURL: nil) }
+        let confirmedURLs = Set(deduplicated)
+        var unverifiedSeen = Set<String>()
+        let uniqueUnverified = unverifiedURLs.compactMap { raw -> String? in
+            guard let parsed = try? URLSafety.validatedRemoteURL(raw) else { return nil }
+            let normalized = URLSafety.normalized(parsed).absoluteString
+            guard !confirmedURLs.contains(normalized), !knownSourceURLs.contains(normalized),
+                  unverifiedSeen.insert(normalized).inserted else { return nil }
+            return normalized
+        }
 
         let report = DiscoveryReport(
             sourceID: source.id,
@@ -372,7 +384,7 @@ actor DiscoveryEngine {
             candidates: confirmed,
             confirmed: confirmed,
             rejected: [],
-            unverified: unverifiedURLs,
+            unverified: Array(uniqueUnverified.prefix(candidateLimit)),
             notes: notes
         )
         return DiscoveryOutcome(report: report, categories: minedCategories)
