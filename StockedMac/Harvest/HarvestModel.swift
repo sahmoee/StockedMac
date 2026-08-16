@@ -2202,6 +2202,41 @@ final class HarvestModel {
         return known.contains(urlString) || known.contains(normalized)
     }
 
+    enum BrowserCaptureResult: Sendable {
+        case recipe(added: Bool)
+        case listing(found: Int, added: Int)
+        case ignored
+        case failed(String)
+    }
+
+    /// Classifies a page after the visible browser finishes navigating. Recipe pages are
+    /// queued directly; category/listing pages contribute their confirmed outbound recipe
+    /// links. This never starts an import, changes browser navigation, or blocks the UI.
+    func captureBrowserPage(_ urlString: String) async -> BrowserCaptureResult {
+        guard let valid = try? URLSafety.validatedRemoteURL(urlString) else { return .ignored }
+        let normalized = URLSafety.normalized(valid).absoluteString
+        if await isAlreadyImported(normalized) { return .recipe(added: false) }
+        do {
+            let verdict = try await coordinator.inspect(urlString: normalized, settings: settings)
+            switch verdict.kind {
+            case .recipe:
+                let before = Set(queuedURLs)
+                appendImportURLs([normalized])
+                return .recipe(added: !before.contains(normalized))
+            case .listing:
+                let candidates = verdict.outboundLinks
+                let before = Set(queuedURLs)
+                appendImportURLs(candidates)
+                let added = Set(queuedURLs).subtracting(before).count
+                return .listing(found: candidates.count, added: added)
+            case .other:
+                return .ignored
+            }
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+    }
+
     /// Imports one page immediately — the in-app browser's buttons. `force` skips the
     /// category-page refusal for the rare page the detector reads wrong. Re-importing is
     /// safe: RecipeStore merges by source fingerprint and preserves review decisions.

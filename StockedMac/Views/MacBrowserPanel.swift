@@ -16,6 +16,8 @@ struct MacBrowserPanel: View {
     @State private var status: BrowserStatus?
     @State private var session = BrowserSession()
     @State private var isAlreadyImported = false
+    @State private var autoCapture = true
+    @State private var capturedURLs: Set<String> = []
     @FocusState private var addressFocused: Bool
 
     var body: some View {
@@ -65,6 +67,32 @@ struct MacBrowserPanel: View {
                 return
             }
             isAlreadyImported = await harvest.isAlreadyImported(activeURLString)
+        }
+        .task(id: session.completedNavigationID) {
+            guard autoCapture, session.completedNavigationID > 0,
+                  let url = session.completedURL?.absoluteString,
+                  capturedURLs.insert(url).inserted else { return }
+            status = BrowserStatus("Checking this page for recipes…", kind: .neutral)
+            switch await harvest.captureBrowserPage(url) {
+            case .recipe(let added):
+                status = BrowserStatus(
+                    added ? "Recipe found and added to the durable queue." : "Recipe already imported or queued.",
+                    kind: .success
+                )
+            case .listing(let found, let added):
+                status = BrowserStatus(
+                    added > 0
+                        ? "Found \(found) recipe link\(found == 1 ? "" : "s"); queued \(added) new."
+                        : "Checked this listing; its recipe links were already known.",
+                    kind: added > 0 ? .success : .neutral
+                )
+            case .ignored:
+                status = nil
+            case .failed:
+                // Browsing must remain quiet and uninterrupted when a site blocks the
+                // background classifier; the page itself is still fully usable.
+                status = nil
+            }
         }
         .dropDestination(for: String.self) { items, _ in
             guard let first = items.first?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -164,6 +192,14 @@ struct MacBrowserPanel: View {
                 Label("In Harvest", systemImage: "checkmark.circle.fill")
                     .font(.caption).foregroundStyle(MacTheme.green)
             }
+
+            Toggle(isOn: $autoCapture) {
+                Label("Auto-queue", systemImage: autoCapture ? "sparkles" : "sparkles.slash")
+                    .font(.caption)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .help("Automatically find and queue recipes as pages finish loading")
 
             Button("Queue") {
                 guard let activeURLString else { return }
@@ -316,6 +352,8 @@ private final class BrowserSession {
     var isLoading = false
     var canGoBack = false
     var canGoForward = false
+    var completedURL: URL?
+    var completedNavigationID = 0
 
     func attach(_ webView: WKWebView) {
         self.webView = webView
@@ -336,6 +374,12 @@ private final class BrowserSession {
         title = ""
         estimatedProgress = 0
         isLoading = true
+    }
+
+    func completed(_ webView: WKWebView) {
+        update(from: webView)
+        completedURL = webView.url
+        completedNavigationID &+= 1
     }
 
     func goBack() { webView?.goBack() }
@@ -410,7 +454,7 @@ private struct BrowserWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            session.update(from: webView)
+            session.completed(webView)
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {

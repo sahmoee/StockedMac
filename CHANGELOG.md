@@ -1,5 +1,6 @@
 # Changelog
 
+- Upgraded the in-app WebKit browser with default-on live recipe capture. Every completed navigation is classified in the background: recipe pages enter the durable queue automatically, category/listing pages contribute their discovered recipe links, duplicates are skipped, and browsing is never interrupted by classifier failures.
 - Made usable downloaded images a permanent ingestion invariant across direct, category, queued, automatic, retry, refresh, and bulk imports. Every library reload continuously removes older image-less Harvester imports and image-less source-backed shared recipes, and publishes their deletions through household sync.
 - Recipe categories now travel into every newly imported recipe using structured metadata plus conservative title/source taxonomy inference. Historical repair v3 backfills the same categories into previously imported Mac drafts and the shared Stocked iOS library, without importing category or roundup pages as recipes.
 
