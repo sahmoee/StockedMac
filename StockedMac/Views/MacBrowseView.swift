@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 @preconcurrency import Vision
 
 struct MacBrowseView: View {
@@ -270,6 +271,13 @@ struct MacBrowseView: View {
                     Button("Read Screenshots…", action: importImages)
                     Spacer()
                 }.font(.caption)
+                HStack(spacing: 6) {
+                    Button("Import Link Files…", action: importLinkFiles)
+                        .help("Import recipe links from bookmarks, .webloc, HTML, CSV, or text files")
+                    Button("Scan Recipe QR…", action: importRecipeQRCodes)
+                        .help("Read recipe web addresses from QR-code images")
+                    Spacer()
+                }.font(.caption)
                 if let manualImportStatus { Text(manualImportStatus).font(.caption2).foregroundStyle(.secondary) }
             }
         }
@@ -304,6 +312,87 @@ struct MacBrowseView: View {
             harvest.importRecipeText(merged, sourceLabel: urls.count == 1 ? "Screenshot" : "\(urls.count) screenshots")
             manualImportStatus = "Imported for review."
             pane = .review
+        }
+    }
+
+    /// Bulk migration path for browser exports, bookmark collections, URL lists, and
+    /// Finder .webloc shortcuts. All extracted links still pass through the normal
+    /// recipe verifier, image requirement, duplicate handling, and finite batch limits.
+    private func importLinkFiles() {
+        let panel = NSOpenPanel()
+        var types: [UTType] = [.html, .plainText, .commaSeparatedText]
+        if let webloc = UTType(filenameExtension: "webloc") { types.append(webloc) }
+        if let urlType = UTType(filenameExtension: "url") { types.append(urlType) }
+        panel.allowedContentTypes = types
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose bookmark exports, URL lists, or .webloc recipe shortcuts."
+        guard panel.runModal() == .OK else { return }
+
+        let links = panel.urls.flatMap(Self.recipeLinks(in:)).cleanedUnique()
+        guard !links.isEmpty else {
+            manualImportStatus = "No HTTP or HTTPS links were found in those files."
+            return
+        }
+        harvest.importDirect(links)
+        manualImportStatus = "Found \(links.count) unique link\(links.count == 1 ? "" : "s"); importing the first finite batch and queuing the rest."
+    }
+
+    private static func recipeLinks(in file: URL) -> [String] {
+        guard let data = try? Data(contentsOf: file) else { return [] }
+        if file.pathExtension.lowercased() == "webloc",
+           let value = try? PropertyListSerialization.propertyList(from: data, format: nil),
+           let dict = value as? [String: Any], let url = dict["URL"] as? String {
+            return [url]
+        }
+        guard var text = String(data: data, encoding: .utf8)
+                ?? String(data: data, encoding: .isoLatin1) else { return [] }
+        text = text.replacingOccurrences(of: "&amp;", with: "&")
+        return text.matches(#"https?://[^\s\"'<>\)\]]+"#, group: 0)
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ",;")) }
+    }
+
+    /// Camera-roll, screenshot, printed-card, and packaging path: decode one or many QR
+    /// images and feed their web addresses into the exact same bounded importer.
+    private func importRecipeQRCodes() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose images containing recipe QR codes."
+        guard panel.runModal() == .OK else { return }
+        let files = panel.urls
+        manualImportStatus = "Scanning \(files.count) image\(files.count == 1 ? "" : "s") for recipe QR codes…"
+        Task {
+            var links: [String] = []
+            for file in files {
+                guard let image = NSImage(contentsOf: file),
+                      let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
+                links.append(contentsOf: await Self.qrLinks(in: cg))
+            }
+            links = links.cleanedUnique()
+            guard !links.isEmpty else {
+                manualImportStatus = "No recipe web address was found in those QR codes."
+                return
+            }
+            harvest.importDirect(links)
+            manualImportStatus = "Found \(links.count) QR recipe link\(links.count == 1 ? "" : "s") and started importing."
+        }
+    }
+
+    private static func qrLinks(in image: CGImage) async -> [String] {
+        await withCheckedContinuation { continuation in
+            let request = VNDetectBarcodesRequest { request, _ in
+                let links = (request.results as? [VNBarcodeObservation])?.compactMap(\.payloadStringValue)
+                    .filter { value in
+                        guard let url = URL(string: value), let scheme = url.scheme?.lowercased() else { return false }
+                        return (scheme == "http" || scheme == "https") && url.host != nil
+                    } ?? []
+                continuation.resume(returning: links)
+            }
+            request.symbologies = [.qr]
+            DispatchQueue.global(qos: .userInitiated).async {
+                do { try VNImageRequestHandler(cgImage: image).perform([request]) }
+                catch { continuation.resume(returning: []) }
+            }
         }
     }
 
