@@ -1,5 +1,7 @@
 # Changelog
 
+- Recipe categories now travel into every newly imported recipe using structured metadata plus conservative title/source taxonomy inference. Historical repair v3 backfills the same categories into previously imported Mac drafts and the shared Stocked iOS library, without importing category or roundup pages as recipes.
+
 Every push should add an entry here so GitHub carries the build/change history.
 Newest at the top. Keep it plain ASCII (see .gitmessage.txt for the commit rules).
 

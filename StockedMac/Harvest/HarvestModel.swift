@@ -99,7 +99,7 @@ nonisolated enum MacRecipeTextParser {
 final class HarvestModel {
     /// Increment whenever an import/model fix must be applied to historical recipes.
     /// The versioned pass repairs local records and seeds their sources for bounded reparse.
-    static let currentRecipeRepairRevision = 2
+    static let currentRecipeRepairRevision = 3
 
     // MARK: - Observable state
 
@@ -2056,7 +2056,13 @@ final class HarvestModel {
             let sourceName = snapshot.sourceName?.nilIfBlank
                 ?? metadata.name
                 ?? normalizedURL.flatMap { URL(string: $0)?.host }
-            let categories = ((snapshot.categories ?? []) + snapshot.tags).cleanedUnique()
+            let inferred = RecipeBrowseTaxonomy.inferredCategoryNames(from: [
+                snapshot.title,
+                snapshot.description,
+                snapshot.cuisine,
+                snapshot.sourceURL ?? "",
+            ] + snapshot.tags + (snapshot.categories ?? []))
+            let categories = ((snapshot.categories ?? []) + snapshot.tags + inferred).cleanedUnique()
             guard normalizedURL != snapshot.sourceURL
                     || sourceName != snapshot.sourceName
                     || categories != (snapshot.categories ?? []) else { continue }

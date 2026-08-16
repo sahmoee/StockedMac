@@ -196,6 +196,17 @@ nonisolated enum RecipeBrowseTaxonomy {
         }
     }
 
+    /// Returns the canonical categories evidenced by a recipe's own metadata, title,
+    /// and source URL. This is intentionally conservative (whole normalized terms only)
+    /// so a category page can contribute useful labels without itself becoming a recipe.
+    static func inferredCategoryNames(from values: [String]) -> [String] {
+        let haystack = " " + normalize(values.joined(separator: " ")) + " "
+        return all.compactMap { category in
+            category.terms.contains(where: { !$0.isEmpty && haystack.contains(" \($0) ") })
+                ? category.name : nil
+        }.cleanedUnique()
+    }
+
     private static func identifier(group: String, name: String) -> String {
         slug(group) + "." + slug(name)
     }

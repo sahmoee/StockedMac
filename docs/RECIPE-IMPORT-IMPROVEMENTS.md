@@ -27,7 +27,7 @@ Mined categories are also enriched with cuisine and diet labels when recipes cro
 
 ## Making future fixes retroactive
 
-Every historical repair is versioned by `HarvestModel.currentRecipeRepairRevision`. When a future model, parser, normalization, attribution, category, or image fix should apply to existing data:
+Every historical repair is versioned by `HarvestModel.currentRecipeRepairRevision`. Revision 3 enriches both Mac drafts and shared iOS recipes with canonical categories inferred from their structured metadata, title, and source URL; category pages remain discovery containers, never recipe records. When a future model, parser, normalization, attribution, category, or image fix should apply to existing data:
 
 1. Add the local transformation to `RecipeStore.repairExisting()` and/or `HarvestModel.repairSharedRecipeLibrary()`.
 2. Increment `HarvestModel.currentRecipeRepairRevision`.

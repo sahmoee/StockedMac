@@ -72,6 +72,7 @@ actor RecipeStore {
     private func merge(_ incoming: RecipeDraft) throws -> RecipeDraft {
         try loadIfNeeded()
         var recipe = incoming
+        recipe.categories = enrichedCategories(for: recipe)
         recipe.refreshFingerprint()
 
         let index = recipes.firstIndex { $0.id == recipe.id }
@@ -151,6 +152,7 @@ actor RecipeStore {
             recipe.diets = recipe.diets.cleanedUnique()
             recipe.keywords = recipe.keywords.cleanedUnique()
             recipe.warnings = recipe.warnings.cleanedUnique()
+            recipe.categories = enrichedCategories(for: recipe)
             recipe.refreshFingerprint()
             let after = try? JSONCoding.encoder().encode(recipe)
             if before != after {
@@ -161,6 +163,18 @@ actor RecipeStore {
         }
         if repaired > 0 { try persist() }
         return repaired
+    }
+
+    /// Structured recipeCategory remains authoritative. Taxonomy matches supplement it
+    /// from the recipe itself and its source path, including links mined from categories.
+    private func enrichedCategories(for recipe: RecipeDraft) -> [String] {
+        let evidence = recipe.categories + recipe.cuisines + recipe.diets + recipe.keywords + [
+            recipe.title,
+            recipe.summary ?? "",
+            recipe.source.canonicalURL ?? recipe.source.url,
+        ]
+        return (recipe.categories + RecipeBrowseTaxonomy.inferredCategoryNames(from: evidence))
+            .cleanedUnique()
     }
 
     @discardableResult
