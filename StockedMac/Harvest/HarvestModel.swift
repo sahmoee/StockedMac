@@ -225,6 +225,9 @@ final class HarvestModel {
     /// URLs that failed this run and are eligible for one retry.
     @ObservationIgnored private var retryQueue: [String] = []
     @ObservationIgnored private var isRetryPass = false
+    /// Prevents discovery/mining from putting a URL back into the visible queue after
+    /// this launch has already resolved it. Explicit Retry still bypasses this guard.
+    @ObservationIgnored private var attemptedURLsThisSession: Set<String> = []
     /// URLs owned by the current batch but not yet resolved. Cancellation puts these
     /// back at the front of the durable queue instead of losing them.
     @ObservationIgnored private var activeImportPending: Set<String> = []
@@ -491,6 +494,14 @@ final class HarvestModel {
         let batch = Array(urls.prefix(batchSize))
         let remainder = Array(urls.dropFirst(batch.count))
         if !remainder.isEmpty { _ = prependImportURLs(remainder) }
+        // Direct imports are also used by Browse/Autopilot. If discovery already placed
+        // these URLs in the durable queue, remove the owned batch before starting so a
+        // successful direct import cannot leave the same first page waiting forever.
+        let owned = Set(batch)
+        if !owned.isDisjoint(with: Set(queuedURLs)) {
+            importText = queuedURLs.filter { !owned.contains($0) }.joined(separator: "\n")
+            persistImportQueue()
+        }
         beginImport(batch, parserModeOverride: parserModeOverride)
     }
 
@@ -502,7 +513,11 @@ final class HarvestModel {
         let additions = rawURLs
             .compactMap { try? URLSafety.validatedRemoteURL($0) }
             .map { URLSafety.normalized($0).absoluteString }
-            .filter { seen.insert($0).inserted && !existing.contains($0) }
+            .filter {
+                seen.insert($0).inserted && !existing.contains($0)
+                    && !activeImportPending.contains($0)
+                    && !attemptedURLsThisSession.contains($0)
+            }
             .prefix(available)
         guard !additions.isEmpty else {
             statusMessage = available == 0
@@ -529,7 +544,11 @@ final class HarvestModel {
         let additions = rawURLs
             .compactMap { try? URLSafety.validatedRemoteURL($0) }
             .map { URLSafety.normalized($0).absoluteString }
-            .filter { seen.insert($0).inserted && !existing.contains($0) }
+            .filter {
+                seen.insert($0).inserted && !existing.contains($0)
+                    && !activeImportPending.contains($0)
+                    && !attemptedURLsThisSession.contains($0)
+            }
             .prefix(available)
         guard !additions.isEmpty else { return 0 }
         let suffix = importText.nilIfBlank.map { "\n" + $0 } ?? ""
@@ -777,6 +796,7 @@ final class HarvestModel {
 
     private func record(_ outcome: ImportOutcome) {
         activeImportPending.remove(outcome.url)
+        attemptedURLsThisSession.insert(outcome.url)
         if activeRetroactiveRefresh.contains(outcome.url), outcome.error != "Canceled" {
             activeRetroactiveRefresh.remove(outcome.url)
             retroactiveAttemptedThisRun.insert(outcome.url)
@@ -859,8 +879,8 @@ final class HarvestModel {
                 hostFailureStreaks[host] = 0
             }
             if Self.isRateLimited(outcome.error) {
-                _ = prependImportURLs([outcome.url])
-                log(.warning, "Rate limited; deferred this URL to a later import instead of retrying in a loop.", url: outcome.url)
+                deferURLToQueueBack(outcome.url)
+                log(.warning, "Rate limited; moved this URL to the back of the queue instead of retrying in a loop.", url: outcome.url)
             } else if settings.retryFailedImports, !isRetryPass, Self.isRetryable(outcome.error) {
                 retryQueue.append(outcome.url)
             } else if !lastFailures.contains(where: { $0.url == outcome.url }) {
@@ -1276,7 +1296,11 @@ final class HarvestModel {
     func queue(_ links: [DiscoveredLink]) {
         let existing = Set(parsedImportURLs())
         let failed = Set(lastFailures.map(\.url))
-        let additions = links.map(\.url).filter { !existing.contains($0) && !failed.contains($0) }
+        let additions = links.map(\.url).filter {
+            !existing.contains($0) && !failed.contains($0)
+                && !activeImportPending.contains($0)
+                && !attemptedURLsThisSession.contains($0)
+        }
         guard !additions.isEmpty else {
             statusMessage = "Every discovered recipe is already queued."
             return
@@ -2360,9 +2384,21 @@ final class HarvestModel {
 
     private func noteBreakerSkip(_ url: String) {
         activeImportPending.remove(url)
+        attemptedURLsThisSession.insert(url)
         skippedByBreaker += 1
         importProgress.completed += 1
         importProgress.currentURL = url
+    }
+
+    /// Rate limits are temporary, so retain the URL—but behind every item that has not
+    /// had a turn. This intentionally bypasses the session-attempt guard used by normal
+    /// discovery re-queueing.
+    private func deferURLToQueueBack(_ url: String) {
+        var entries = queuedURLs.filter { $0 != url }
+        guard entries.count < settings.queueCap else { return }
+        entries.append(url)
+        importText = entries.joined(separator: "\n")
+        persistImportQueue()
     }
 
     /// One press that answers "are these duplicates?": removes exact duplicates,
@@ -2650,7 +2686,10 @@ final class HarvestModel {
             guard let self else { return }
             let cancelled = Task.isCancelled
 
-            var final = keep + rest
+            // A standalone bounded verification pass rotates checked survivors behind
+            // unchecked work. When verification is immediately followed by import, keep
+            // verified survivors in front so that import consumes exactly that batch.
+            var final = (thenImport || cancelled) ? (keep + rest) : (rest + keep)
             var capped = 0
             if final.count > self.settings.queueCap {
                 capped = final.count - self.settings.queueCap
