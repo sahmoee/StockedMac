@@ -1220,6 +1220,7 @@ private struct RecipeCategoryMultiPicker: View {
 /// health dots, and a running count. Selection lives in the parent so the action
 /// buttons can follow it.
 private struct SourceMultiPicker: View {
+    @Environment(HarvestModel.self) private var harvest
     @Binding var search: String
     @Binding var selected: Set<String>
     let american: [SourceProfile]
@@ -1232,6 +1233,14 @@ private struct SourceMultiPicker: View {
     let onFavoritesChanged: () -> Void
 
     @State private var healthScope: HealthScope = .available
+    @State private var categoryScope: String?
+    @State private var editingSource: SourceProfile?
+
+    private var sourceCategories: [String] {
+        catalog.flatMap(\.tags).cleanedUnique().sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+    }
 
     private enum HealthScope: String, CaseIterable, Identifiable {
         case available = "Available"
@@ -1276,6 +1285,23 @@ private struct SourceMultiPicker: View {
                 }
                 .menuStyle(.borderlessButton)
                 .help("Filter sources by health")
+                Menu {
+                    Button("All categories") { categoryScope = nil }
+                    Divider()
+                    ForEach(sourceCategories, id: \.self) { category in
+                        Button {
+                            categoryScope = category
+                        } label: {
+                            if categoryScope == category { Label(category, systemImage: "checkmark") }
+                            else { Text(category) }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "folder")
+                        .foregroundStyle(categoryScope == nil ? Color.secondary : MacTheme.gold)
+                }
+                .menuStyle(.borderlessButton)
+                .help(categoryScope ?? "Filter sources by category")
             }
             .padding(10)
 
@@ -1307,6 +1333,12 @@ private struct SourceMultiPicker: View {
             }
             .buttonStyle(.borderless)
             .padding(10)
+        }
+        .popover(item: $editingSource) { source in
+            SourceCategoryEditor(source: source) { updated in
+                harvest.updateSource(updated)
+                editingSource = nil
+            }
         }
     }
 
@@ -1366,18 +1398,34 @@ private struct SourceMultiPicker: View {
                     .help(favoriteIDs.contains(source.id) ? "Remove from favorites" : "Add to favorites")
                 }
                 .padding(.horizontal, 12).padding(.vertical, 2)
+                .contextMenu {
+                    Button("Edit categories…") { editingSource = source }
+                    if !source.tags.isEmpty {
+                        Divider()
+                        ForEach(source.tags, id: \.self) { category in
+                            Button("Show \(category)") { categoryScope = category }
+                        }
+                    }
+                }
             }
         }
     }
 
     private func scoped(_ sources: [SourceProfile]) -> [SourceProfile] {
         sources.filter { source in
-            switch healthScope {
-            case .available: return source.health != .blocked && source.health != .paused
-            case .healthy: return source.health == .healthy
-            case .attention: return source.health == .limited || source.health == .paused || source.health == .blocked
-            case .all: return true
+            let healthMatches: Bool = switch healthScope {
+            case .available: source.health != .blocked && source.health != .paused
+            case .healthy: source.health == .healthy
+            case .attention: source.health == .limited || source.health == .paused || source.health == .blocked
+            case .all: true
             }
+            let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+            let searchMatches = query.isEmpty || ([source.name, source.baseURL] + source.domains + source.tags)
+                .contains { $0.localizedCaseInsensitiveContains(query) }
+            let categoryMatches = categoryScope == nil || source.tags.contains {
+                $0.caseInsensitiveCompare(categoryScope ?? "") == .orderedSame
+            }
+            return healthMatches && searchMatches && categoryMatches
         }
     }
 
@@ -1416,5 +1464,51 @@ private struct SourceMultiPicker: View {
         case .unknown: color = .secondary
         }
         return Circle().fill(color).frame(width: 6, height: 6)
+    }
+}
+
+private struct SourceCategoryEditor: View {
+    let source: SourceProfile
+    let onSave: (SourceProfile) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String
+
+    init(source: SourceProfile, onSave: @escaping (SourceProfile) -> Void) {
+        self.source = source
+        self.onSave = onSave
+        _text = State(initialValue: source.tags.joined(separator: ", "))
+    }
+
+    private var categories: [String] {
+        text.components(separatedBy: CharacterSet(charactersIn: ",\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .cleanedUnique()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Categorize \(source.name)").font(.headline)
+            Text("Use commas or new lines. A source can belong to multiple categories.")
+                .font(.caption).foregroundStyle(.secondary)
+            TextEditor(text: $text)
+                .font(.callout)
+                .frame(width: 320, height: 110)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.25)))
+            Text("\(categories.count) categor\(categories.count == 1 ? "y" : "ies")")
+                .font(.caption2).foregroundStyle(.secondary)
+            HStack {
+                Button("Clear") { text = "" }.disabled(categories.isEmpty)
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Save") {
+                    var updated = source
+                    updated.tags = categories
+                    onSave(updated)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(16)
     }
 }

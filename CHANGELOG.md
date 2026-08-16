@@ -1,5 +1,6 @@
 # Changelog
 
+- Sources can now belong to multiple persistent categories. The source picker supports category filtering, category-aware search, category shortcuts, and an editor for adding, renaming, or removing arbitrary comma/newline-separated source categories; existing built-in source tags populate the system immediately.
 - Added two recipe intake methods: bulk link-file import for browser bookmark HTML, `.webloc`, `.url`, CSV, and text exports; and QR-code image import for recipe links from screenshots, cards, books, or packaging. Both reuse finite batches, the durable queue, verification, deduplication, and mandatory image enforcement.
 - Upgraded the in-app WebKit browser with default-on live recipe capture. Every completed navigation is classified in the background: recipe pages enter the durable queue automatically, category/listing pages contribute their discovered recipe links, duplicates are skipped, and browsing is never interrupted by classifier failures.
 - Made usable downloaded images a permanent ingestion invariant across direct, category, queued, automatic, retry, refresh, and bulk imports. Every library reload continuously removes older image-less Harvester imports and image-less source-backed shared recipes, and publishes their deletions through household sync.
