@@ -1,22 +1,49 @@
 import Foundation
 import Security
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
-enum MacAIBackend: String, CaseIterable, Identifiable {
+nonisolated enum MacAIBackend: String, CaseIterable, Identifiable {
+    case automatic = "Automatic — Apple on-device first"
     case managed = "Stocked managed service"
     case custom = "My private Worker"
     var id: String { rawValue }
+}
+
+nonisolated enum MacAIProvider: String, CaseIterable, Identifiable {
+    case anthropic = "Anthropic — Claude"
+    case openAI = "OpenAI — ChatGPT models"
+    var id: String { rawValue }
+    var headerValue: String { self == .openAI ? "openai" : "anthropic" }
 }
 
 nonisolated enum MacAIConfiguration {
     private static let backendKey = "stockedmac.ai.backend"
     private static let endpointKey = "stockedmac.ai.endpoint"
     private static let modelKey = "stockedmac.ai.model"
+    private static let providerKey = "stockedmac.ai.provider"
+    private static let managedUnlockKey = "stockedmac.ai.managedSettingsUnlocked"
     private static let service = "com.sowens.StockedMac.ai"
     private static let account = "worker-token"
 
     static var backend: MacAIBackend {
-        get { MacAIBackend(rawValue: UserDefaults.standard.string(forKey: backendKey) ?? "") ?? .managed }
+        get { MacAIBackend(rawValue: UserDefaults.standard.string(forKey: backendKey) ?? "") ?? .automatic }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: backendKey) }
+    }
+    static var provider: MacAIProvider {
+        get { MacAIProvider(rawValue: UserDefaults.standard.string(forKey: providerKey) ?? "") ?? .anthropic }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: providerKey) }
+    }
+    static var managedSettingsUnlocked: Bool {
+        get { UserDefaults.standard.bool(forKey: managedUnlockKey) }
+        set { UserDefaults.standard.set(newValue, forKey: managedUnlockKey) }
+    }
+    static var appleIntelligenceAvailable: Bool {
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *), case .available = SystemLanguageModel.default.availability { return true }
+        #endif
+        return false
     }
     static var endpoint: String {
         get { UserDefaults.standard.string(forKey: endpointKey) ?? "" }
@@ -32,6 +59,7 @@ nonisolated enum MacAIConfiguration {
     }
     static var baseURL: URL? {
         if backend == .custom, let value = URL(string: endpoint), value.scheme == "https" { return value }
+        guard managedSettingsUnlocked else { return nil }
         return URL(string: MacBuildConfig.receiptWorkerURL)
     }
     static var token: String { readToken() ?? "" }
@@ -51,6 +79,7 @@ nonisolated enum MacAIConfiguration {
     static func apply(to request: inout URLRequest) {
         if backend == .custom, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if !model.isEmpty { request.setValue(model, forHTTPHeaderField: "X-AI-Model") }
+        request.setValue(provider.headerValue, forHTTPHeaderField: "X-AI-Provider")
         request.setValue(backend == .custom ? "custom-worker" : "managed", forHTTPHeaderField: "X-AI-Agent")
     }
     private static func readToken() -> String? {

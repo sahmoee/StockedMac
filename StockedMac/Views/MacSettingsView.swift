@@ -20,7 +20,10 @@ struct MacSettingsView: View {
     @State private var aiBackend = MacAIConfiguration.backend
     @State private var aiEndpoint = MacAIConfiguration.endpoint
     @State private var aiModel = MacAIConfiguration.model
+    @State private var aiProvider = MacAIConfiguration.provider
     @State private var aiToken = MacAIConfiguration.token
+    @State private var aiUnlockCode = ""
+    @State private var aiManagedUnlocked = MacAIConfiguration.managedSettingsUnlocked
 
     var body: some View {
         TabView {
@@ -42,18 +45,34 @@ struct MacSettingsView: View {
                 Picker("AI service", selection: $aiBackend) {
                     ForEach(MacAIBackend.allCases) { Text($0.rawValue).tag($0) }
                 }
+                if aiBackend == .automatic {
+                    Label(MacAIConfiguration.appleIntelligenceAvailable ? "Apple Intelligence is ready" : "Apple Intelligence unavailable; hosted fallback will be used", systemImage: MacAIConfiguration.appleIntelligenceAvailable ? "apple.intelligence" : "icloud")
+                }
             }
             if aiBackend == .custom {
                 Section("Private Worker") {
                     TextField("https://example.workers.dev", text: $aiEndpoint)
                     SecureField("Worker access token (optional)", text: $aiToken)
-                    Text("Deploy UnifiedWorker in your Cloudflare account and add your provider API key with Wrangler. The optional Worker token stays in StockedMac's Keychain.")
+                    Picker("Provider", selection: $aiProvider) { ForEach(MacAIProvider.allCases) { Text($0.rawValue).tag($0) } }
+                    Text("Deploy UnifiedWorker in your Cloudflare account and add ANTHROPIC_API_KEY or OPENAI_API_KEY with Wrangler. The optional Worker token stays in StockedMac's Keychain.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
             Section("Model") {
                 TextField("Worker default", text: $aiModel)
-                Text("Leave blank to keep the existing automatic model. A private Worker can honor the requested model or apply its own allowlist.")
+                    .disabled(aiBackend != .custom && !aiManagedUnlocked)
+                if aiBackend != .custom && !aiManagedUnlocked {
+                    SecureField("Passcode to change included model", text: $aiUnlockCode)
+                    Button("Unlock included model") {
+                        guard aiUnlockCode == "Joo" else { return }
+                        aiManagedUnlocked = true
+                        MacAIConfiguration.managedSettingsUnlocked = true
+                        aiUnlockCode = ""
+                    }
+                }
+                Text(aiBackend == .custom
+                     ? "Choose any model supported by your own Worker and provider account."
+                     : "Included AI is reserved for registered production/test devices and retains the standard model. Enter the device passcode once, or use your own credentials for more usage or a higher model.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -62,6 +81,7 @@ struct MacSettingsView: View {
             MacAIConfiguration.backend = aiBackend
             MacAIConfiguration.endpoint = aiEndpoint
             MacAIConfiguration.model = aiModel
+            MacAIConfiguration.provider = aiProvider
             MacAIConfiguration.saveToken(aiToken)
         }
     }
