@@ -26,12 +26,15 @@ nonisolated enum CatalogSource: String, Codable, CaseIterable, Identifiable, Sen
     case usda = "USDA FoodData Central"
     case openStreetMap = "OpenStreetMap"
     case wikidataCommons = "Wikidata + Wikimedia Commons"
+    case kroger = "Kroger Store Catalog"
+    case rapidAPIGrocery = "RapidAPI Grocery Catalog"
     case stockedReference = "Stocked Brand & Store Reference"
     case builtIn = "Stocked Aisle Taxonomy"
     case legacyRemoved = "Removed non-grocery source"
 
     static let allCases: [CatalogSource] = [
-        .openFoodFacts, .usda, .openStreetMap, .wikidataCommons, .stockedReference, .builtIn
+        .kroger, .openFoodFacts, .usda, .openStreetMap, .wikidataCommons,
+        .rapidAPIGrocery, .stockedReference, .builtIn
     ]
 
     var id: String { rawValue }
@@ -41,6 +44,8 @@ nonisolated enum CatalogSource: String, Codable, CaseIterable, Identifiable, Sen
         case .usda: "U.S. Global Branded Foods; a free data.gov key is recommended"
         case .openStreetMap: "Nearby grocery stores and addresses by city, ZIP code or region"
         case .wikidataCommons: "Brand and retailer identities with reusable original images from Wikimedia Commons"
+        case .kroger: "Official store locations and grocery products with store-specific prices, availability, aisles and original images"
+        case .rapidAPIGrocery: "Optional Walmart and Amazon grocery catalog fallback through the key-protected Stocked Worker"
         case .stockedReference: "Offline coverage for major grocery chains and consumer brands; no key or network required"
         case .builtIn: "Offline category-to-aisle rules used to normalize every source"
         case .legacyRemoved: "Retained only to migrate old saved catalogs safely"
@@ -53,6 +58,8 @@ nonisolated enum CatalogSource: String, Codable, CaseIterable, Identifiable, Sen
         case .usda: "Products · Brands · Barcodes"
         case .openStreetMap: "Stores · Addresses · Coordinates"
         case .wikidataCommons: "Brands · Stores · Original images · Attribution"
+        case .kroger: "Stores · Products · Brands · Prices · Availability · Aisles · Images"
+        case .rapidAPIGrocery: "Products · Brands · Prices · Images"
         case .stockedReference: "Brands · Store chains · Offline"
         case .builtIn: "Categories · Aisles · Offline"
         case .legacyRemoved: "Unavailable"
@@ -62,6 +69,8 @@ nonisolated enum CatalogSource: String, Codable, CaseIterable, Identifiable, Sen
     var icon: String {
         switch self {
         case .openStreetMap: "map"
+        case .kroger: "cart.fill.badge.plus"
+        case .rapidAPIGrocery: "network"
         case .wikidataCommons: "photo.on.rectangle.angled"
         case .stockedReference, .builtIn: "internaldrive"
         case .legacyRemoved: "nosign"
@@ -105,6 +114,11 @@ nonisolated struct CatalogRecord: Identifiable, Codable, Hashable, Sendable {
     var imagePreviewURL: String? = nil
     var imageSourceURL: String? = nil
     var imageAttribution: String? = nil
+    var externalID: String? = nil
+    var retailerLocationID: String? = nil
+    var regularPrice: Double? = nil
+    var promotionalPrice: Double? = nil
+    var inventoryLevel: String? = nil
     var confidence: Double = 0.8
     var state: CatalogImportState = .queued
     var updatedAt = Date()
@@ -131,6 +145,11 @@ nonisolated struct CatalogRecord: Identifiable, Codable, Hashable, Sendable {
         imagePreviewURL = imagePreviewURL ?? incoming.imagePreviewURL
         imageSourceURL = imageSourceURL ?? incoming.imageSourceURL
         imageAttribution = imageAttribution ?? incoming.imageAttribution
+        externalID = externalID ?? incoming.externalID
+        retailerLocationID = retailerLocationID ?? incoming.retailerLocationID
+        regularPrice = incoming.regularPrice ?? regularPrice
+        promotionalPrice = incoming.promotionalPrice ?? promotionalPrice
+        inventoryLevel = incoming.inventoryLevel ?? inventoryLevel
         confidence = max(confidence, incoming.confidence)
         if self != before { updatedAt = Date(); return true }
         return false
@@ -160,9 +179,7 @@ nonisolated enum GroceryAisleClassifier {
             ("Beverages", ["beverage", "drink", "water", "coffee", "tea", "juice", "soda"]),
             ("Condiments & Spices", ["condiment", "spice", "seasoning", "oil", "vinegar"]),
             ("International", ["international", "asian", "mexican", "indian", "italian"]),
-            ("Health & Beauty", ["health", "beauty", "vitamin", "supplement", "personal care"]),
             ("Household", ["household", "cleaner", "paper", "laundry", "trash"]),
-            ("Pet", ["pet", "dog", "cat"])
         ]
         return rules.first(where: { rule in rule.1.contains(where: value.contains) })?.0 ?? "Pantry"
     }
@@ -206,6 +223,8 @@ final class CatalogModel {
         for source in CatalogSource.allCases where selectedSources.contains(source) {
             do {
                 switch source {
+                case .kroger:
+                    found += try await fetchKroger(limit: perSource)
                 case .openFoodFacts:
                     found += try await fetchOpenFacts(.openFoodFacts, host: "world.openfoodfacts.org", limit: perSource)
                 case .usda:
@@ -214,6 +233,8 @@ final class CatalogModel {
                     found += try await fetchStores(limit: min(perSource, 50))
                 case .wikidataCommons:
                     found += try await fetchWikidataCommons(limit: min(perSource, 50))
+                case .rapidAPIGrocery:
+                    found += try await fetchRapidAPIGrocery(limit: perSource)
                 case .stockedReference:
                     found += CatalogReferenceData.records(matching: query, limit: perSource)
                 case .builtIn:
@@ -379,7 +400,7 @@ final class CatalogModel {
 
         return search.search.compactMap { item in
             let description = item.description?.lowercased() ?? ""
-            let commercialTerms = ["brand", "company", "corporation", "manufacturer", "store", "supermarket", "grocery", "retail", "hypermarket", "food producer", "beverage"]
+            let commercialTerms = ["food brand", "food company", "food manufacturer", "beverage company", "grocery store", "supermarket", "hypermarket", "food producer"]
             guard commercialTerms.contains(where: description.contains) else { return nil }
             let isStore = ["store", "supermarket", "grocery", "retail", "hypermarket"].contains(where: description.contains)
             let entity = entities.entities[item.id]
@@ -416,10 +437,112 @@ final class CatalogModel {
         }
     }
 
+    private func fetchKroger(limit: Int) async throws -> [CatalogRecord] {
+        guard MacWorkerClient.isConfigured else {
+            throw MacServiceError.notConfigured("The Stocked Worker key")
+        }
+        let zip = Self.firstZIP(in: location)
+        guard zip != nil || query.nilIfBlank != nil else {
+            throw MacServiceError.invalidRequest("Enter a five-digit ZIP code, product, or brand for Kroger discovery.")
+        }
+
+        var rows: [CatalogRecord] = []
+        var storeLocationID: String?
+        var storeName: String?
+        if let zip {
+            let data = try await MacWorkerClient.getData(
+                path: "/retail/kroger/locations",
+                query: ["zipCode": zip, "radius": "25", "limit": String(min(50, limit))])
+            let envelope = try JSONDecoder().decode(KrogerLocationEnvelope.self, from: data)
+            storeLocationID = envelope.locations.first?.locationId
+            storeName = envelope.locations.first?.name
+            rows += envelope.locations.map { place in
+                CatalogRecord(kind: .store, name: place.name, store: place.name,
+                              address: place.address.display, latitude: place.latitude, longitude: place.longitude,
+                              source: .kroger,
+                              sourceURL: "https://www.kroger.com/stores/grocery/near-me",
+                              externalID: place.locationId, retailerLocationID: place.locationId,
+                              confidence: 0.96)
+            }
+        }
+
+        if let term = query.nilIfBlank {
+            var request = ["term": term, "limit": String(min(50, limit))]
+            if let storeLocationID { request["locationId"] = storeLocationID }
+            let data = try await MacWorkerClient.getData(path: "/retail/kroger/products", query: request)
+            let envelope = try JSONDecoder().decode(KrogerProductEnvelope.self, from: data)
+            for product in envelope.products where Self.isGroceryRelevant(name: product.name, categories: product.categories) {
+                let category = product.categories.first
+                let aisle = product.aisleLocations.first?.display
+                    ?? GroceryAisleClassifier.aisle(for: category ?? product.name)
+                let record = CatalogRecord(
+                    kind: .product, name: product.name, brand: product.brand, category: category,
+                    aisle: aisle, store: storeName, barcode: product.upc, source: .kroger,
+                    sourceURL: product.productURL, imageURL: product.imageURL,
+                    imagePreviewURL: product.imageURL,
+                    imageSourceURL: product.productURL,
+                    imageAttribution: "Kroger Product API",
+                    externalID: product.productId, retailerLocationID: product.locationId,
+                    regularPrice: product.regularPrice, promotionalPrice: product.promoPrice,
+                    inventoryLevel: product.inventoryLevel, confidence: 0.96)
+                rows.append(record)
+                if let brand = product.brand?.nilIfBlank {
+                    rows.append(CatalogRecord(kind: .brand, name: brand, category: category, aisle: aisle,
+                                              source: .kroger, sourceURL: product.productURL,
+                                              imageURL: product.imageURL, imagePreviewURL: product.imageURL,
+                                              imageSourceURL: product.productURL,
+                                              imageAttribution: "Kroger Product API", confidence: 0.9))
+                }
+            }
+        }
+        return rows
+    }
+
+    private func fetchRapidAPIGrocery(limit: Int) async throws -> [CatalogRecord] {
+        guard let term = query.nilIfBlank else {
+            throw MacServiceError.invalidRequest("Enter a grocery product or brand for RapidAPI discovery.")
+        }
+        var rows: [CatalogRecord] = []
+        for store in ["walmart", "amazon"] {
+            let data = try await MacWorkerClient.getData(
+                path: "/retail/rapidapi/products",
+                query: ["query": term, "store": store, "page": "1"])
+            let envelope = try JSONDecoder().decode(RapidProductEnvelope.self, from: data)
+            for product in envelope.products.prefix(max(1, limit / 2))
+                where Self.isGroceryRelevant(name: product.name, categories: product.categories) {
+                let category = product.categories.first
+                let aisle = GroceryAisleClassifier.aisle(for: category ?? product.name)
+                rows.append(CatalogRecord(kind: .product, name: product.name, brand: product.brand,
+                                          category: category, aisle: aisle, store: product.store,
+                                          barcode: product.upc, source: .rapidAPIGrocery,
+                                          sourceURL: product.productURL, imageURL: product.imageURL,
+                                          imagePreviewURL: product.imageURL,
+                                          imageSourceURL: product.productURL,
+                                          imageAttribution: "RapidAPI grocery provider",
+                                          externalID: product.productId,
+                                          regularPrice: product.regularPrice, confidence: 0.7))
+            }
+        }
+        return rows
+    }
+
+    private static func firstZIP(in value: String) -> String? {
+        guard let match = value.range(of: #"\b\d{5}\b"#, options: .regularExpression) else { return nil }
+        return String(value[match])
+    }
+
+    private static func isGroceryRelevant(name: String, categories: [String]) -> Bool {
+        let value = ([name] + categories).joined(separator: " ").lowercased()
+        let excluded = ["pet food", "dog food", "cat food", "beauty", "cosmetic", "makeup",
+                        "skin care", "hair care", "shampoo", "deodorant", "fragrance",
+                        "toy", "electronics", "automotive", "clothing", "pharmacy"]
+        return !excluded.contains(where: value.contains)
+    }
+
     private func builtInAisles() -> [CatalogRecord] {
         ["Produce", "Bakery", "Dairy & Eggs", "Meat & Seafood", "Frozen", "Canned & Jarred",
          "Pasta, Rice & Grains", "Baking", "Snacks", "Beverages", "Condiments & Spices",
-         "International", "Health & Beauty", "Household", "Pet", "Pantry"].map {
+         "International", "Household", "Pantry"].map {
             CatalogRecord(kind: .aisle, name: $0, category: $0, aisle: $0, source: .builtIn, confidence: 1)
         }
     }
@@ -447,6 +570,35 @@ final class CatalogModel {
     }
 
     private struct Snapshot: Codable { var library: [CatalogRecord]; var queue: [CatalogRecord] }
+    private struct KrogerLocationEnvelope: Decodable { var locations: [KrogerLocation] }
+    private struct KrogerLocation: Decodable {
+        var locationId: String; var name: String; var address: RetailAddress
+        var latitude: Double?; var longitude: Double?
+    }
+    private struct RetailAddress: Decodable {
+        var line1: String?; var line2: String?; var city: String?; var state: String?; var zipCode: String?
+        var display: String {
+            [[line1, line2].compactMap { $0 }.joined(separator: " "),
+             [city, state].compactMap { $0 }.joined(separator: ", "), zipCode]
+                .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        }
+    }
+    private struct KrogerProductEnvelope: Decodable { var products: [RetailProduct] }
+    private struct RapidProductEnvelope: Decodable { var products: [RetailProduct] }
+    private struct RetailProduct: Decodable {
+        var productId: String?; var upc: String?; var name: String; var brand: String?
+        var categories: [String]; var regularPrice: Double?; var promoPrice: Double?
+        var inventoryLevel: String?; var aisleLocations: [RetailAisle]
+        var locationId: String?; var imageURL: String?; var productURL: String?; var store: String?
+    }
+    private struct RetailAisle: Decodable {
+        var description: String?; var number: String?; var side: String?; var shelfNumber: String?
+        var display: String? {
+            let values = [number.map { "Aisle \($0)" }, description, side.map { "Side \($0)" },
+                          shelfNumber.map { "Shelf \($0)" }].compactMap { $0 }
+            return values.isEmpty ? nil : values.joined(separator: " · ")
+        }
+    }
     private struct OFFResponse: Decodable { var products: [OFFProduct] }
     private struct OFFProduct: Decodable {
         var code: String?; var productName: String?; var brands: String?; var categories: String?; var stores: String?; var url: String?

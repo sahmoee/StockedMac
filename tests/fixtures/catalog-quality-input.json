@@ -1,0 +1,32 @@
+{
+  "products": [
+    {
+      "provider": "kroger",
+      "productId": "milk-1",
+      "upc": "0001111041700",
+      "name": "Whole Milk 2398336",
+      "brand": "Kroger",
+      "categories": ["Dairy"],
+      "regularPrice": 3.99,
+      "aisleLocations": [{ "number": "12", "description": "DAIRY", "shelfNumber": "3" }],
+      "images": [{ "sizes": [
+        { "size": "small", "url": "https://img.example/small.jpg" },
+        { "size": "large", "url": "https://img.example/large.jpg" }
+      ] }]
+    },
+    {
+      "provider": "kroger",
+      "productId": "milk-duplicate",
+      "upc": "0001111041700",
+      "name": "Whole Milk",
+      "brand": "Kroger",
+      "categories": ["Dairy"]
+    },
+    {
+      "provider": "marketplace",
+      "productId": "beauty-1",
+      "name": "Rose Fragrance",
+      "categories": ["Beauty"]
+    }
+  ]
+}

@@ -49,7 +49,7 @@ struct MacCatalogView: View {
                         TextField("Brand, product, or category", text: $catalog.query)
                         TextField("City, ZIP code, or region", text: $catalog.location)
                         Stepper("Up to \(catalog.resultLimit) per run", value: $catalog.resultLimit, in: 10...500, step: 10)
-                        Text("Products receive an aisle automatically. Existing records are enriched with better images and metadata instead of duplicated. Store discovery uses the location field.")
+                        Text("Products receive an aisle automatically. Existing records are enriched with better images and metadata instead of duplicated. Kroger uses a five-digit ZIP for store-specific price, availability and aisle data.")
                             .font(.caption).foregroundStyle(.secondary)
                     }.padding(6)
                 }
@@ -94,6 +94,12 @@ struct MacCatalogView: View {
                                     .font(.caption).foregroundStyle(.secondary)
                             } else if source == .wikidataCommons {
                                 Text("Enter a specific brand or store above. Image files retain the Commons source and attribution requirement.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            } else if source == .kroger {
+                                Text("Requires KROGER_CLIENT_ID and KROGER_CLIENT_SECRET on the Unified Worker. No Kroger credential is stored in this app.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            } else if source == .rapidAPIGrocery {
+                                Text("Uses the Worker's allowlisted grocery adapter. RapidAPI remains an optional fallback, not a source of truth for store aisles.")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Toggle("Use for discovery", isOn: sourceBinding(source))
@@ -179,6 +185,14 @@ private struct CatalogRecordEditor: View {
                 TextField("Address", text: optional(\.address), axis: .vertical)
                 TextField("Original image URL", text: optional(\.imageURL), axis: .vertical)
                 TextField("Image attribution", text: optional(\.imageAttribution), axis: .vertical)
+                if let regular = record.regularPrice {
+                    LabeledContent("Regular price", value: String(format: "$%.2f", regular))
+                }
+                if let promotional = record.promotionalPrice {
+                    LabeledContent("Promotional price", value: String(format: "$%.2f", promotional))
+                }
+                if let inventory = record.inventoryLevel { LabeledContent("Availability", value: inventory) }
+                if let location = record.retailerLocationID { LabeledContent("Store location ID", value: location) }
                 LabeledContent("Source", value: record.source.rawValue)
                 LabeledContent("Confidence", value: "\(Int(record.confidence * 100))%")
             }
