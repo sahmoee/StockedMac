@@ -23,38 +23,39 @@ nonisolated enum CatalogImportState: String, Codable, Sendable {
 
 nonisolated enum CatalogSource: String, Codable, CaseIterable, Identifiable, Sendable {
     case openFoodFacts = "Open Food Facts"
-    case openBeautyFacts = "Open Beauty Facts"
-    case openPetFoodFacts = "Open Pet Food Facts"
-    case openProductsFacts = "Open Products Facts"
     case usda = "USDA FoodData Central"
     case openStreetMap = "OpenStreetMap"
     case wikidataCommons = "Wikidata + Wikimedia Commons"
     case stockedReference = "Stocked Brand & Store Reference"
     case builtIn = "Stocked Aisle Taxonomy"
+    case legacyRemoved = "Removed non-grocery source"
+
+    static let allCases: [CatalogSource] = [
+        .openFoodFacts, .usda, .openStreetMap, .wikidataCommons, .stockedReference, .builtIn
+    ]
 
     var id: String { rawValue }
     var detail: String {
         switch self {
         case .openFoodFacts: "Worldwide grocery products, barcodes, brands, stores, categories and original product images"
-        case .openBeautyFacts: "Beauty and personal-care brands, products, categories and original product images"
-        case .openPetFoodFacts: "Pet-food brands, products, categories and original product images"
-        case .openProductsFacts: "General consumer products, brands, stores, categories and original product images"
         case .usda: "U.S. Global Branded Foods; a free data.gov key is recommended"
         case .openStreetMap: "Nearby grocery stores and addresses by city, ZIP code or region"
         case .wikidataCommons: "Brand and retailer identities with reusable original images from Wikimedia Commons"
         case .stockedReference: "Offline coverage for major grocery chains and consumer brands; no key or network required"
         case .builtIn: "Offline category-to-aisle rules used to normalize every source"
+        case .legacyRemoved: "Retained only to migrate old saved catalogs safely"
         }
     }
 
     var capabilities: String {
         switch self {
-        case .openFoodFacts, .openBeautyFacts, .openPetFoodFacts, .openProductsFacts: "Products · Brands · Stores · Images"
+        case .openFoodFacts: "Grocery products · Brands · Stores · Images"
         case .usda: "Products · Brands · Barcodes"
         case .openStreetMap: "Stores · Addresses · Coordinates"
         case .wikidataCommons: "Brands · Stores · Original images · Attribution"
         case .stockedReference: "Brands · Store chains · Offline"
         case .builtIn: "Categories · Aisles · Offline"
+        case .legacyRemoved: "Unavailable"
         }
     }
 
@@ -63,8 +64,26 @@ nonisolated enum CatalogSource: String, Codable, CaseIterable, Identifiable, Sen
         case .openStreetMap: "map"
         case .wikidataCommons: "photo.on.rectangle.angled"
         case .stockedReference, .builtIn: "internaldrive"
+        case .legacyRemoved: "nosign"
         default: "externaldrive.connected.to.line.below"
         }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        if ["Open Beauty Facts", "Open Pet Food Facts", "Open Products Facts"].contains(value) {
+            self = .legacyRemoved
+        } else if let source = Self(rawValue: value) {
+            self = source
+        } else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unknown catalog source: \(value)")
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
@@ -189,12 +208,6 @@ final class CatalogModel {
                 switch source {
                 case .openFoodFacts:
                     found += try await fetchOpenFacts(.openFoodFacts, host: "world.openfoodfacts.org", limit: perSource)
-                case .openBeautyFacts:
-                    found += try await fetchOpenFacts(.openBeautyFacts, host: "world.openbeautyfacts.org", limit: perSource)
-                case .openPetFoodFacts:
-                    found += try await fetchOpenFacts(.openPetFoodFacts, host: "world.openpetfoodfacts.org", limit: perSource)
-                case .openProductsFacts:
-                    found += try await fetchOpenFacts(.openProductsFacts, host: "world.openproductsfacts.org", limit: perSource)
                 case .usda:
                     found += try await fetchUSDA(limit: perSource)
                 case .openStreetMap:
@@ -205,6 +218,8 @@ final class CatalogModel {
                     found += CatalogReferenceData.records(matching: query, limit: perSource)
                 case .builtIn:
                     found += builtInAisles()
+                case .legacyRemoved:
+                    break
                 }
             } catch {
                 failures.append("\(source.rawValue): \(error.localizedDescription)")
@@ -421,6 +436,8 @@ final class CatalogModel {
     private func load() {
         guard let data = try? Data(contentsOf: saveURL), let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
         library = snapshot.library; queue = snapshot.queue
+        library.removeAll { $0.source == .legacyRemoved }
+        queue.removeAll { $0.source == .legacyRemoved }
         usdaAPIKey = UserDefaults.standard.string(forKey: "stocked.usdaAPIKey") ?? ""
     }
 

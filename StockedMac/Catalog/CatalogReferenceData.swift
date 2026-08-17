@@ -227,7 +227,6 @@ nonisolated enum CatalogReferenceData {
     Atkins
     Aunt Jemima
     Aunt Millie's
-    Aveeno
     Bai
     Ball Park
     Barilla
@@ -250,7 +249,6 @@ nonisolated enum CatalogReferenceData {
     Borden
     Bota Box
     Boulder Canyon
-    Bounty
     Breyers
     Brisk
     Brownberry
@@ -269,7 +267,6 @@ nonisolated enum CatalogReferenceData {
     Celestial Seasonings
     Celsius
     Chameleon Cold-Brew
-    Charmin
     Cheerios
     Cheez-It
     Chobani
@@ -278,7 +275,6 @@ nonisolated enum CatalogReferenceData {
     Coca-Cola
     Coffee mate
     Coleman Natural
-    Colgate
     Country Crock
     Cracker Barrel
     Crystal Light
@@ -292,7 +288,6 @@ nonisolated enum CatalogReferenceData {
     Dietz & Watson
     Dole
     Doritos
-    Dove
     Dr Pepper
     Duncan Hines
     Dunkin'
@@ -449,7 +444,6 @@ nonisolated enum CatalogReferenceData {
     Progresso
     Propel
     Pure Leaf
-    Purina
     Quaker
     Rao's Homemade
     Red Baron
@@ -462,7 +456,6 @@ nonisolated enum CatalogReferenceData {
     San Pellegrino
     Sara Lee
     Sargento
-    Scott
     Silk
     Simply Orange
     SkinnyPop
@@ -507,7 +500,6 @@ nonisolated enum CatalogReferenceData {
     Yoplait
     Zatarain's
     Zevia
-    Ziploc
     365 by Whole Foods Market
     Amazon Fresh
     Bowl & Basket
