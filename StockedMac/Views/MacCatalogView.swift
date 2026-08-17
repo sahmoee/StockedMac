@@ -44,10 +44,28 @@ struct MacCatalogView: View {
         @Bindable var catalog = catalog
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                GroupBox("Automatic bulk import") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Label(catalog.isBulkImportEnabled ? "Running" : "Paused",
+                                  systemImage: catalog.isBulkImportEnabled ? "arrow.triangle.2.circlepath.circle.fill" : "pause.circle")
+                                .foregroundStyle(catalog.isBulkImportEnabled ? MacTheme.green : .secondary)
+                            Spacer()
+                            Button(catalog.isBulkImportEnabled ? "Pause" : "Start") {
+                                catalog.isBulkImportEnabled ? catalog.stopBulkImport() : catalog.startBulkImport()
+                            }.buttonStyle(.borderedProminent)
+                        }
+                        Text("No names are required. Stocked rotates through grocery categories, stores, providers, and result pages; imports immediately; skips duplicates; and resumes from its saved position after relaunch.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text(catalog.bulkStatus).font(.caption)
+                        LabeledContent("Catalog", value: "\(catalog.library.count) records")
+                        LabeledContent("Provider requests", value: "\(catalog.bulkRequestCount) this run")
+                    }.padding(6)
+                }
                 GroupBox("What to find") {
                     VStack(alignment: .leading, spacing: 10) {
-                        TextField("Brand, product, or category", text: $catalog.query)
-                        TextField("City, ZIP code, or region", text: $catalog.location)
+                        TextField("Optional brand, product, or category", text: $catalog.query)
+                        TextField("Optional city, ZIP code, or region", text: $catalog.location)
                         Stepper("Up to \(catalog.resultLimit) per run", value: $catalog.resultLimit, in: 10...500, step: 10)
                         Text("Products receive an aisle automatically. Existing records are enriched with better images and metadata instead of duplicated. Kroger uses a five-digit ZIP for store-specific price, availability and aisle data.")
                             .font(.caption).foregroundStyle(.secondary)

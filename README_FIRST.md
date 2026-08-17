@@ -20,4 +20,11 @@ also enqueue catalog enrichment immediately, including edits produced by AI work
 merge only matching names or barcodes, preserve original provenance, keep partial improvements,
 and cannot trap the queue on a failed provider.
 
+Automatic bulk catalog import is enabled by default. It rotates through the built-in grocery
+taxonomy, store regions, every enabled source, and provider result pages; imports partial results
+immediately; and persists source, term, region, page, and cooldown state across relaunches. No item,
+brand, or store name needs to be typed. A 429 or provider failure cools only that provider while the
+rest of the sweep advances. Never replace this with concurrent unbounded requests or quota-evasion.
+Kroger, RapidAPI, and FatSecret remain Worker-mediated; FatSecret may use Server Mac fixed egress.
+
 AI is Apple-first when Foundation Models are available. Included cloud AI is only unlocked on Jessie's production/test devices with the local `Joo` gate; other installs use a private UnifiedWorker. Private Workers may select Claude or OpenAI model IDs and keep provider keys in Worker secrets, never in the app.

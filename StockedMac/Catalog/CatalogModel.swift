@@ -196,7 +196,7 @@ nonisolated enum GroceryAisleClassifier {
 final class CatalogModel {
     var library: [CatalogRecord] = []
     var queue: [CatalogRecord] = []
-    var selectedSources: Set<CatalogSource> = [.openFoodFacts, .stockedReference, .builtIn]
+    var selectedSources: Set<CatalogSource> = Set(CatalogSource.allCases)
     var query = ""
     var location = ""
     var resultLimit = 100
@@ -204,9 +204,35 @@ final class CatalogModel {
     var status = "Ready"
     var lastError: String?
     var usdaAPIKey = ""
+    var isBulkImportEnabled = false
+    var bulkImportedCount = 0
+    var bulkRequestCount = 0
+    var bulkStatus = "Bulk import is off"
 
     private let session: URLSession
     private let saveURL: URL
+    private var bulkTask: Task<Void, Never>?
+    private var bulkCursor = BulkCursor()
+
+    /// Broad grocery terms intentionally live in the app so a fresh install can discover
+    /// useful records without requiring the user to know or type product names. The cursor
+    /// is persisted, so every pass advances instead of repeatedly mining the first terms.
+    private static let bulkSeeds = [
+        "fresh fruit", "fresh vegetables", "salad greens", "fresh herbs", "bread", "tortillas",
+        "milk", "cheese", "yogurt", "butter", "eggs", "beef", "chicken", "pork", "turkey",
+        "fish", "seafood", "frozen vegetables", "frozen meals", "ice cream", "canned beans",
+        "canned vegetables", "pasta sauce", "pasta", "rice", "grains", "breakfast cereal",
+        "oatmeal", "flour", "sugar", "baking", "chips", "crackers", "nuts", "popcorn",
+        "chocolate", "coffee", "tea", "juice", "sparkling water", "soda", "spices",
+        "seasoning", "cooking oil", "vinegar", "condiments", "international foods",
+        "plant based", "gluten free", "organic food", "baby food", "household paper",
+        "food storage", "dish soap", "laundry detergent"
+    ]
+
+    private static let storeRegions = [
+        "77002", "78205", "75201", "78701", "73301", "90210", "94103", "98101", "80202",
+        "60601", "10001", "02108", "30303", "33130", "20001", "37201", "85004", "97205"
+    ]
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -215,6 +241,116 @@ final class CatalogModel {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         saveURL = root.appendingPathComponent("brand-store-catalog.json")
         load()
+    }
+
+    func startBulkImport() {
+        guard bulkTask == nil else { return }
+        isBulkImportEnabled = true
+        UserDefaults.standard.set(true, forKey: "catalog.bulk.enabled.v1")
+        bulkStatus = "Starting automatic grocery catalog import…"
+        bulkTask = Task { [weak self] in await self?.runBulkImport() }
+    }
+
+    func stopBulkImport() {
+        isBulkImportEnabled = false
+        UserDefaults.standard.set(false, forKey: "catalog.bulk.enabled.v1")
+        bulkTask?.cancel()
+        bulkTask = nil
+        bulkStatus = "Paused safely — progress is saved"
+        save()
+    }
+
+    func resumeBulkImportIfEnabled() {
+        guard isBulkImportEnabled else { return }
+        startBulkImport()
+    }
+
+    /// Runs one provider request at a time, imports successful partial results immediately,
+    /// and persists after every step. A provider failure only cools that provider down; it
+    /// never resets the global sweep or strands already-discovered data in a review queue.
+    private func runBulkImport() async {
+        defer { bulkTask = nil }
+        while isBulkImportEnabled && !Task.isCancelled {
+            let sources = CatalogSource.allCases.filter { selectedSources.contains($0) }
+            guard !sources.isEmpty else {
+                bulkStatus = "Select at least one source to continue"
+                try? await Task.sleep(for: .seconds(5))
+                continue
+            }
+
+            let source = sources[bulkCursor.sourceIndex % sources.count]
+            if let until = bulkCursor.cooldowns[source.rawValue], until > Date() {
+                advanceBulkCursor(sourceCount: sources.count)
+                try? await Task.sleep(for: .seconds(1))
+                continue
+            }
+
+            let seed = Self.bulkSeeds[bulkCursor.seedIndex % Self.bulkSeeds.count]
+            let savedQuery = query
+            let savedLocation = location
+            query = seed
+            if source == .openStreetMap || source == .kroger {
+                location = Self.storeRegions[bulkCursor.regionIndex % Self.storeRegions.count]
+            }
+            bulkStatus = "Importing \(source.rawValue) · \(seed) · page \(bulkCursor.page + 1)"
+
+            do {
+                let records = try await fetch(source: source, limit: 50, page: bulkCursor.page)
+                bulkRequestCount += 1
+                let merged = mergeDiscovered(records)
+                let before = library.count
+                importQueued(enrichAfterImport: false)
+                bulkImportedCount += max(0, library.count - before)
+                bulkStatus = "Added \(merged.added), enriched \(merged.enriched) · \(library.count) total"
+                bulkCursor.consecutiveFailures[source.rawValue] = 0
+                advanceBulkCursor(sourceCount: sources.count, received: records.count, source: source)
+            } catch MacServiceError.rateLimited(let retryAfter) {
+                let delay = max(60, retryAfter ?? 300)
+                bulkCursor.cooldowns[source.rawValue] = Date().addingTimeInterval(delay)
+                bulkStatus = "\(source.rawValue) cooling down; continuing with other sources"
+                advanceBulkCursor(sourceCount: sources.count)
+            } catch {
+                let failures = (bulkCursor.consecutiveFailures[source.rawValue] ?? 0) + 1
+                bulkCursor.consecutiveFailures[source.rawValue] = failures
+                let delay = min(3_600.0, pow(2, Double(min(failures, 8))) * 15)
+                bulkCursor.cooldowns[source.rawValue] = Date().addingTimeInterval(delay)
+                lastError = "\(source.rawValue): \(error.localizedDescription)"
+                bulkStatus = "Source deferred; the remaining catalog sweep is continuing"
+                advanceBulkCursor(sourceCount: sources.count)
+            }
+
+            query = savedQuery
+            location = savedLocation
+            save()
+            try? await Task.sleep(for: .milliseconds(Self.delayMilliseconds(for: source)))
+        }
+    }
+
+    private func advanceBulkCursor(sourceCount: Int, received: Int? = nil, source: CatalogSource? = nil) {
+        let pagedSources: Set<CatalogSource> = [.openFoodFacts, .usda, .kroger, .rapidAPIGrocery, .fatSecret]
+        if let received, let source, pagedSources.contains(source), received >= 20, bulkCursor.page < 49 {
+            bulkCursor.page += 1
+            return
+        }
+        bulkCursor.page = 0
+        bulkCursor.sourceIndex += 1
+        if bulkCursor.sourceIndex >= max(1, sourceCount) {
+            bulkCursor.sourceIndex = 0
+            bulkCursor.seedIndex = (bulkCursor.seedIndex + 1) % Self.bulkSeeds.count
+            if bulkCursor.seedIndex == 0 {
+                bulkCursor.regionIndex = (bulkCursor.regionIndex + 1) % Self.storeRegions.count
+            }
+        }
+    }
+
+    private static func delayMilliseconds(for source: CatalogSource) -> Int {
+        switch source {
+        case .openStreetMap: 1_200
+        case .wikidataCommons, .openFoodFacts: 850
+        case .usda: 450
+        case .kroger, .fatSecret, .rapidAPIGrocery: 700
+        case .stockedReference, .builtIn, .legacyRemoved: 100
+        }
     }
 
     func discover() async {
@@ -229,7 +365,7 @@ final class CatalogModel {
 
         for source in CatalogSource.allCases where selectedSources.contains(source) {
             do {
-                found += try await fetch(source: source, limit: perSource)
+                found += try await fetch(source: source, limit: perSource, page: 0)
             } catch {
                 failures.append("\(source.rawValue): \(error.localizedDescription)")
             }
@@ -244,7 +380,7 @@ final class CatalogModel {
         }
     }
 
-    func importQueued(limit: Int? = nil) {
+    func importQueued(limit: Int? = nil, enrichAfterImport: Bool = true) {
         let count = min(limit ?? queue.count, queue.count)
         guard count > 0 else { status = "Nothing is waiting to import."; return }
         var incoming = Array(queue.prefix(count))
@@ -262,8 +398,10 @@ final class CatalogModel {
         queue.removeFirst(count)
         status = "Imported \(added) records and enriched \(enriched) existing records; \(queue.count) remain queued."
         save()
-        let importedIDs = incoming.map(\.id)
-        Task { await enrichAllExisting(prioritizing: importedIDs) }
+        if enrichAfterImport {
+            let importedIDs = incoming.map(\.id)
+            Task { await enrichAllExisting(prioritizing: importedIDs) }
+        }
     }
 
     func removeFromQueue(_ ids: Set<UUID>) {
@@ -379,15 +517,15 @@ final class CatalogModel {
         for id in ids { await enrichInventoryItem(id: id, store: store) }
     }
 
-    private func fetch(source: CatalogSource, limit: Int) async throws -> [CatalogRecord] {
+    private func fetch(source: CatalogSource, limit: Int, page: Int = 0) async throws -> [CatalogRecord] {
         switch source {
-        case .kroger: return try await fetchKroger(limit: limit)
-        case .openFoodFacts: return try await fetchOpenFacts(.openFoodFacts, host: "world.openfoodfacts.org", limit: limit)
-        case .usda: return try await fetchUSDA(limit: limit)
+        case .kroger: return try await fetchKroger(limit: limit, page: page)
+        case .openFoodFacts: return try await fetchOpenFacts(.openFoodFacts, host: "world.openfoodfacts.org", limit: limit, page: page)
+        case .usda: return try await fetchUSDA(limit: limit, page: page)
         case .openStreetMap: return try await fetchStores(limit: min(limit, 50))
         case .wikidataCommons: return try await fetchWikidataCommons(limit: min(limit, 50))
-        case .rapidAPIGrocery: return try await fetchRapidAPIGrocery(limit: limit)
-        case .fatSecret: return try await fetchFatSecret(limit: limit)
+        case .rapidAPIGrocery: return try await fetchRapidAPIGrocery(limit: limit, page: page)
+        case .fatSecret: return try await fetchFatSecret(limit: limit, page: page)
         case .stockedReference: return CatalogReferenceData.records(matching: query, limit: limit)
         case .builtIn: return builtInAisles()
         case .legacyRemoved: return []
@@ -402,11 +540,12 @@ final class CatalogModel {
         return lhs == rhs || (min(lhs.count, rhs.count) >= 5 && (lhs.contains(rhs) || rhs.contains(lhs)))
     }
 
-    private func fetchOpenFacts(_ source: CatalogSource, host: String, limit: Int) async throws -> [CatalogRecord] {
+    private func fetchOpenFacts(_ source: CatalogSource, host: String, limit: Int, page: Int) async throws -> [CatalogRecord] {
         var components = URLComponents(string: "https://\(host)/cgi/search.pl")!
         components.queryItems = [
             .init(name: "action", value: "process"), .init(name: "json", value: "1"),
             .init(name: "search_terms", value: query.nilIfBlank ?? "grocery"),
+            .init(name: "page", value: String(page + 1)),
             .init(name: "page_size", value: String(min(limit, 100))),
             .init(name: "fields", value: "code,product_name,brands,categories,stores,url,image_front_url,image_url")
         ]
@@ -439,11 +578,11 @@ final class CatalogModel {
             .replacingOccurrences(of: ".200.jpg", with: ".full.jpg")
     }
 
-    private func fetchUSDA(limit: Int) async throws -> [CatalogRecord] {
+    private func fetchUSDA(limit: Int, page: Int) async throws -> [CatalogRecord] {
         var request = URLRequest(url: URL(string: "https://api.nal.usda.gov/fdc/v1/foods/search?api_key=\(usdaAPIKey.nilIfBlank ?? "DEMO_KEY")")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query.nilIfBlank ?? "grocery", "dataType": ["Branded"], "pageSize": min(limit, 100)])
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query.nilIfBlank ?? "grocery", "dataType": ["Branded"], "pageSize": min(limit, 100), "pageNumber": page + 1])
         let response: USDAResponse = try await decode(request)
         return response.foods.flatMap { food -> [CatalogRecord] in
             guard let name = food.description.nilIfBlank else { return [] }
@@ -529,7 +668,7 @@ final class CatalogModel {
         }
     }
 
-    private func fetchKroger(limit: Int) async throws -> [CatalogRecord] {
+    private func fetchKroger(limit: Int, page: Int) async throws -> [CatalogRecord] {
         guard MacWorkerClient.isConfigured else {
             throw MacServiceError.notConfigured("The Stocked Worker key")
         }
@@ -559,7 +698,7 @@ final class CatalogModel {
         }
 
         if let term = query.nilIfBlank {
-            var request = ["term": term, "limit": String(min(50, limit))]
+            var request = ["term": term, "limit": String(min(50, limit)), "start": String(page * min(50, limit) + 1)]
             if let storeLocationID { request["locationId"] = storeLocationID }
             let data = try await MacWorkerClient.getData(path: "/retail/kroger/products", query: request)
             let envelope = try JSONDecoder().decode(KrogerProductEnvelope.self, from: data)
@@ -590,7 +729,7 @@ final class CatalogModel {
         return rows
     }
 
-    private func fetchRapidAPIGrocery(limit: Int) async throws -> [CatalogRecord] {
+    private func fetchRapidAPIGrocery(limit: Int, page: Int) async throws -> [CatalogRecord] {
         guard let term = query.nilIfBlank else {
             throw MacServiceError.invalidRequest("Enter a grocery product or brand for RapidAPI discovery.")
         }
@@ -598,7 +737,7 @@ final class CatalogModel {
         for store in ["walmart", "amazon"] {
             let data = try await MacWorkerClient.getData(
                 path: "/retail/rapidapi/products",
-                query: ["query": term, "store": store, "page": "1"])
+                query: ["query": term, "store": store, "page": String(page + 1)])
             let envelope = try JSONDecoder().decode(RapidProductEnvelope.self, from: data)
             for product in envelope.products.prefix(max(1, limit / 2))
                 where Self.isGroceryRelevant(name: product.name, categories: product.categories) {
@@ -618,12 +757,12 @@ final class CatalogModel {
         return rows
     }
 
-    private func fetchFatSecret(limit: Int) async throws -> [CatalogRecord] {
+    private func fetchFatSecret(limit: Int, page: Int) async throws -> [CatalogRecord] {
         guard let term = query.nilIfBlank else {
             throw MacServiceError.invalidRequest("Enter a grocery food or brand for FatSecret discovery.")
         }
         let data = try await MacWorkerClient.getData(path: "/retail/fatsecret/foods",
-                                                     query: ["query": term, "limit": String(min(50, limit))])
+                                                     query: ["query": term, "limit": String(min(50, limit)), "page": String(page)])
         let envelope = try JSONDecoder().decode(RapidProductEnvelope.self, from: data)
         var rows: [CatalogRecord] = []
         for product in envelope.products where Self.isGroceryRelevant(name: product.name, categories: product.categories) {
@@ -666,6 +805,10 @@ final class CatalogModel {
     private func decode<T: Decodable>(_ url: URL) async throws -> T { try await decode(URLRequest(url: url)) }
     private func decode<T: Decodable>(_ request: URLRequest) async throws -> T {
         let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode == 429 {
+            throw MacServiceError.rateLimited(
+                retryAfter: http.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init))
+        }
         guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
             throw MacServiceError.httpStatus((response as? HTTPURLResponse)?.statusCode ?? 0, nil)
         }
@@ -678,14 +821,31 @@ final class CatalogModel {
         library.removeAll { $0.source == .legacyRemoved }
         queue.removeAll { $0.source == .legacyRemoved }
         usdaAPIKey = UserDefaults.standard.string(forKey: "stocked.usdaAPIKey") ?? ""
+        if UserDefaults.standard.object(forKey: "catalog.bulk.enabled.v1") == nil {
+            isBulkImportEnabled = true
+        } else {
+            isBulkImportEnabled = UserDefaults.standard.bool(forKey: "catalog.bulk.enabled.v1")
+        }
+        if let data = UserDefaults.standard.data(forKey: "catalog.bulk.cursor.v1"),
+           let cursor = try? JSONDecoder().decode(BulkCursor.self, from: data) { bulkCursor = cursor }
     }
 
     private func save() {
         try? JSONEncoder().encode(Snapshot(library: library, queue: queue)).write(to: saveURL, options: .atomic)
         UserDefaults.standard.set(usdaAPIKey, forKey: "stocked.usdaAPIKey")
+        UserDefaults.standard.set(isBulkImportEnabled, forKey: "catalog.bulk.enabled.v1")
+        UserDefaults.standard.set(try? JSONEncoder().encode(bulkCursor), forKey: "catalog.bulk.cursor.v1")
     }
 
     private struct Snapshot: Codable { var library: [CatalogRecord]; var queue: [CatalogRecord] }
+    private struct BulkCursor: Codable {
+        var sourceIndex = 0
+        var seedIndex = 0
+        var regionIndex = 0
+        var page = 0
+        var cooldowns: [String: Date] = [:]
+        var consecutiveFailures: [String: Int] = [:]
+    }
     private struct KrogerLocationEnvelope: Decodable { var locations: [KrogerLocation] }
     private struct KrogerLocation: Decodable {
         var locationId: String; var name: String; var address: RetailAddress

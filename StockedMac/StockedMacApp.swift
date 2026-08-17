@@ -113,6 +113,7 @@ struct StockedMacApp: App {
                     // themselves immediately after persistence.
                     await catalog.enrichAllExisting()
                     await catalog.enrichInventoryBatch(store: store)
+                    catalog.resumeBulkImportIfEnabled()
                 }
         }
         .defaultSize(width: 1140, height: 760)
