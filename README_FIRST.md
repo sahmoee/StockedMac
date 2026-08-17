@@ -19,3 +19,5 @@ applicable enabled grocery source using persisted rotating cursors. Inventory ad
 also enqueue catalog enrichment immediately, including edits produced by AI workflows. Sources
 merge only matching names or barcodes, preserve original provenance, keep partial improvements,
 and cannot trap the queue on a failed provider.
+
+The existing managed AI service and automatic model remain the default. StockedMac may separately select a private UnifiedWorker endpoint, an optional token stored in StockedMac's Keychain, and a model ID. Provider credentials stay in that private Worker's encrypted secrets and must never be copied from Stocked iOS or another app.

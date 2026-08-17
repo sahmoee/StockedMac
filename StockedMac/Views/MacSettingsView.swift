@@ -17,6 +17,10 @@ struct MacSettingsView: View {
     @State private var confirmErase = false
     @State private var confirmSample = false
     @State private var erasedNotice = false
+    @State private var aiBackend = MacAIConfiguration.backend
+    @State private var aiEndpoint = MacAIConfiguration.endpoint
+    @State private var aiModel = MacAIConfiguration.model
+    @State private var aiToken = MacAIConfiguration.token
 
     var body: some View {
         TabView {
@@ -24,10 +28,42 @@ struct MacSettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
             data
                 .tabItem { Label("Data", systemImage: "internaldrive") }
+            ai
+                .tabItem { Label("AI", systemImage: "sparkles") }
             about
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
         .frame(width: 560, height: 520)
+    }
+
+    private var ai: some View {
+        Form {
+            Section("Agent") {
+                Picker("AI service", selection: $aiBackend) {
+                    ForEach(MacAIBackend.allCases) { Text($0.rawValue).tag($0) }
+                }
+            }
+            if aiBackend == .custom {
+                Section("Private Worker") {
+                    TextField("https://example.workers.dev", text: $aiEndpoint)
+                    SecureField("Worker access token (optional)", text: $aiToken)
+                    Text("Deploy UnifiedWorker in your Cloudflare account and add your provider API key with Wrangler. The optional Worker token stays in StockedMac's Keychain.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Section("Model") {
+                TextField("Worker default", text: $aiModel)
+                Text("Leave blank to keep the existing automatic model. A private Worker can honor the requested model or apply its own allowlist.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .onDisappear {
+            MacAIConfiguration.backend = aiBackend
+            MacAIConfiguration.endpoint = aiEndpoint
+            MacAIConfiguration.model = aiModel
+            MacAIConfiguration.saveToken(aiToken)
+        }
     }
 
     // MARK: - General
