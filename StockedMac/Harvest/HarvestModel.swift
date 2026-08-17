@@ -108,7 +108,9 @@ nonisolated enum MacRecipeTextParser {
 final class HarvestModel {
     /// Increment whenever an import/model fix must be applied to historical recipes.
     /// The versioned pass repairs local records and seeds their sources for bounded reparse.
-    static let currentRecipeRepairRevision = 5
+    // v6 requeues every historical source so older recipes receive the same current
+    // nutrition/category/source/image extraction used by all future imports.
+    static let currentRecipeRepairRevision = 6
 
     // MARK: - Observable state
 
