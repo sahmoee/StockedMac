@@ -49,7 +49,7 @@ struct MacCatalogView: View {
                         TextField("Brand, product, or category", text: $catalog.query)
                         TextField("City, ZIP code, or region", text: $catalog.location)
                         Stepper("Up to \(catalog.resultLimit) per run", value: $catalog.resultLimit, in: 10...500, step: 10)
-                        Text("Products receive an aisle automatically. Store discovery uses the location field.")
+                        Text("Products receive an aisle automatically. Existing records are enriched with better images and metadata instead of duplicated. Store discovery uses the location field.")
                             .font(.caption).foregroundStyle(.secondary)
                     }.padding(6)
                 }
@@ -84,9 +84,18 @@ struct MacCatalogView: View {
                 ForEach(CatalogSource.allCases) { source in
                     GroupBox {
                         VStack(alignment: .leading, spacing: 8) {
-                            Label(source.rawValue, systemImage: source == .openStreetMap ? "map" : "externaldrive.connected.to.line.below")
+                            Label(source.rawValue, systemImage: source.icon)
                                 .font(.headline)
                             Text(source.detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            Label(source.capabilities, systemImage: "checkmark.seal")
+                                .font(.caption).foregroundStyle(MacTheme.green)
+                            if source == .stockedReference {
+                                Text("\(CatalogReferenceData.storeNames.count) store chains · \(CatalogReferenceData.brandNames.count) brands included")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            } else if source == .wikidataCommons {
+                                Text("Enter a specific brand or store above. Image files retain the Commons source and attribution requirement.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
                             Toggle("Use for discovery", isOn: sourceBinding(source))
                             if source == .usda {
                                 SecureField("data.gov API key (optional)", text: $catalog.usdaAPIKey)
@@ -123,6 +132,9 @@ struct MacCatalogView: View {
                 }
             }.padding(16)
             Table(records, selection: $selection) {
+                TableColumn("Image") { row in
+                    CatalogImageThumbnail(record: row)
+                }.width(54)
                 TableColumn("Name") { row in Label(row.name, systemImage: row.kind.icon).lineLimit(2) }.width(min: 180, ideal: 260)
                 TableColumn("Brand / Store") { row in Text(row.brand ?? row.store ?? "—").foregroundStyle(.secondary) }.width(min: 120, ideal: 180)
                 TableColumn("Category") { row in Text(row.category ?? "—") }.width(min: 110, ideal: 160)
@@ -152,12 +164,21 @@ private struct CatalogRecordEditor: View {
     var body: some View {
         NavigationStack {
             Form {
+                if record.hasImage {
+                    CatalogImageThumbnail(record: record, size: 150)
+                        .frame(maxWidth: .infinity)
+                    if let source = record.imageSourceURL.flatMap(URL.init(string:)) {
+                        Link("Open image source and attribution", destination: source)
+                    }
+                }
                 TextField("Name", text: $record.name)
                 TextField("Brand", text: optional(\.brand))
                 TextField("Store", text: optional(\.store))
                 TextField("Category", text: optional(\.category))
                 TextField("Aisle", text: optional(\.aisle))
                 TextField("Address", text: optional(\.address), axis: .vertical)
+                TextField("Original image URL", text: optional(\.imageURL), axis: .vertical)
+                TextField("Image attribution", text: optional(\.imageAttribution), axis: .vertical)
                 LabeledContent("Source", value: record.source.rawValue)
                 LabeledContent("Confidence", value: "\(Int(record.confidence * 100))%")
             }
@@ -176,5 +197,37 @@ private struct CatalogRecordEditor: View {
 
     private func optional(_ path: WritableKeyPath<CatalogRecord, String?>) -> Binding<String> {
         Binding(get: { record[keyPath: path] ?? "" }, set: { record[keyPath: path] = $0.nilIfBlank })
+    }
+}
+
+private struct CatalogImageThumbnail: View {
+    let record: CatalogRecord
+    var size: CGFloat = 42
+
+    var body: some View {
+        Group {
+            if let raw = record.imagePreviewURL ?? record.imageURL, let url = URL(string: raw) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image): image.resizable().scaledToFit()
+                    case .failure: placeholder
+                    case .empty: ProgressView().controlSize(.small)
+                    @unknown default: placeholder
+                    }
+                }
+            } else {
+                placeholder
+            }
+        }
+        .frame(width: size, height: size)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.secondary.opacity(0.35), lineWidth: 1))
+        .help(record.imageAttribution ?? (record.hasImage ? "Original source image" : "No image found yet"))
+    }
+
+    private var placeholder: some View {
+        Image(systemName: record.kind == .store ? "storefront" : "photo")
+            .foregroundStyle(.secondary)
     }
 }
