@@ -20,4 +20,4 @@ also enqueue catalog enrichment immediately, including edits produced by AI work
 merge only matching names or barcodes, preserve original provenance, keep partial improvements,
 and cannot trap the queue on a failed provider.
 
-The existing managed AI service and automatic model remain the default. StockedMac may separately select a private UnifiedWorker endpoint, an optional token stored in StockedMac's Keychain, and a model ID. Provider credentials stay in that private Worker's encrypted secrets and must never be copied from Stocked iOS or another app.
+AI is Apple-first when Foundation Models are available. Included cloud AI is only unlocked on Jessie's production/test devices with the local `Joo` gate; other installs use a private UnifiedWorker. Private Workers may select Claude or OpenAI model IDs and keep provider keys in Worker secrets, never in the app.
