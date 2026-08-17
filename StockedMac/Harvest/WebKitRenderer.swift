@@ -103,6 +103,15 @@ final class WebKitRenderer: NSObject {
 
 extension WebKitRenderer: @preconcurrency WKNavigationDelegate {
 
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        // A malformed image or an overloaded source can terminate WebKit's helper
+        // process. Resume the current importer continuation immediately; WKWebView
+        // will launch a fresh helper for the next queued page.
+        finish(.failure(CompanionError.parseFailed(
+            "The built-in browser restarted while loading this page"
+        )))
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // Give client-side rendering a moment to hydrate before reading the DOM.
         Task { [weak self] in

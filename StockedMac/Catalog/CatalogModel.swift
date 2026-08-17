@@ -213,6 +213,10 @@ final class CatalogModel {
     private let saveURL: URL
     private var bulkTask: Task<Void, Never>?
     private var bulkCursor = BulkCursor()
+    private var requestQueryOverride: String?
+    private var requestLocationOverride: String?
+    private var requestQuery: String { requestQueryOverride ?? query }
+    private var requestLocation: String { requestLocationOverride ?? location }
 
     /// Broad grocery terms intentionally live in the app so a fresh install can discover
     /// useful records without requiring the user to know or type product names. The cursor
@@ -247,6 +251,7 @@ final class CatalogModel {
         guard bulkTask == nil else { return }
         isBulkImportEnabled = true
         UserDefaults.standard.set(true, forKey: "catalog.bulk.enabled.v1")
+        lastError = nil
         bulkStatus = "Starting automatic grocery catalog import…"
         bulkTask = Task { [weak self] in await self?.runBulkImport() }
     }
@@ -286,11 +291,9 @@ final class CatalogModel {
             }
 
             let seed = Self.bulkSeeds[bulkCursor.seedIndex % Self.bulkSeeds.count]
-            let savedQuery = query
-            let savedLocation = location
-            query = seed
+            requestQueryOverride = seed
             if source == .openStreetMap || source == .kroger {
-                location = Self.storeRegions[bulkCursor.regionIndex % Self.storeRegions.count]
+                requestLocationOverride = Self.storeRegions[bulkCursor.regionIndex % Self.storeRegions.count]
             }
             bulkStatus = "Importing \(source.rawValue) · \(seed) · page \(bulkCursor.page + 1)"
 
@@ -314,13 +317,12 @@ final class CatalogModel {
                 bulkCursor.consecutiveFailures[source.rawValue] = failures
                 let delay = min(3_600.0, pow(2, Double(min(failures, 8))) * 15)
                 bulkCursor.cooldowns[source.rawValue] = Date().addingTimeInterval(delay)
-                lastError = "\(source.rawValue): \(error.localizedDescription)"
-                bulkStatus = "Source deferred; the remaining catalog sweep is continuing"
+                bulkStatus = "\(source.rawValue) deferred for \(Int(delay / 60)) min; continuing with other sources"
                 advanceBulkCursor(sourceCount: sources.count)
             }
 
-            query = savedQuery
-            location = savedLocation
+            requestQueryOverride = nil
+            requestLocationOverride = nil
             save()
             try? await Task.sleep(for: .milliseconds(Self.delayMilliseconds(for: source)))
         }
@@ -450,19 +452,17 @@ final class CatalogModel {
         let rotating = (0..<min(batchSize, library.count)).map { (start + $0) % library.count }
         var seen = Set<Int>()
         let indexes = (prioritized + rotating).filter { seen.insert($0).inserted }
-        let originalQuery = query
-        let originalLocation = location
         defer {
-            query = originalQuery
-            location = originalLocation
+            requestQueryOverride = nil
+            requestLocationOverride = nil
             UserDefaults.standard.set((start + rotating.count) % max(1, library.count), forKey: cursorKey)
             save()
         }
 
         for index in indexes where library.indices.contains(index) {
             let base = library[index]
-            query = base.name
-            if base.kind == .store { location = base.address ?? base.name }
+            requestQueryOverride = base.name
+            if base.kind == .store { requestLocationOverride = base.address ?? base.name }
             var candidates: [CatalogRecord] = []
             for source in CatalogSource.allCases where source != .legacyRemoved {
                 do { candidates += try await fetch(source: source, limit: 12) }
@@ -480,9 +480,8 @@ final class CatalogModel {
 
     func enrichInventoryItem(id: UUID, store: MacKitchenStore) async {
         guard let item = store.inventory.first(where: { $0.id == id }) else { return }
-        let originalQuery = query
-        defer { query = originalQuery }
-        query = [item.brand, item.name].compactMap { $0?.nilIfBlank }.joined(separator: " ")
+        defer { requestQueryOverride = nil }
+        requestQueryOverride = [item.brand, item.name].compactMap { $0?.nilIfBlank }.joined(separator: " ")
         var candidates: [CatalogRecord] = []
         for source in CatalogSource.allCases where source != .legacyRemoved && source != .openStreetMap {
             do { candidates += try await fetch(source: source, limit: 12) }
@@ -526,7 +525,7 @@ final class CatalogModel {
         case .wikidataCommons: return try await fetchWikidataCommons(limit: min(limit, 50))
         case .rapidAPIGrocery: return try await fetchRapidAPIGrocery(limit: limit, page: page)
         case .fatSecret: return try await fetchFatSecret(limit: limit, page: page)
-        case .stockedReference: return CatalogReferenceData.records(matching: query, limit: limit)
+        case .stockedReference: return CatalogReferenceData.records(matching: requestQuery, limit: limit)
         case .builtIn: return builtInAisles()
         case .legacyRemoved: return []
         }
@@ -544,7 +543,7 @@ final class CatalogModel {
         var components = URLComponents(string: "https://\(host)/cgi/search.pl")!
         components.queryItems = [
             .init(name: "action", value: "process"), .init(name: "json", value: "1"),
-            .init(name: "search_terms", value: query.nilIfBlank ?? "grocery"),
+            .init(name: "search_terms", value: requestQuery.nilIfBlank ?? "grocery"),
             .init(name: "page", value: String(page + 1)),
             .init(name: "page_size", value: String(min(limit, 100))),
             .init(name: "fields", value: "code,product_name,brands,categories,stores,url,image_front_url,image_url")
@@ -582,7 +581,7 @@ final class CatalogModel {
         var request = URLRequest(url: URL(string: "https://api.nal.usda.gov/fdc/v1/foods/search?api_key=\(usdaAPIKey.nilIfBlank ?? "DEMO_KEY")")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query.nilIfBlank ?? "grocery", "dataType": ["Branded"], "pageSize": min(limit, 100), "pageNumber": page + 1])
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["query": requestQuery.nilIfBlank ?? "grocery", "dataType": ["Branded"], "pageSize": min(limit, 100), "pageNumber": page + 1])
         let response: USDAResponse = try await decode(request)
         return response.foods.flatMap { food -> [CatalogRecord] in
             guard let name = food.description.nilIfBlank else { return [] }
@@ -605,7 +604,7 @@ final class CatalogModel {
     }
 
     private func fetchWikidataCommons(limit: Int) async throws -> [CatalogRecord] {
-        guard let term = query.nilIfBlank else {
+        guard let term = requestQuery.nilIfBlank else {
             throw MacServiceError.invalidRequest("Enter a brand or store name for Wikidata + Commons discovery.")
         }
         var searchComponents = URLComponents(string: "https://www.wikidata.org/w/api.php")!
@@ -653,7 +652,7 @@ final class CatalogModel {
     }
 
     private func fetchStores(limit: Int) async throws -> [CatalogRecord] {
-        let place = location.nilIfBlank ?? query.nilIfBlank
+        let place = requestLocation.nilIfBlank ?? requestQuery.nilIfBlank
         guard let place else { throw MacServiceError.invalidRequest("Enter a city, ZIP code, or region for store discovery.") }
         var components = URLComponents(string: "https://nominatim.openstreetmap.org/search")!
         components.queryItems = [.init(name: "q", value: "supermarket \(place)"), .init(name: "format", value: "jsonv2"),
@@ -672,8 +671,8 @@ final class CatalogModel {
         guard MacWorkerClient.isConfigured else {
             throw MacServiceError.notConfigured("The Stocked Worker key")
         }
-        let zip = Self.firstZIP(in: location)
-        guard zip != nil || query.nilIfBlank != nil else {
+        let zip = Self.firstZIP(in: requestLocation)
+        guard zip != nil || requestQuery.nilIfBlank != nil else {
             throw MacServiceError.invalidRequest("Enter a five-digit ZIP code, product, or brand for Kroger discovery.")
         }
 
@@ -697,7 +696,7 @@ final class CatalogModel {
             }
         }
 
-        if let term = query.nilIfBlank {
+        if let term = requestQuery.nilIfBlank {
             var request = ["term": term, "limit": String(min(50, limit)), "start": String(page * min(50, limit) + 1)]
             if let storeLocationID { request["locationId"] = storeLocationID }
             let data = try await MacWorkerClient.getData(path: "/retail/kroger/products", query: request)
@@ -730,7 +729,7 @@ final class CatalogModel {
     }
 
     private func fetchRapidAPIGrocery(limit: Int, page: Int) async throws -> [CatalogRecord] {
-        guard let term = query.nilIfBlank else {
+        guard let term = requestQuery.nilIfBlank else {
             throw MacServiceError.invalidRequest("Enter a grocery product or brand for RapidAPI discovery.")
         }
         var rows: [CatalogRecord] = []
@@ -758,7 +757,7 @@ final class CatalogModel {
     }
 
     private func fetchFatSecret(limit: Int, page: Int) async throws -> [CatalogRecord] {
-        guard let term = query.nilIfBlank else {
+        guard let term = requestQuery.nilIfBlank else {
             throw MacServiceError.invalidRequest("Enter a grocery food or brand for FatSecret discovery.")
         }
         let data = try await MacWorkerClient.getData(path: "/retail/fatsecret/foods",

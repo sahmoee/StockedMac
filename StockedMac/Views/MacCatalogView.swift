@@ -81,7 +81,9 @@ struct MacCatalogView: View {
                 Button { Task { await catalog.discover() } } label: {
                     Label(catalog.isDiscovering ? "Searching…" : "Find and Queue", systemImage: "magnifyingglass")
                         .frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).disabled(catalog.isDiscovering || catalog.selectedSources.isEmpty)
+                }.buttonStyle(.borderedProminent).disabled(
+                    catalog.isDiscovering || catalog.isBulkImportEnabled || catalog.selectedSources.isEmpty
+                )
                 if catalog.isDiscovering { ProgressView().frame(maxWidth: .infinity) }
                 Text(catalog.lastError ?? catalog.status).font(.caption)
                     .foregroundStyle(catalog.lastError == nil ? Color.secondary : Color.red)
@@ -167,7 +169,9 @@ struct MacCatalogView: View {
             }
             if records.isEmpty {
                 ContentUnavailableView(mode == .library ? "No imported catalog records" : "Queue is empty",
-                                       systemImage: "tag", description: Text("Select sources and run discovery to begin."))
+                                       systemImage: "tag", description: Text(mode == .library
+                                        ? "Automatic and manual imports will appear here."
+                                        : "Automatic bulk imports go straight to Library. Manual discoveries appear here before import."))
                     .frame(maxHeight: .infinity)
             }
         }
