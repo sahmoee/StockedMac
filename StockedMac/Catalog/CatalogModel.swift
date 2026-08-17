@@ -28,13 +28,14 @@ nonisolated enum CatalogSource: String, Codable, CaseIterable, Identifiable, Sen
     case wikidataCommons = "Wikidata + Wikimedia Commons"
     case kroger = "Kroger Store Catalog"
     case rapidAPIGrocery = "RapidAPI Grocery Catalog"
+    case fatSecret = "FatSecret Food & Nutrition"
     case stockedReference = "Stocked Brand & Store Reference"
     case builtIn = "Stocked Aisle Taxonomy"
     case legacyRemoved = "Removed non-grocery source"
 
     static let allCases: [CatalogSource] = [
         .kroger, .openFoodFacts, .usda, .openStreetMap, .wikidataCommons,
-        .rapidAPIGrocery, .stockedReference, .builtIn
+        .fatSecret, .rapidAPIGrocery, .stockedReference, .builtIn
     ]
 
     var id: String { rawValue }
@@ -46,6 +47,7 @@ nonisolated enum CatalogSource: String, Codable, CaseIterable, Identifiable, Sen
         case .wikidataCommons: "Brand and retailer identities with reusable original images from Wikimedia Commons"
         case .kroger: "Official store locations and grocery products with store-specific prices, availability, aisles and original images"
         case .rapidAPIGrocery: "Optional Walmart and Amazon grocery catalog fallback through the key-protected Stocked Worker"
+        case .fatSecret: "Branded and generic grocery foods with serving and nutrition data through the protected Stocked Worker"
         case .stockedReference: "Offline coverage for major grocery chains and consumer brands; no key or network required"
         case .builtIn: "Offline category-to-aisle rules used to normalize every source"
         case .legacyRemoved: "Retained only to migrate old saved catalogs safely"
@@ -60,6 +62,7 @@ nonisolated enum CatalogSource: String, Codable, CaseIterable, Identifiable, Sen
         case .wikidataCommons: "Brands · Stores · Original images · Attribution"
         case .kroger: "Stores · Products · Brands · Prices · Availability · Aisles · Images"
         case .rapidAPIGrocery: "Products · Brands · Prices · Images"
+        case .fatSecret: "Products · Brands · Nutrition"
         case .stockedReference: "Brands · Store chains · Offline"
         case .builtIn: "Categories · Aisles · Offline"
         case .legacyRemoved: "Unavailable"
@@ -70,7 +73,7 @@ nonisolated enum CatalogSource: String, Codable, CaseIterable, Identifiable, Sen
         switch self {
         case .openStreetMap: "map"
         case .kroger: "cart.fill.badge.plus"
-        case .rapidAPIGrocery: "network"
+        case .rapidAPIGrocery, .fatSecret: "network"
         case .wikidataCommons: "photo.on.rectangle.angled"
         case .stockedReference, .builtIn: "internaldrive"
         case .legacyRemoved: "nosign"
@@ -235,6 +238,8 @@ final class CatalogModel {
                     found += try await fetchWikidataCommons(limit: min(perSource, 50))
                 case .rapidAPIGrocery:
                     found += try await fetchRapidAPIGrocery(limit: perSource)
+                case .fatSecret:
+                    found += try await fetchFatSecret(limit: perSource)
                 case .stockedReference:
                     found += CatalogReferenceData.records(matching: query, limit: perSource)
                 case .builtIn:
@@ -521,6 +526,30 @@ final class CatalogModel {
                                           imageAttribution: "RapidAPI grocery provider",
                                           externalID: product.productId,
                                           regularPrice: product.regularPrice, confidence: 0.7))
+            }
+        }
+        return rows
+    }
+
+    private func fetchFatSecret(limit: Int) async throws -> [CatalogRecord] {
+        guard let term = query.nilIfBlank else {
+            throw MacServiceError.invalidRequest("Enter a grocery food or brand for FatSecret discovery.")
+        }
+        let data = try await MacWorkerClient.getData(path: "/retail/fatsecret/foods",
+                                                     query: ["query": term, "limit": String(min(50, limit))])
+        let envelope = try JSONDecoder().decode(RapidProductEnvelope.self, from: data)
+        var rows: [CatalogRecord] = []
+        for product in envelope.products where Self.isGroceryRelevant(name: product.name, categories: product.categories) {
+            let category = product.categories.first
+            let aisle = GroceryAisleClassifier.aisle(for: category ?? product.name)
+            rows.append(CatalogRecord(kind: .product, name: product.name, brand: product.brand, category: category,
+                                      aisle: aisle, source: .fatSecret, sourceURL: product.productURL,
+                                      imageURL: product.imageURL, imagePreviewURL: product.imageURL,
+                                      imageSourceURL: product.productURL, imageAttribution: "FatSecret Platform API",
+                                      externalID: product.productId, confidence: 0.88))
+            if let brand = product.brand?.nilIfBlank {
+                rows.append(CatalogRecord(kind: .brand, name: brand, category: category, aisle: aisle,
+                                          source: .fatSecret, sourceURL: product.productURL, confidence: 0.84))
             }
         }
         return rows
