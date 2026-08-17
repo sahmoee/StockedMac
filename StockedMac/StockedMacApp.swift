@@ -53,6 +53,10 @@ struct StockedMacApp: App {
                 // A gentle fade rather than a hard swap, so signing in doesn't feel like
                 // the window was replaced underneath you.
                 .animation(.easeInOut(duration: 0.22), value: auth.isSignedIn)
+                .onReceive(NotificationCenter.default.publisher(for: .macInventoryNeedsCatalogEnrichment)) { note in
+                    guard let id = note.object as? UUID else { return }
+                    Task { await catalog.enrichInventoryItem(id: id, store: store) }
+                }
                 .task {
                     // `.task` on the root view can run again if the window is recreated,
                     // so this is guarded — loading twice would be harmless but pulling
@@ -104,6 +108,11 @@ struct StockedMacApp: App {
                     // also capped its index at 500, so an 882-recipe kitchen could never be
                     // fully available to iPhone/iPad. Upserts are idempotent by recipe UUID.
                     harvest.syncKitchenToCloud(store.recipes)
+                    // Catalog maintenance is resumable and source-complete: every launch
+                    // advances through existing records, while future imports enqueue
+                    // themselves immediately after persistence.
+                    await catalog.enrichAllExisting()
+                    await catalog.enrichInventoryBatch(store: store)
                 }
         }
         .defaultSize(width: 1140, height: 760)

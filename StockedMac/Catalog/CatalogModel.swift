@@ -1,6 +1,10 @@
 import Foundation
 import Observation
 
+extension Notification.Name {
+    static let macInventoryNeedsCatalogEnrichment = Notification.Name("com.sowens.StockedMac.inventoryNeedsCatalogEnrichment")
+}
+
 nonisolated enum CatalogRecordKind: String, Codable, CaseIterable, Sendable {
     case brand = "Brand"
     case product = "Product"
@@ -225,28 +229,7 @@ final class CatalogModel {
 
         for source in CatalogSource.allCases where selectedSources.contains(source) {
             do {
-                switch source {
-                case .kroger:
-                    found += try await fetchKroger(limit: perSource)
-                case .openFoodFacts:
-                    found += try await fetchOpenFacts(.openFoodFacts, host: "world.openfoodfacts.org", limit: perSource)
-                case .usda:
-                    found += try await fetchUSDA(limit: perSource)
-                case .openStreetMap:
-                    found += try await fetchStores(limit: min(perSource, 50))
-                case .wikidataCommons:
-                    found += try await fetchWikidataCommons(limit: min(perSource, 50))
-                case .rapidAPIGrocery:
-                    found += try await fetchRapidAPIGrocery(limit: perSource)
-                case .fatSecret:
-                    found += try await fetchFatSecret(limit: perSource)
-                case .stockedReference:
-                    found += CatalogReferenceData.records(matching: query, limit: perSource)
-                case .builtIn:
-                    found += builtInAisles()
-                case .legacyRemoved:
-                    break
-                }
+                found += try await fetch(source: source, limit: perSource)
             } catch {
                 failures.append("\(source.rawValue): \(error.localizedDescription)")
             }
@@ -279,6 +262,8 @@ final class CatalogModel {
         queue.removeFirst(count)
         status = "Imported \(added) records and enriched \(enriched) existing records; \(queue.count) remain queued."
         save()
+        let importedIDs = incoming.map(\.id)
+        Task { await enrichAllExisting(prioritizing: importedIDs) }
     }
 
     func removeFromQueue(_ ids: Set<UUID>) {
@@ -313,6 +298,108 @@ final class CatalogModel {
             }
         }
         return (added, enriched)
+    }
+
+    /// Continuously walks the entire saved catalog through every applicable source.
+    /// A persisted cursor guarantees large libraries advance instead of reprocessing
+    /// the first page forever. Provider failures keep the current record and retry on
+    /// the next cycle; partial enrichment is saved after each record.
+    func enrichAllExisting(prioritizing ids: [UUID] = [], batchSize: Int = 20) async {
+        guard !library.isEmpty else { return }
+        let cursorKey = "catalog.enrichmentCursor.v2"
+        let start = UserDefaults.standard.integer(forKey: cursorKey) % library.count
+        let prioritized = ids.compactMap { id in library.firstIndex(where: { $0.id == id }) }
+        let rotating = (0..<min(batchSize, library.count)).map { (start + $0) % library.count }
+        var seen = Set<Int>()
+        let indexes = (prioritized + rotating).filter { seen.insert($0).inserted }
+        let originalQuery = query
+        let originalLocation = location
+        defer {
+            query = originalQuery
+            location = originalLocation
+            UserDefaults.standard.set((start + rotating.count) % max(1, library.count), forKey: cursorKey)
+            save()
+        }
+
+        for index in indexes where library.indices.contains(index) {
+            let base = library[index]
+            query = base.name
+            if base.kind == .store { location = base.address ?? base.name }
+            var candidates: [CatalogRecord] = []
+            for source in CatalogSource.allCases where source != .legacyRemoved {
+                do { candidates += try await fetch(source: source, limit: 12) }
+                catch { continue }
+            }
+            let matches = candidates.filter { Self.matches($0, base) }.sorted { $0.confidence > $1.confidence }
+            for match in matches { _ = library[index].mergeEnrichment(from: match) }
+            if library[index].aisle?.nilIfBlank == nil {
+                library[index].aisle = GroceryAisleClassifier.aisle(for: library[index].category ?? library[index].name)
+            }
+            save()
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+    }
+
+    func enrichInventoryItem(id: UUID, store: MacKitchenStore) async {
+        guard let item = store.inventory.first(where: { $0.id == id }) else { return }
+        let originalQuery = query
+        defer { query = originalQuery }
+        query = [item.brand, item.name].compactMap { $0?.nilIfBlank }.joined(separator: " ")
+        var candidates: [CatalogRecord] = []
+        for source in CatalogSource.allCases where source != .legacyRemoved && source != .openStreetMap {
+            do { candidates += try await fetch(source: source, limit: 12) }
+            catch { continue }
+        }
+        let base = CatalogRecord(kind: .product, name: item.name, brand: item.brand,
+                                 barcode: item.barcode, source: .stockedReference, state: .imported)
+        let matches = candidates.filter { Self.matches($0, base) }.sorted { $0.confidence > $1.confidence }
+        guard !matches.isEmpty else { return }
+        var enriched = base
+        for match in matches { _ = enriched.mergeEnrichment(from: match) }
+        store.updateInventory(id: id, requestEnrichment: false) { current in
+            if current.brand?.nilIfBlank == nil { current.brand = enriched.brand }
+            if current.barcode?.nilIfBlank == nil { current.barcode = enriched.barcode }
+            if current.price == nil { current.price = enriched.promotionalPrice ?? enriched.regularPrice }
+            if current.storePurchasedAt?.nilIfBlank == nil { current.storePurchasedAt = enriched.store }
+        }
+        if let index = library.firstIndex(where: { $0.identityKey == enriched.identityKey }) {
+            _ = library[index].mergeEnrichment(from: enriched)
+        } else {
+            library.append(enriched)
+        }
+        save()
+    }
+
+    func enrichInventoryBatch(store: MacKitchenStore, limit: Int = 20) async {
+        guard !store.inventory.isEmpty else { return }
+        let key = "catalog.inventoryEnrichmentCursor.v2"
+        let start = UserDefaults.standard.integer(forKey: key) % store.inventory.count
+        let ids = (0..<min(limit, store.inventory.count)).map { store.inventory[(start + $0) % store.inventory.count].id }
+        UserDefaults.standard.set((start + ids.count) % store.inventory.count, forKey: key)
+        for id in ids { await enrichInventoryItem(id: id, store: store) }
+    }
+
+    private func fetch(source: CatalogSource, limit: Int) async throws -> [CatalogRecord] {
+        switch source {
+        case .kroger: return try await fetchKroger(limit: limit)
+        case .openFoodFacts: return try await fetchOpenFacts(.openFoodFacts, host: "world.openfoodfacts.org", limit: limit)
+        case .usda: return try await fetchUSDA(limit: limit)
+        case .openStreetMap: return try await fetchStores(limit: min(limit, 50))
+        case .wikidataCommons: return try await fetchWikidataCommons(limit: min(limit, 50))
+        case .rapidAPIGrocery: return try await fetchRapidAPIGrocery(limit: limit)
+        case .fatSecret: return try await fetchFatSecret(limit: limit)
+        case .stockedReference: return CatalogReferenceData.records(matching: query, limit: limit)
+        case .builtIn: return builtInAisles()
+        case .legacyRemoved: return []
+        }
+    }
+
+    private static func matches(_ candidate: CatalogRecord, _ base: CatalogRecord) -> Bool {
+        if let barcode = base.barcode?.nilIfBlank, candidate.barcode?.nilIfBlank == barcode { return true }
+        guard candidate.kind == base.kind else { return false }
+        let lhs = candidate.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current).lowercased()
+        let rhs = base.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current).lowercased()
+        return lhs == rhs || (min(lhs.count, rhs.count) >= 5 && (lhs.contains(rhs) || rhs.contains(lhs)))
     }
 
     private func fetchOpenFacts(_ source: CatalogSource, host: String, limit: Int) async throws -> [CatalogRecord] {

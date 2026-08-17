@@ -311,6 +311,7 @@ final class MacKitchenStore {
         copy.lastWriterID = writerID
         inventory.append(copy)
         scheduleSave(.inventory)
+        NotificationCenter.default.post(name: .macInventoryNeedsCatalogEnrichment, object: copy.id)
     }
 
     @discardableResult
@@ -328,15 +329,19 @@ final class MacKitchenStore {
         item.lastWriterID = writerID
         inventory.append(item)
         scheduleSave(.inventory)
+        NotificationCenter.default.post(name: .macInventoryNeedsCatalogEnrichment, object: item.id)
         return item
     }
 
     /// Applies an edit and stamps it. Takes the change as a closure so callers can't
     /// forget the stamp — the only supported way to change an item in place.
-    func updateInventory(id: UUID, _ change: (inout LocalInventoryItem) -> Void) {
+    func updateInventory(id: UUID, requestEnrichment: Bool = true, _ change: (inout LocalInventoryItem) -> Void) {
         guard let index = inventory.firstIndex(where: { $0.id == id }) else { return }
         change(&inventory[index])
         stampInventory(at: index)
+        if requestEnrichment {
+            NotificationCenter.default.post(name: .macInventoryNeedsCatalogEnrichment, object: id)
+        }
     }
 
     func deleteInventory(ids: Set<UUID>) {
