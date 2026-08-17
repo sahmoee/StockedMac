@@ -30,8 +30,9 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
     case browse    = "Browse"
     case categories = "Categories"
     case sync = "Recipe Sync"
+    case catalog = "Brands & Stores"
 
-    static let recipeManagerSections: [MacSection] = [.recipes, .browse, .categories, .sync]
+    static let recipeManagerSections: [MacSection] = [.recipes, .browse, .categories, .catalog, .sync]
 
     var id: String { rawValue }
 
@@ -49,6 +50,7 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
         case .browse:    return "globe"
         case .categories: return "square.grid.2x2"
         case .sync: return "arrow.triangle.2.circlepath"
+        case .catalog: return "storefront"
         }
     }
 
@@ -67,6 +69,7 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
         case .browse:    return "b"
         case .categories: return "3"
         case .sync: return "4"
+        case .catalog: return "s"
         }
     }
 }
@@ -189,6 +192,8 @@ struct MacRootView: View {
             return harvest.allCategories.isEmpty ? nil : "\(harvest.allCategories.count)"
         case .sync:
             return sync.isJoined ? "\(max(1, sync.members.count))" : nil
+        case .catalog:
+            return nil
         }
     }
 
@@ -248,6 +253,7 @@ struct MacRootView: View {
         case .browse:    MacBrowseView()
         case .categories: MacRecipeCategoriesView()
         case .sync: MacRecipeSyncView()
+        case .catalog: MacCatalogView()
         }
     }
 

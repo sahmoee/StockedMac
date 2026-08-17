@@ -29,6 +29,7 @@ struct StockedMacApp: App {
     /// The recipe Harvester (formerly the separate Stocked Companion app). Owned here so
     /// the menu bar commands, the sidebar badge and the Harvester screen share one model.
     @State private var harvest = HarvestModel()
+    @State private var catalog = CatalogModel()
     @State private var didStart = false
 
     var body: some Scene {
@@ -46,6 +47,7 @@ struct StockedMacApp: App {
                 .environment(navigation)
                 .environment(auth)
                 .environment(harvest)
+                .environment(catalog)
                 .frame(minWidth: MacTheme.minWindowWidth,
                        minHeight: MacTheme.minWindowHeight)
                 // A gentle fade rather than a hard swap, so signing in doesn't feel like

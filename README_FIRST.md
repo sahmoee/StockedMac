@@ -1,6 +1,6 @@
 # Read me first
 
-StockedMac is the recipe-only companion to Stocked iOS. It imports, repairs, edits, categorizes, images, and publishes recipes; do not restore inventory, grocery, meal-planning, cooking, or analytics features. Imported recipes require a usable image and original source attribution.
+StockedMac is the content-management companion to Stocked iOS. It imports, repairs, edits, categorizes, images, and publishes recipes, and maintains the shared brands, products, stores, and grocery-aisle catalog. Do not restore inventory, grocery-list, meal-planning, cooking, or analytics workflows. Imported recipes require a usable image and original source attribution. Catalog records require source provenance and must remain deduplicated and resumable.
 
 `Secrets.xcconfig` is local and ignored. Production sync uses `https://api.sowensstudios.com`. Preserve partial scan results, resumable queues, limits, deduplication, and retroactive repair. Verify the `StockedMac` scheme.
 
