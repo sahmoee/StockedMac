@@ -14,6 +14,8 @@ The normal Find flow is hands-off: discovery imports immediately, complete image
 
 The Categories screen owns both source-specific category pages and canonical cross-site cuisine collections. Cuisine collections are always visible, automatically index matching cached recipes from multiple websites, and can run a bounded multi-source Find & Import through the same image-required, deduplicated, resumable import pipeline. Do not replace them with single-site links or compute their index during SwiftUI row rendering.
 
+The built-in recipe catalog contains 250 sources, including an audited batch of 100 English-language global publishers. Keep `default-sources.json` and `DefaultSourceCatalog.swift` synchronized. New sources require a reachable HTTPS homepage and XML sitemap, remain robots-aware and serial per host, and must not weaken the normal image, attribution, duplicate, or rate-limit gates.
+
 Every recipe-repair revision applies the latest nutrition, category, source, and image extraction to historical source URLs in bounded resumable batches; future imports use the same path. FatSecret enrichment is additive and may never replace stronger publisher/USDA facts or invent store-specific aisle, price, or inventory data.
 
 The Brands & Stores catalog continuously reprocesses existing and future records through every

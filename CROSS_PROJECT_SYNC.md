@@ -10,6 +10,8 @@ Recipe schema, image, provenance, category, deduplication, or sync changes must 
 
 StockedMac owns cuisine discovery collections and their cross-site cache index. Imported records continue publishing ordinary cuisine/category strings through the existing shared recipe schema, so Stocked iOS and UnifiedWorker require no synthetic collection IDs or migration.
 
+The expanded English-language global source catalog is StockedMac-owned discovery configuration. Only successfully parsed, image-complete recipes cross into the shared Worker/iOS recipe schema; source profiles and crawling policy do not sync to Stocked iOS.
+
 Brand/store discovery is grocery-scoped and uses Open Food Facts, USDA FoodData Central, OpenStreetMap, Wikidata/Wikimedia Commons, Stocked's offline grocery-brand/store reference, and the offline aisle taxonomy. Do not add dedicated beauty, pet, or general-merchandise catalogs. Catalog records may carry optional `imageURL`, `imagePreviewURL`, `imageSourceURL`, and `imageAttribution`; old saved records without them must continue decoding. Preserve original-resolution URLs and attribution, use previews only for rendering, fault-isolate providers, and enrich duplicates in both durable queues and the imported library.
 
 Official Kroger and allowlisted RapidAPI requests are owned by UnifiedWorker `/retail/*` routes. StockedMac owns discovery/import tooling; Stocked iOS consumes normalized store/product metadata. Keep provider/store IDs optional for backward compatibility, keep live price/availability short-lived, and never persist provider secrets in either app.
