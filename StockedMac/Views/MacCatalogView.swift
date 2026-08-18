@@ -87,6 +87,11 @@ struct MacCatalogView: View {
                         Stepper("Up to \(catalog.resultLimit) per run", value: $catalog.resultLimit, in: 10...500, step: 10)
                         Text("Products receive an aisle automatically. Existing records are enriched with better images and metadata instead of duplicated. Kroger uses a five-digit ZIP for store-specific price, availability and aisle data.")
                             .font(.caption).foregroundStyle(.secondary)
+                        if isTexasLocation(catalog.location) {
+                            Label("Texas detected — H-E-B stores, own brands and matching live provider results are prioritized.",
+                                  systemImage: "location.fill")
+                                .font(.caption).foregroundStyle(MacTheme.green)
+                        }
                     }.padding(6)
                 }
                 GroupBox("Sources") {
@@ -119,6 +124,14 @@ struct MacCatalogView: View {
         if catalog.isBulkImportRunning { return "Running" }
         if catalog.isBulkImportPaused { return "Paused" }
         return "Stopped"
+    }
+
+    private func isTexasLocation(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized == "tx" || normalized.contains("texas") { return true }
+        guard let range = normalized.range(of: #"\b\d{5}\b"#, options: .regularExpression),
+              let zip = Int(normalized[range]) else { return false }
+        return (75001...79999).contains(zip) || (73301...73399).contains(zip) || (88510...88589).contains(zip)
     }
 
     private var sourcesView: some View {

@@ -27,4 +27,10 @@ brand, or store name needs to be typed. A 429 or provider failure cools only tha
 rest of the sweep advances. Never replace this with concurrent unbounded requests or quota-evasion.
 Kroger, RapidAPI, and FatSecret remain Worker-mediated; FatSecret may use Server Mac fixed egress.
 
+Texas ZIPs and Texas region text prioritize H-E-B enrichment: Stocked's verified H-E-B reference,
+H-E-B-specific OpenStreetMap discovery, then H-E-B-targeted Open Food Facts, USDA, FatSecret, and
+Wikimedia lookups. The optional `texas-grocery-mcp` installed for local AI chats is unofficial,
+session-dependent, and read-oriented; keep its browser state outside the app, throttle it, and never
+make StockedMac depend on it for startup or discard existing data when it is unavailable.
+
 AI is Apple-first when Foundation Models are available. Included cloud AI is only unlocked on Jessie's production/test devices with the local `Joo` gate; other installs use a private UnifiedWorker. Private Workers may select Claude or OpenAI model IDs and keep provider keys in Worker secrets, never in the app.

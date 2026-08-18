@@ -222,6 +222,7 @@ final class CatalogModel {
     private var requestLocationOverride: String?
     private var requestQuery: String { requestQueryOverride ?? query }
     private var requestLocation: String { requestLocationOverride ?? location }
+    private var isTexasRequest: Bool { Self.isTexasLocation(requestLocation) }
 
     /// Broad grocery terms intentionally live in the app so a fresh install can discover
     /// useful records without requiring the user to know or type product names. The cursor
@@ -239,7 +240,8 @@ final class CatalogModel {
     ]
 
     private static let storeRegions = [
-        "77002", "78205", "75201", "78701", "73301", "90210", "94103", "98101", "80202",
+        "77002", "78205", "75201", "78701", "73301", "76102", "79901", "78401", "76701", "79401",
+        "90210", "94103", "98101", "80202",
         "60601", "10001", "02108", "30303", "33130", "20001", "37201", "85004", "97205"
     ]
 
@@ -321,7 +323,8 @@ final class CatalogModel {
             }
         }
         while isBulkImportEnabled && !Task.isCancelled {
-            let sources = CatalogSource.allCases.filter { selectedSources.contains($0) }
+            requestLocationOverride = Self.storeRegions[bulkCursor.regionIndex % Self.storeRegions.count]
+            let sources = orderedSources().filter { selectedSources.contains($0) }
             guard !sources.isEmpty else {
                 bulkStatus = "Select at least one source to continue"
                 try? await Task.sleep(for: .seconds(5))
@@ -337,9 +340,6 @@ final class CatalogModel {
 
             let seed = Self.bulkSeeds[bulkCursor.seedIndex % Self.bulkSeeds.count]
             requestQueryOverride = seed
-            if source == .openStreetMap || source == .kroger {
-                requestLocationOverride = Self.storeRegions[bulkCursor.regionIndex % Self.storeRegions.count]
-            }
             bulkStatus = "Importing \(source.rawValue) · \(seed) · page \(bulkCursor.page + 1)"
 
             do {
@@ -412,7 +412,7 @@ final class CatalogModel {
         var failures: [String] = []
         let perSource = max(10, resultLimit / max(1, selectedSources.count))
 
-        for source in CatalogSource.allCases where selectedSources.contains(source) {
+        for source in orderedSources() where selectedSources.contains(source) {
             do {
                 found += try await fetch(source: source, limit: perSource, page: 0)
             } catch {
@@ -509,9 +509,13 @@ final class CatalogModel {
         for index in indexes where library.indices.contains(index) {
             let base = library[index]
             requestQueryOverride = base.name
-            if base.kind == .store { requestLocationOverride = base.address ?? base.name }
+            if base.kind == .store {
+                requestLocationOverride = base.address ?? base.name
+            } else if Self.isHEBRecord(base) {
+                requestLocationOverride = "Texas"
+            }
             var candidates: [CatalogRecord] = []
-            for source in CatalogSource.allCases where source != .legacyRemoved {
+            for source in orderedSources() where source != .legacyRemoved {
                 do { candidates += try await fetch(source: source, limit: 12) }
                 catch { continue }
             }
@@ -527,10 +531,13 @@ final class CatalogModel {
 
     func enrichInventoryItem(id: UUID, store: MacKitchenStore) async {
         guard let item = store.inventory.first(where: { $0.id == id }) else { return }
-        defer { requestQueryOverride = nil }
+        defer { requestQueryOverride = nil; requestLocationOverride = nil }
         requestQueryOverride = [item.brand, item.name].compactMap { $0?.nilIfBlank }.joined(separator: " ")
+        if [item.brand, item.name].compactMap({ $0 }).contains(where: Self.isHEBText) {
+            requestLocationOverride = "Texas"
+        }
         var candidates: [CatalogRecord] = []
-        for source in CatalogSource.allCases where source != .legacyRemoved && source != .openStreetMap {
+        for source in orderedSources() where source != .legacyRemoved && source != .openStreetMap {
             do { candidates += try await fetch(source: source, limit: 12) }
             catch { continue }
         }
@@ -578,6 +585,26 @@ final class CatalogModel {
         }
     }
 
+    /// H-E-B coverage is most useful in Texas. When a Texas ZIP/region is active, start
+    /// with the local H-E-B reference and the providers most likely to return H-E-B
+    /// identities, stores, images and branded foods. Other providers remain fallbacks.
+    private func orderedSources() -> [CatalogSource] {
+        guard isTexasRequest else { return CatalogSource.allCases }
+        return [.stockedReference, .openStreetMap, .openFoodFacts, .usda, .fatSecret,
+                .wikidataCommons, .builtIn, .rapidAPIGrocery, .kroger]
+    }
+
+    private func providerQuery(for source: CatalogSource) -> String {
+        let base = requestQuery.nilIfBlank ?? "grocery"
+        guard isTexasRequest else { return base }
+        switch source {
+        case .openFoodFacts, .usda, .fatSecret, .wikidataCommons:
+            return Self.isHEBText(base) ? base : "H-E-B \(base)"
+        default:
+            return base
+        }
+    }
+
     private static func matches(_ candidate: CatalogRecord, _ base: CatalogRecord) -> Bool {
         if let barcode = base.barcode?.nilIfBlank, candidate.barcode?.nilIfBlank == barcode { return true }
         guard candidate.kind == base.kind else { return false }
@@ -590,7 +617,7 @@ final class CatalogModel {
         var components = URLComponents(string: "https://\(host)/cgi/search.pl")!
         components.queryItems = [
             .init(name: "action", value: "process"), .init(name: "json", value: "1"),
-            .init(name: "search_terms", value: requestQuery.nilIfBlank ?? "grocery"),
+            .init(name: "search_terms", value: providerQuery(for: source)),
             .init(name: "page", value: String(page + 1)),
             .init(name: "page_size", value: String(min(limit, 100))),
             .init(name: "fields", value: "code,product_name,brands,categories,stores,url,image_front_url,image_url")
@@ -628,7 +655,7 @@ final class CatalogModel {
         var request = URLRequest(url: URL(string: "https://api.nal.usda.gov/fdc/v1/foods/search?api_key=\(usdaAPIKey.nilIfBlank ?? "DEMO_KEY")")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["query": requestQuery.nilIfBlank ?? "grocery", "dataType": ["Branded"], "pageSize": min(limit, 100), "pageNumber": page + 1])
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["query": providerQuery(for: .usda), "dataType": ["Branded"], "pageSize": min(limit, 100), "pageNumber": page + 1])
         let response: USDAResponse = try await decode(request)
         return response.foods.flatMap { food -> [CatalogRecord] in
             guard let name = food.description.nilIfBlank else { return [] }
@@ -651,9 +678,10 @@ final class CatalogModel {
     }
 
     private func fetchWikidataCommons(limit: Int) async throws -> [CatalogRecord] {
-        guard let term = requestQuery.nilIfBlank else {
+        guard requestQuery.nilIfBlank != nil else {
             throw MacServiceError.invalidRequest("Enter a brand or store name for Wikidata + Commons discovery.")
         }
+        let term = providerQuery(for: .wikidataCommons)
         var searchComponents = URLComponents(string: "https://www.wikidata.org/w/api.php")!
         searchComponents.queryItems = [
             .init(name: "action", value: "wbsearchentities"), .init(name: "format", value: "json"),
@@ -702,7 +730,8 @@ final class CatalogModel {
         let place = requestLocation.nilIfBlank ?? requestQuery.nilIfBlank
         guard let place else { throw MacServiceError.invalidRequest("Enter a city, ZIP code, or region for store discovery.") }
         var components = URLComponents(string: "https://nominatim.openstreetmap.org/search")!
-        components.queryItems = [.init(name: "q", value: "supermarket \(place)"), .init(name: "format", value: "jsonv2"),
+        let storeQuery = isTexasRequest ? "H-E-B supermarket \(place)" : "supermarket \(place)"
+        components.queryItems = [.init(name: "q", value: storeQuery), .init(name: "format", value: "jsonv2"),
                                  .init(name: "addressdetails", value: "1"), .init(name: "limit", value: String(limit))]
         var request = URLRequest(url: components.url!)
         request.setValue("StockedMac/\(MacBuildConfig.version) (\(MacBuildConfig.supportEmail))", forHTTPHeaderField: "User-Agent")
@@ -804,9 +833,10 @@ final class CatalogModel {
     }
 
     private func fetchFatSecret(limit: Int, page: Int) async throws -> [CatalogRecord] {
-        guard let term = requestQuery.nilIfBlank else {
+        guard requestQuery.nilIfBlank != nil else {
             throw MacServiceError.invalidRequest("Enter a grocery food or brand for FatSecret discovery.")
         }
+        let term = providerQuery(for: .fatSecret)
         let data = try await MacWorkerClient.getData(path: "/retail/fatsecret/foods",
                                                      query: ["query": term, "limit": String(min(50, limit)), "page": String(page)])
         let envelope = try JSONDecoder().decode(RapidProductEnvelope.self, from: data)
@@ -830,6 +860,26 @@ final class CatalogModel {
     private static func firstZIP(in value: String) -> String? {
         guard let match = value.range(of: #"\b\d{5}\b"#, options: .regularExpression) else { return nil }
         return String(value[match])
+    }
+
+    private static func isTexasLocation(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized == "tx" || normalized.contains("texas") { return true }
+        guard let zip = firstZIP(in: normalized), let number = Int(zip) else { return false }
+        return (75001...79999).contains(number)
+            || (73301...73399).contains(number)
+            || (88510...88589).contains(number)
+    }
+
+    private static func isHEBText(_ value: String) -> Bool {
+        let normalized = value.lowercased()
+        return normalized == "heb" || normalized.contains("h-e-b") || normalized.contains("h e b")
+            || normalized.contains("central market") || normalized.contains("mi tienda")
+            || normalized.contains("joe v's") || normalized.contains("joe vs")
+    }
+
+    private static func isHEBRecord(_ record: CatalogRecord) -> Bool {
+        [record.name, record.brand, record.store].compactMap { $0 }.contains(where: isHEBText)
     }
 
     private static func isGroceryRelevant(name: String, categories: [String]) -> Bool {
