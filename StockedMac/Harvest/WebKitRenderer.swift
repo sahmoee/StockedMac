@@ -59,7 +59,13 @@ final class WebKitRenderer: NSObject {
         let view = webView
         await installResourceBlockerIfNeeded(on: view)
         view.customUserAgent = userAgent
-        defer { view.stopLoading() }
+        defer {
+            // `stopLoading` alone leaves the extracted publisher document and its
+            // timers alive in WebContent. Replace it with an inert document so large
+            // batches do not accumulate sandbox/XPC noise or background frame work.
+            view.stopLoading()
+            view.loadHTMLString("", baseURL: nil)
+        }
 
         return try await withCheckedThrowingContinuation { cont in
             continuation = cont
