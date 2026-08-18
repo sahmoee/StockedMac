@@ -68,7 +68,7 @@ nonisolated enum MacWorkerClient {
 
     private static let log = Logger(subsystem: "com.sowens.StockedMac", category: "worker")
 
-    static var endpoint: URL? { MacAIConfiguration.baseURL }
+    static var endpoint: URL? { URL(string: MacBuildConfig.receiptWorkerURL) }
     static var isConfigured: Bool { MacBuildConfig.isWorkerConfigured }
 
     /// Typed utility routes (retail catalogs, configuration, health) use GET and return
@@ -114,9 +114,7 @@ nonisolated enum MacWorkerClient {
     static func requestData(route: MacWorkerRoute,
                             payload: [String: Any],
                             timeout: TimeInterval = 30) async throws -> Data {
-        guard let endpoint else {
-            throw MacServiceError.notConfigured("AI. Open Settings → AI. Use Apple Intelligence when available, or choose My Private Worker, add your own Claude/OpenAI API key to UnifiedWorker, paste its HTTPS URL, and select a model. Your own key provides more usage and higher-model options")
-        }
+        guard let endpoint else { throw MacServiceError.notConfigured("Stocked AI") }
         guard MacBuildConfig.isWorkerConfigured else {
             throw MacServiceError.notConfigured("The Stocked Worker key")
         }
@@ -137,10 +135,7 @@ nonisolated enum MacWorkerClient {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if MacAIConfiguration.backend != .custom {
-            MacBuildConfig.authorizeWorkerRequest(&request)
-        }
-        MacAIConfiguration.apply(to: &request)
+        MacBuildConfig.authorizeWorkerRequest(&request)
         request.httpBody = body
         request.timeoutInterval = timeout
 
