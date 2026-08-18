@@ -35,6 +35,9 @@ applicable enabled grocery source using persisted rotating cursors. Inventory ad
 also enqueue catalog enrichment immediately, including edits produced by AI workflows. Sources
 merge only matching names or barcodes, preserve original provenance, keep partial improvements,
 and cannot trap the queue on a failed provider.
+Catalog batch merges must use maintained identity indexes rather than repeated full-library scans.
+Persist large catalog snapshots off the main actor, coalesce rapid changes, and keep displayed
+thumbnails in a bounded decoded-image cache so discovery never blocks tab selection or scrolling.
 Automatic bulk catalog import is enabled by default. It rotates through the built-in grocery
 taxonomy, store regions, every enabled source, and provider result pages; imports partial results
 immediately; and persists source, term, region, page, and cooldown state across relaunches. No item,

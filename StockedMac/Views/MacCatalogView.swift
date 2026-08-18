@@ -285,18 +285,26 @@ private struct CatalogRecordEditor: View {
 private struct CatalogImageThumbnail: View {
     let record: CatalogRecord
     var size: CGFloat = 42
+    @State private var image: NSImage?
+    @State private var isLoading = false
+
+    private static let cache: NSCache<NSURL, NSImage> = {
+        let cache = NSCache<NSURL, NSImage>()
+        cache.countLimit = 300
+        cache.totalCostLimit = 64 * 1_024 * 1_024
+        return cache
+    }()
+
+    private var imageURL: URL? {
+        (record.imagePreviewURL ?? record.imageURL).flatMap(URL.init(string:))
+    }
 
     var body: some View {
         Group {
-            if let raw = record.imagePreviewURL ?? record.imageURL, let url = URL(string: raw) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image): image.resizable().scaledToFit()
-                    case .failure: placeholder
-                    case .empty: ProgressView().controlSize(.small)
-                    @unknown default: placeholder
-                    }
-                }
+            if let image {
+                Image(nsImage: image).resizable().scaledToFit()
+            } else if isLoading {
+                ProgressView().controlSize(.small)
             } else {
                 placeholder
             }
@@ -306,6 +314,27 @@ private struct CatalogImageThumbnail: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(.secondary.opacity(0.35), lineWidth: 1))
         .help(record.imageAttribution ?? (record.hasImage ? "Original source image" : "No image found yet"))
+        .task(id: imageURL) { await loadImage() }
+    }
+
+    private func loadImage() async {
+        image = nil
+        guard let url = imageURL else { isLoading = false; return }
+        if let cached = Self.cache.object(forKey: url as NSURL) {
+            image = cached
+            isLoading = false
+            return
+        }
+        isLoading = true
+        defer { isLoading = false }
+        guard !Task.isCancelled,
+              let (data, response) = try? await URLSession.shared.data(from: url),
+              !Task.isCancelled,
+              let http = response as? HTTPURLResponse,
+              200..<300 ~= http.statusCode,
+              let loaded = NSImage(data: data) else { return }
+        Self.cache.setObject(loaded, forKey: url as NSURL, cost: data.count)
+        image = loaded
     }
 
     private var placeholder: some View {

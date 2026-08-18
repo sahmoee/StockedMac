@@ -171,6 +171,18 @@ nonisolated struct ServerCatalogBatch: Codable, Sendable {
     var records: [CatalogRecord]
 }
 
+nonisolated private struct CatalogSnapshot: Codable, Sendable {
+    var library: [CatalogRecord]
+    var queue: [CatalogRecord]
+}
+
+private actor CatalogSnapshotWriter {
+    func write(_ snapshot: CatalogSnapshot, to url: URL) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+}
+
 nonisolated private extension String {
     var foldedCatalogKey: String {
         folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
@@ -230,7 +242,11 @@ final class CatalogModel {
     /// Catalog snapshots can be several megabytes. Coalescing nearby mutations avoids
     /// repeatedly encoding the complete library while a provider batch is merging.
     private var pendingSaveTask: Task<Void, Never>?
+    private var saveGeneration: UInt = 0
     private var serverInboxTask: Task<Void, Never>?
+    private let snapshotWriter = CatalogSnapshotWriter()
+    private var libraryIdentityIndex: [String: Int] = [:]
+    private var queueIdentityIndex: [String: Int] = [:]
     private var bulkCursor = BulkCursor()
     private var requestQueryOverride: String?
     private var requestLocationOverride: String?
@@ -356,16 +372,23 @@ final class CatalogModel {
                 continue
             }
             var added = 0, enriched = 0
+            var queuedIDsToRemove = Set<UUID>()
             for var record in batch.records where record.source != .legacyRemoved && record.name.nilIfBlank != nil {
                 record.state = .imported
-                if let index = library.firstIndex(where: { $0.identityKey == record.identityKey }) {
-                    if library[index].mergeEnrichment(from: record) { enriched += 1 }
-                } else if let index = queue.firstIndex(where: { $0.identityKey == record.identityKey }) {
-                    var merged = queue.remove(at: index); _ = merged.mergeEnrichment(from: record)
-                    merged.state = .imported; library.append(merged); added += 1
+                if let index = libraryIdentityIndex[record.identityKey] {
+                    if mergeLibrary(at: index, from: record) { enriched += 1 }
+                } else if let index = queueIdentityIndex[record.identityKey] {
+                    var merged = queue[index]; _ = merged.mergeEnrichment(from: record)
+                    merged.state = .imported
+                    queuedIDsToRemove.insert(queue[index].id)
+                    appendToLibrary(merged); added += 1
                 } else {
-                    library.append(record); added += 1
+                    appendToLibrary(record); added += 1
                 }
+            }
+            if !queuedIDsToRemove.isEmpty {
+                queue.removeAll { queuedIDsToRemove.contains($0.id) }
+                rebuildQueueIdentityIndex()
             }
             let receipt = receipts.appendingPathComponent(batch.batchID).appendingPathExtension("receipt")
             do {
@@ -506,14 +529,15 @@ final class CatalogModel {
         var added = 0
         var enriched = 0
         for record in incoming {
-            if let index = library.firstIndex(where: { $0.identityKey == record.identityKey }) {
-                if library[index].mergeEnrichment(from: record) { enriched += 1 }
+            if let index = libraryIdentityIndex[record.identityKey] {
+                if mergeLibrary(at: index, from: record) { enriched += 1 }
             } else {
-                library.append(record)
+                appendToLibrary(record)
                 added += 1
             }
         }
         queue.removeFirst(count)
+        rebuildQueueIdentityIndex()
         status = "Imported \(added) records and enriched \(enriched) existing records; \(queue.count) remain queued."
         save()
         if enrichAfterImport {
@@ -524,12 +548,14 @@ final class CatalogModel {
 
     func removeFromQueue(_ ids: Set<UUID>) {
         queue.removeAll { ids.contains($0.id) }
+        rebuildQueueIdentityIndex()
         status = "Removed \(ids.count) queued records."
         save()
     }
 
     func deleteLibrary(_ ids: Set<UUID>) {
         library.removeAll { ids.contains($0.id) }
+        rebuildLibraryIdentityIndex()
         status = "Deleted \(ids.count) catalog records."
         save()
     }
@@ -537,6 +563,7 @@ final class CatalogModel {
     func update(_ record: CatalogRecord) {
         if let index = queue.firstIndex(where: { $0.id == record.id }) { queue[index] = record }
         if let index = library.firstIndex(where: { $0.id == record.id }) { library[index] = record }
+        rebuildIdentityIndexes()
         save()
     }
 
@@ -544,16 +571,65 @@ final class CatalogModel {
         var added = 0
         var enriched = 0
         for record in records {
-            if let index = library.firstIndex(where: { $0.identityKey == record.identityKey }) {
-                if library[index].mergeEnrichment(from: record) { enriched += 1 }
-            } else if let index = queue.firstIndex(where: { $0.identityKey == record.identityKey }) {
-                if queue[index].mergeEnrichment(from: record) { enriched += 1 }
+            if let index = libraryIdentityIndex[record.identityKey] {
+                if mergeLibrary(at: index, from: record) { enriched += 1 }
+            } else if let index = queueIdentityIndex[record.identityKey] {
+                if mergeQueue(at: index, from: record) { enriched += 1 }
             } else {
-                queue.append(record)
+                appendToQueue(record)
                 added += 1
             }
         }
         return (added, enriched)
+    }
+
+    private func appendToLibrary(_ record: CatalogRecord) {
+        libraryIdentityIndex[record.identityKey] = library.count
+        library.append(record)
+    }
+
+    private func appendToQueue(_ record: CatalogRecord) {
+        queueIdentityIndex[record.identityKey] = queue.count
+        queue.append(record)
+    }
+
+    @discardableResult
+    private func mergeLibrary(at index: Int, from record: CatalogRecord) -> Bool {
+        guard library.indices.contains(index) else { rebuildLibraryIdentityIndex(); return false }
+        let oldKey = library[index].identityKey
+        let changed = library[index].mergeEnrichment(from: record)
+        if changed {
+            if libraryIdentityIndex[oldKey] == index { libraryIdentityIndex.removeValue(forKey: oldKey) }
+            libraryIdentityIndex[library[index].identityKey] = index
+        }
+        return changed
+    }
+
+    @discardableResult
+    private func mergeQueue(at index: Int, from record: CatalogRecord) -> Bool {
+        guard queue.indices.contains(index) else { rebuildQueueIdentityIndex(); return false }
+        let oldKey = queue[index].identityKey
+        let changed = queue[index].mergeEnrichment(from: record)
+        if changed {
+            if queueIdentityIndex[oldKey] == index { queueIdentityIndex.removeValue(forKey: oldKey) }
+            queueIdentityIndex[queue[index].identityKey] = index
+        }
+        return changed
+    }
+
+    private func rebuildIdentityIndexes() {
+        rebuildLibraryIdentityIndex()
+        rebuildQueueIdentityIndex()
+    }
+
+    private func rebuildLibraryIdentityIndex() {
+        libraryIdentityIndex.removeAll(keepingCapacity: true)
+        for index in library.indices { libraryIdentityIndex[library[index].identityKey] = index }
+    }
+
+    private func rebuildQueueIdentityIndex() {
+        queueIdentityIndex.removeAll(keepingCapacity: true)
+        for index in queue.indices { queueIdentityIndex[queue[index].identityKey] = index }
     }
 
     /// Continuously walks the entire saved catalog through every applicable source.
@@ -596,6 +672,7 @@ final class CatalogModel {
             save()
             try? await Task.sleep(for: .milliseconds(250))
         }
+        rebuildLibraryIdentityIndex()
     }
 
     func enrichInventoryItem(id: UUID, store: MacKitchenStore) async {
@@ -622,10 +699,10 @@ final class CatalogModel {
             if current.price == nil { current.price = enriched.promotionalPrice ?? enriched.regularPrice }
             if current.storePurchasedAt?.nilIfBlank == nil { current.storePurchasedAt = enriched.store }
         }
-        if let index = library.firstIndex(where: { $0.identityKey == enriched.identityKey }) {
-            _ = library[index].mergeEnrichment(from: enriched)
+        if let index = libraryIdentityIndex[enriched.identityKey] {
+            _ = mergeLibrary(at: index, from: enriched)
         } else {
-            library.append(enriched)
+            appendToLibrary(enriched)
         }
         save()
     }
@@ -981,10 +1058,11 @@ final class CatalogModel {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: saveURL), let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
+        guard let data = try? Data(contentsOf: saveURL), let snapshot = try? JSONDecoder().decode(CatalogSnapshot.self, from: data) else { return }
         library = snapshot.library; queue = snapshot.queue
         library.removeAll { $0.source == .legacyRemoved }
         queue.removeAll { $0.source == .legacyRemoved }
+        rebuildIdentityIndexes()
         usdaAPIKey = UserDefaults.standard.string(forKey: "stocked.usdaAPIKey") ?? ""
         if UserDefaults.standard.object(forKey: "catalog.bulk.enabled.v1") == nil {
             isBulkImportEnabled = true
@@ -999,26 +1077,37 @@ final class CatalogModel {
 
     private func save() {
         pendingSaveTask?.cancel()
+        saveGeneration &+= 1
+        let generation = saveGeneration
+        let snapshot = CatalogSnapshot(library: library, queue: queue)
+        let destination = saveURL
         pendingSaveTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
-            self?.saveNow()
+            guard let self else { return }
+            await snapshotWriter.write(snapshot, to: destination)
+            if saveGeneration == generation { pendingSaveTask = nil }
         }
+        persistSmallSettings()
     }
 
     /// Used at pause/stop boundaries where the resumable cursor must be durable before
     /// returning. Ordinary mutations use the coalesced writer above.
     private func saveNow() {
         pendingSaveTask?.cancel()
+        saveGeneration &+= 1
         pendingSaveTask = nil
-        try? JSONEncoder().encode(Snapshot(library: library, queue: queue)).write(to: saveURL, options: .atomic)
+        try? JSONEncoder().encode(CatalogSnapshot(library: library, queue: queue)).write(to: saveURL, options: .atomic)
+        persistSmallSettings()
+    }
+
+    private func persistSmallSettings() {
         UserDefaults.standard.set(usdaAPIKey, forKey: "stocked.usdaAPIKey")
         UserDefaults.standard.set(isBulkImportEnabled, forKey: "catalog.bulk.enabled.v1")
         UserDefaults.standard.set(isBulkImportPaused, forKey: "catalog.bulk.paused.v1")
         UserDefaults.standard.set(try? JSONEncoder().encode(bulkCursor), forKey: "catalog.bulk.cursor.v1")
     }
 
-    private struct Snapshot: Codable { var library: [CatalogRecord]; var queue: [CatalogRecord] }
     private struct BulkCursor: Codable {
         var sourceIndex = 0
         var seedIndex = 0
