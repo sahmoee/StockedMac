@@ -107,6 +107,30 @@ nonisolated enum MacWorkerClient {
         catch { throw MacServiceError.transport(error.localizedDescription) }
     }
 
+    static func postData(path: String, body: Data, timeout: TimeInterval = 30) async throws -> Data {
+        guard let base = endpoint, MacBuildConfig.isWorkerConfigured else {
+            throw MacServiceError.notConfigured("The Stocked Worker key")
+        }
+        let relative = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let url = base.appendingPathComponent(relative)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        MacBuildConfig.authorizeWorkerRequest(&request)
+        request.timeoutInterval = timeout
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw MacServiceError.malformedResponse("The Worker returned no HTTP response.")
+        }
+        guard 200..<300 ~= http.statusCode else {
+            let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            throw MacServiceError.httpStatus(http.statusCode, object?["error"] as? String)
+        }
+        return data
+    }
+
     /// POST a payload to a route and return the raw response body.
     ///
     /// The payload stays a JSON-compatible dictionary at the call site (matching iOS) but is

@@ -6,6 +6,7 @@ struct MacCatalogView: View {
     @State private var selection: Set<UUID> = []
     @State private var filter: CatalogRecordKind?
     @State private var editingRecord: CatalogRecord?
+    @State private var sourcePendingDeletion: CatalogSource?
 
     private enum Mode: String, CaseIterable, Identifiable { case discover = "Find & Import", library = "Library", sources = "Sources"; var id: String { rawValue } }
     private var rows: [CatalogRecord] {
@@ -26,6 +27,20 @@ struct MacCatalogView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .sheet(item: $editingRecord) { record in
             CatalogRecordEditor(record: record) { catalog.update($0) }
+        }
+        .confirmationDialog("Delete all records from this source?", isPresented: Binding(
+            get: { sourcePendingDeletion != nil }, set: { if !$0 { sourcePendingDeletion = nil } }
+        ), titleVisibility: .visible) {
+            if let source = sourcePendingDeletion {
+                Button("Delete all \(source.rawValue) records", role: .destructive) {
+                    catalog.deleteLibrary(source: source)
+                    selection.removeAll()
+                    sourcePendingDeletion = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { sourcePendingDeletion = nil }
+        } message: {
+            Text("This removes imported and queued records from the selected source and sends a durable deletion to the other Mac.")
         }
     }
 
@@ -191,6 +206,17 @@ struct MacCatalogView: View {
                     Text("All types").tag(CatalogRecordKind?.none)
                     ForEach(CatalogRecordKind.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
                 }.frame(width: 150)
+                if mode == .library {
+                    Menu("Delete by Source") {
+                        ForEach(CatalogSource.allCases) { source in
+                            let count = catalog.library.lazy.filter { $0.source == source }.count
+                            Button("\(source.rawValue) (\(count))", role: .destructive) {
+                                sourcePendingDeletion = source
+                            }
+                            .disabled(count == 0)
+                        }
+                    }
+                }
                 if !selection.isEmpty {
                     if selection.count == 1,
                        let id = selection.first,

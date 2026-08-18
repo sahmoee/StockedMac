@@ -137,6 +137,16 @@ nonisolated struct CatalogRecord: Identifiable, Codable, Hashable, Sendable {
 
     var hasImage: Bool { imageURL?.nilIfBlank != nil }
 
+    private static func imageQualityScore(_ raw: String?) -> Int {
+        guard let raw = raw?.nilIfBlank, let url = URL(string: raw), url.scheme == "https" else { return 0 }
+        let value = raw.lowercased()
+        var score = 10
+        if value.contains("/full/") || value.contains("original") || value.contains("image_url") { score += 8 }
+        if value.contains("small") || value.contains("thumb") || value.contains("preview") { score -= 7 }
+        if value.contains(".400.") || value.contains("/400/") { score -= 3 }
+        return score
+    }
+
     mutating func mergeEnrichment(from incoming: CatalogRecord) -> Bool {
         let before = self
         brand = brand ?? incoming.brand
@@ -148,7 +158,13 @@ nonisolated struct CatalogRecord: Identifiable, Codable, Hashable, Sendable {
         latitude = latitude ?? incoming.latitude
         longitude = longitude ?? incoming.longitude
         sourceURL = sourceURL ?? incoming.sourceURL
-        imageURL = imageURL ?? incoming.imageURL
+        // `imageURL` always tracks the best original asset. Small CDN previews stay in
+        // imagePreviewURL and can never downgrade a previously imported full-size image.
+        if Self.imageQualityScore(incoming.imageURL) > Self.imageQualityScore(imageURL) {
+            imageURL = incoming.imageURL
+            imageSourceURL = incoming.imageSourceURL ?? imageSourceURL
+            imageAttribution = incoming.imageAttribution ?? imageAttribution
+        }
         imagePreviewURL = imagePreviewURL ?? incoming.imagePreviewURL
         imageSourceURL = imageSourceURL ?? incoming.imageSourceURL
         imageAttribution = imageAttribution ?? incoming.imageAttribution
@@ -169,6 +185,18 @@ nonisolated struct ServerCatalogBatch: Codable, Sendable {
     var createdAt: Date
     var sourceName: String
     var records: [CatalogRecord]
+}
+
+nonisolated struct CatalogMutation: Codable, Sendable {
+    enum Operation: String, Codable, Sendable { case upsert, deleteIDs, deleteSource }
+    var schemaVersion = 1
+    var mutationID = UUID().uuidString
+    var createdAt = Date()
+    var actorID: String
+    var operation: Operation
+    var records: [CatalogRecord] = []
+    var recordIDs: [UUID] = []
+    var source: CatalogSource? = nil
 }
 
 nonisolated private struct CatalogSnapshot: Codable, Sendable {
@@ -242,8 +270,10 @@ final class CatalogModel {
     /// Catalog snapshots can be several megabytes. Coalescing nearby mutations avoids
     /// repeatedly encoding the complete library while a provider batch is merging.
     private var pendingSaveTask: Task<Void, Never>?
+    private var pendingWorkerPublishTask: Task<Void, Never>?
     private var saveGeneration: UInt = 0
     private var serverInboxTask: Task<Void, Never>?
+    private let mutationActorID = Host.current().localizedName ?? UUID().uuidString
     private let snapshotWriter = CatalogSnapshotWriter()
     private var libraryIdentityIndex: [String: Int] = [:]
     private var queueIdentityIndex: [String: Int] = [:]
@@ -345,9 +375,69 @@ final class CatalogModel {
         serverInboxTask = Task { [weak self] in
             while !Task.isCancelled {
                 self?.consumeServerCatalogInbox()
+                self?.consumeCatalogMutations()
                 try? await Task.sleep(for: .seconds(60))
             }
         }
+    }
+
+    private func mutationRoot() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("com.sowens.StockedMac", isDirectory: true)
+    }
+
+    private func publishMutation(_ mutation: CatalogMutation) {
+        guard let root = mutationRoot() else { return }
+        let outbox = root.appendingPathComponent("CatalogMutationOutbox", isDirectory: true)
+        try? FileManager.default.createDirectory(at: outbox, withIntermediateDirectories: true)
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(mutation) else { return }
+        try? data.write(to: outbox.appendingPathComponent(mutation.mutationID).appendingPathExtension("json"), options: .atomic)
+    }
+
+    private func consumeCatalogMutations() {
+        guard let root = mutationRoot() else { return }
+        let inbox = root.appendingPathComponent("CatalogMutationInbox", isDirectory: true)
+        let receipts = root.appendingPathComponent("CatalogMutationReceipts", isDirectory: true)
+        try? FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: receipts, withIntermediateDirectories: true)
+        let files = ((try? FileManager.default.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+            .filter { $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        for file in files.prefix(100) {
+            let receipt = receipts.appendingPathComponent(file.deletingPathExtension().lastPathComponent).appendingPathExtension("receipt")
+            guard !FileManager.default.fileExists(atPath: receipt.path),
+                  let data = try? Data(contentsOf: file),
+                  let mutation = try? decoder.decode(CatalogMutation.self, from: data),
+                  mutation.schemaVersion == 1 else { continue }
+            if mutation.actorID != mutationActorID {
+                apply(mutation)
+            }
+            try? Data(Date().ISO8601Format().utf8).write(to: receipt, options: .atomic)
+        }
+    }
+
+    private func apply(_ mutation: CatalogMutation) {
+        switch mutation.operation {
+        case .upsert:
+            for record in mutation.records {
+                if let index = library.firstIndex(where: { $0.id == record.id }) { library[index] = record }
+                else if let index = libraryIdentityIndex[record.identityKey] { _ = mergeLibrary(at: index, from: record) }
+                else { appendToLibrary(record) }
+            }
+        case .deleteIDs:
+            let ids = Set(mutation.recordIDs)
+            library.removeAll { ids.contains($0.id) }
+            queue.removeAll { ids.contains($0.id) }
+        case .deleteSource:
+            guard let source = mutation.source else { return }
+            library.removeAll { $0.source == source }
+            queue.removeAll { $0.source == source }
+        }
+        rebuildIdentityIndexes()
+        status = "Applied catalog changes from another Mac."
+        save()
     }
 
     private func consumeServerCatalogInbox() {
@@ -557,6 +647,17 @@ final class CatalogModel {
         library.removeAll { ids.contains($0.id) }
         rebuildLibraryIdentityIndex()
         status = "Deleted \(ids.count) catalog records."
+        publishMutation(CatalogMutation(actorID: mutationActorID, operation: .deleteIDs, recordIDs: Array(ids)))
+        save()
+    }
+
+    func deleteLibrary(source: CatalogSource) {
+        let removed = library.filter { $0.source == source }.count
+        library.removeAll { $0.source == source }
+        queue.removeAll { $0.source == source }
+        rebuildIdentityIndexes()
+        status = "Deleted \(removed) records from \(source.rawValue)."
+        publishMutation(CatalogMutation(actorID: mutationActorID, operation: .deleteSource, source: source))
         save()
     }
 
@@ -564,6 +665,7 @@ final class CatalogModel {
         if let index = queue.firstIndex(where: { $0.id == record.id }) { queue[index] = record }
         if let index = library.firstIndex(where: { $0.id == record.id }) { library[index] = record }
         rebuildIdentityIndexes()
+        publishMutation(CatalogMutation(actorID: mutationActorID, operation: .upsert, records: [record]))
         save()
     }
 
@@ -1089,6 +1191,7 @@ final class CatalogModel {
             if saveGeneration == generation { pendingSaveTask = nil }
         }
         persistSmallSettings()
+        scheduleWorkerPublish()
     }
 
     /// Used at pause/stop boundaries where the resumable cursor must be durable before
@@ -1128,6 +1231,33 @@ final class CatalogModel {
              [city, state].compactMap { $0 }.joined(separator: ", "), zipCode]
                 .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         }
+    }
+
+    private func scheduleWorkerPublish() {
+        guard MacWorkerClient.isConfigured else { return }
+        pendingWorkerPublishTask?.cancel()
+        pendingWorkerPublishTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            await self?.publishCatalogToWorker()
+        }
+    }
+
+    private func publishCatalogToWorker() async {
+        let rows = library
+        let pageSize = 500
+        let totalPages = max(1, Int(ceil(Double(rows.count) / Double(pageSize))))
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        for page in 0..<totalPages {
+            guard !Task.isCancelled else { return }
+            let start = page * pageSize, end = min(rows.count, start + pageSize)
+            let pageRows = start < end ? Array(rows[start..<end]) : []
+            struct Upload: Encodable { let page: Int; let totalPages: Int; let totalRecords: Int; let records: [CatalogRecord] }
+            guard let body = try? encoder.encode(Upload(page: page, totalPages: totalPages, totalRecords: rows.count, records: pageRows)) else { return }
+            do { _ = try await MacWorkerClient.postData(path: "/retail/catalog", body: body, timeout: 45) }
+            catch { serverBatchStatus = "Catalog sync deferred: \(error.localizedDescription)"; return }
+        }
+        serverBatchStatus = "Shared \(rows.count) catalog records with Stocked iOS"
     }
     private struct KrogerProductEnvelope: Decodable { var products: [RetailProduct] }
     private struct RapidProductEnvelope: Decodable { var products: [RetailProduct] }
