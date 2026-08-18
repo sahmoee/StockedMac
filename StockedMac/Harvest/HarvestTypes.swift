@@ -565,6 +565,18 @@ nonisolated struct DiscoveryReport: Codable, Sendable {
     }
 }
 
+/// Immutable, untrusted discovery output produced by the Server Mac. StockedMac only
+/// accepts its URLs into the ordinary durable queue; parsing, image validation,
+/// deduplication, approval, Worker publication, and iOS sync remain app-owned.
+nonisolated struct ServerDiscoveryBatch: Codable, Sendable {
+    var schemaVersion: Int
+    var batchID: String
+    var createdAt: Date
+    var sourceID: String
+    var sourceName: String
+    var urls: [String]
+}
+
 nonisolated struct SourceDiscoveryCacheSummary: Sendable {
     var sourceID: String
     var sourceName: String

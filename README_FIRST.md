@@ -18,6 +18,8 @@ The visible `Cuisines & cultures` collection must match Stocked iOS `RecipeTaxon
 
 Category rows stay materialized, and the cross-site cuisine cache rebuilds off the main actor with coalescing. Never restore per-render catalog sorting, per-cuisine repeated normalization, or synchronous reads of every cached report/category file; those paths block sidebar tab selection on large libraries.
 
+Server Mac discovery is an additive prefetch tier. It may emit immutable URL batches into `ServerInbox`, but those batches are untrusted candidates: StockedMac remains the sole owner of queue limits, parsing, required-image validation, deduplication, approval, publication, and household/iOS sync. A batch is acknowledged only after its valid URLs reach the durable queue.
+
 The built-in recipe catalog contains 250 sources, including an audited batch of 100 English-language global publishers. Keep `default-sources.json` and `DefaultSourceCatalog.swift` synchronized. New sources require a reachable HTTPS homepage and XML sitemap, remain robots-aware and serial per host, and must not weaken the normal image, attribution, duplicate, or rate-limit gates.
 
 Household recipe sync is incremental and lossless: changed image-backed recipes are packed into complete byte-bounded pushes, intermediate batches request Worker acknowledgements, and only the final batch downloads and applies the merged household. Never restore tail trimming or full-library encoding every 30 seconds.

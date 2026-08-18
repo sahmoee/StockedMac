@@ -165,6 +165,7 @@ final class HarvestModel {
     /// discovery/category data changes; rows never reread every JSON report on redraw.
     private(set) var cuisineRecipeCache: [String: [String]] = [:]
     @ObservationIgnored private var cuisineCacheRebuildTask: Task<Void, Never>?
+    @ObservationIgnored private var serverInboxTask: Task<Void, Never>?
     /// Sources still to visit in the current auto-rotate run.
     var autoRotateRemaining = 0
     /// Explicitly selected sources still waiting their turn (multi-select browsing).
@@ -368,7 +369,74 @@ final class HarvestModel {
                 }
             }
             await pruneCaches(quiet: true)
+            startServerInboxConsumer()
             log(.info, "Stocked Companion is ready.")
+        }
+    }
+
+    /// Consumes immutable Server Mac discovery batches without trusting them as recipes.
+    /// A receipt is written only after valid URLs reach the durable app queue, making the
+    /// bridge safe across relaunches, duplicate transfers, and peer disconnects.
+    private func startServerInboxConsumer() {
+        serverInboxTask?.cancel()
+        serverInboxTask = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.consumeServerInbox()
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
+    }
+
+    private func consumeServerInbox() {
+        let files = ((try? FileManager.default.contentsOfDirectory(
+            at: paths.serverInbox,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ))?.filter { file in
+            guard file.pathExtension.lowercased() == "json" else { return false }
+            let receipt = paths.serverInboxReceipts
+                .appendingPathComponent(file.deletingPathExtension().lastPathComponent)
+                .appendingPathExtension("receipt")
+            return !FileManager.default.fileExists(atPath: receipt.path)
+        }.sorted { $0.lastPathComponent < $1.lastPathComponent }) ?? []
+        guard !files.isEmpty else { return }
+
+        let decoder = JSONCoding.decoder()
+        for file in files.prefix(10) {
+            guard let data = try? Data(contentsOf: file),
+                  let batch = try? decoder.decode(ServerDiscoveryBatch.self, from: data),
+                  batch.schemaVersion == 1,
+                  !batch.batchID.isEmpty else {
+                log(.warning, "Ignored an invalid Server Mac discovery batch: \(file.lastPathComponent)")
+                continue
+            }
+            let receipt = paths.serverInboxReceipts.appendingPathComponent(batch.batchID).appendingPathExtension("receipt")
+            if FileManager.default.fileExists(atPath: receipt.path) {
+                continue
+            }
+            let before = queuedURLCount
+            appendImportURLs(batch.urls)
+            let accepted = max(0, queuedURLCount - before)
+            let represented = Set(queuedURLs)
+                .union(activeImportPending)
+                .union(attemptedURLsThisSession)
+            let unresolved = batch.urls.compactMap { try? URLSafety.validatedRemoteURL($0) }
+                .map { URLSafety.normalized($0).absoluteString }
+                .filter { !represented.contains($0) }
+            guard unresolved.isEmpty else {
+                log(.info, "Server Mac batch \(batch.batchID) queued \(accepted); \(unresolved.count) remain safely pending behind the queue limit.")
+                continue
+            }
+            do {
+                try Data("\(Date().ISO8601Format()) accepted=\(accepted) source=\(batch.sourceID)\n".utf8)
+                    .write(to: receipt, options: .atomic)
+                log(.info, "Server Mac queued \(accepted) new recipe URL\(accepted == 1 ? "" : "s") from \(batch.sourceName).")
+            } catch {
+                log(.warning, "Could not acknowledge Server Mac batch \(batch.batchID): \(error.localizedDescription)")
+            }
+        }
+        if settings.autopilot, queuedURLCount > 0, !isImporting, !isDiscovering, !isBulkVerifying {
+            importURLs()
         }
     }
 
