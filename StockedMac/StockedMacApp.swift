@@ -79,6 +79,7 @@ struct StockedMacApp: App {
                     // harvested recipe appear on the phone by itself.
                     harvest.kitchen = store
                     harvest.start()
+                    catalog.startServerInboxConsumer()
                     // The session is only needed by the AI routes, and getting it wrong
                     // must never block the kitchen from opening — so it is fired off
                     // rather than awaited in line with the pull.

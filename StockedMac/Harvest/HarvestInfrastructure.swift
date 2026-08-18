@@ -357,6 +357,7 @@ nonisolated struct AppPaths: Sendable {
     let categoryCatalog: URL
     let serverInbox: URL
     let serverInboxReceipts: URL
+    let serverHealthFile: URL
     let lastDiscoveryReport: URL
     let importQueueFile: URL
     let retroactiveRefreshFile: URL
@@ -390,9 +391,10 @@ nonisolated struct AppPaths: Sendable {
         let categoryCatalog = root.appendingPathComponent("CategoryCatalog", isDirectory: true)
         let serverInbox = root.appendingPathComponent("ServerInbox", isDirectory: true)
         let serverInboxReceipts = root.appendingPathComponent("ServerInboxReceipts", isDirectory: true)
+        let serverStatus = root.appendingPathComponent("ServerStatus", isDirectory: true)
 
         // Create subdirectories
-        for directory in [httpCache, imageCache, discoveryReports, sourceDiscoveryCache, miningResultCache, categoryCatalog, serverInbox, serverInboxReceipts] {
+        for directory in [httpCache, imageCache, discoveryReports, sourceDiscoveryCache, miningResultCache, categoryCatalog, serverInbox, serverInboxReceipts, serverStatus] {
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
 
@@ -414,6 +416,7 @@ nonisolated struct AppPaths: Sendable {
             categoryCatalog: categoryCatalog,
             serverInbox: serverInbox,
             serverInboxReceipts: serverInboxReceipts,
+            serverHealthFile: serverStatus.appendingPathComponent("health.json"),
             lastDiscoveryReport: root.appendingPathComponent("last-discovery.json"),
             importQueueFile: root.appendingPathComponent("import-queue.txt"),
             retroactiveRefreshFile: root.appendingPathComponent("retroactive-refresh.txt")

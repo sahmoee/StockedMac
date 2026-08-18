@@ -14,6 +14,8 @@ The expanded English-language global source catalog is StockedMac-owned discover
 
 The Server Mac may prefetch sitemap candidates and deliver versioned immutable batches to StockedMac. It must never write recipes directly to StockedMac, UnifiedWorker, or Stocked iOS. The existing StockedMac import and publication path remains the only funnel into shared recipe data.
 
+Server category indexes are source-scoped cache hints, not shared recipe taxonomy. Server catalog batches are grocery-only and merge into StockedMac by normalized identity and provenance; they do not bypass the Worker-owned retail adapters or create a second iOS schema.
+
 StockedMac owns incremental recipe batching for household pushes; UnifiedWorker supports additive `responseMode: "ack"` on intermediate batches and returns the legacy full household on the final batch. Older Stocked iOS clients remain compatible and need no request change.
 
 Brand/store discovery is grocery-scoped and uses Open Food Facts, USDA FoodData Central, OpenStreetMap, Wikidata/Wikimedia Commons, Stocked's offline grocery-brand/store reference, and the offline aisle taxonomy. Do not add dedicated beauty, pet, or general-merchandise catalogs. Catalog records may carry optional `imageURL`, `imagePreviewURL`, `imageSourceURL`, and `imageAttribution`; old saved records without them must continue decoding. Preserve original-resolution URLs and attribution, use previews only for rendering, fault-isolate providers, and enrich duplicates in both durable queues and the imported library.

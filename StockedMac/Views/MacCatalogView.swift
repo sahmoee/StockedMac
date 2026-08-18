@@ -44,6 +44,15 @@ struct MacCatalogView: View {
         @Bindable var catalog = catalog
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                GroupBox("Server Mac enrichment") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label(catalog.serverBatchStatus, systemImage: "server.rack")
+                            .font(.caption)
+                        LabeledContent("Imported this session", value: "\(catalog.serverImportedCount)")
+                        Text("Server batches use the same grocery-only provenance, duplicate merge, aisle, and source rules as local discovery.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }.padding(6)
+                }
                 GroupBox("Automatic bulk import") {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {

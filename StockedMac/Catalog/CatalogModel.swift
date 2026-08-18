@@ -163,6 +163,14 @@ nonisolated struct CatalogRecord: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+nonisolated struct ServerCatalogBatch: Codable, Sendable {
+    var schemaVersion: Int
+    var batchID: String
+    var createdAt: Date
+    var sourceName: String
+    var records: [CatalogRecord]
+}
+
 nonisolated private extension String {
     var foldedCatalogKey: String {
         folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
@@ -209,6 +217,8 @@ final class CatalogModel {
     var bulkImportedCount = 0
     var bulkRequestCount = 0
     var bulkStatus = "Bulk import is off"
+    var serverBatchStatus = "Waiting for Server Mac catalog batches"
+    var serverImportedCount = 0
     var isBulkImportRunning: Bool {
         isBulkImportEnabled && !isBulkImportPaused && bulkRunID != nil
     }
@@ -220,6 +230,7 @@ final class CatalogModel {
     /// Catalog snapshots can be several megabytes. Coalescing nearby mutations avoids
     /// repeatedly encoding the complete library while a provider batch is merging.
     private var pendingSaveTask: Task<Void, Never>?
+    private var serverInboxTask: Task<Void, Never>?
     private var bulkCursor = BulkCursor()
     private var requestQueryOverride: String?
     private var requestLocationOverride: String?
@@ -311,6 +322,61 @@ final class CatalogModel {
     func resumeBulkImportIfEnabled() {
         guard isBulkImportEnabled else { return }
         startBulkImport()
+    }
+
+    func startServerInboxConsumer() {
+        guard serverInboxTask == nil else { return }
+        serverInboxTask = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.consumeServerCatalogInbox()
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
+    }
+
+    private func consumeServerCatalogInbox() {
+        guard let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+        let root = applicationSupport.appendingPathComponent("com.sowens.StockedMac", isDirectory: true)
+        let inbox = root.appendingPathComponent("ServerCatalogInbox", isDirectory: true)
+        let receipts = root.appendingPathComponent("ServerCatalogInboxReceipts", isDirectory: true)
+        try? FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: receipts, withIntermediateDirectories: true)
+        let files = ((try? FileManager.default.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+            .filter { file in
+                guard file.pathExtension.lowercased() == "json" else { return false }
+                return !FileManager.default.fileExists(atPath: receipts.appendingPathComponent(file.deletingPathExtension().lastPathComponent).appendingPathExtension("receipt").path)
+            }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        for file in files.prefix(5) {
+            guard let data = try? Data(contentsOf: file),
+                  let batch = try? decoder.decode(ServerCatalogBatch.self, from: data),
+                  batch.schemaVersion == 1, !batch.batchID.isEmpty else {
+                serverBatchStatus = "Ignored invalid Server Mac catalog batch \(file.lastPathComponent)"
+                continue
+            }
+            var added = 0, enriched = 0
+            for var record in batch.records where record.source != .legacyRemoved && record.name.nilIfBlank != nil {
+                record.state = .imported
+                if let index = library.firstIndex(where: { $0.identityKey == record.identityKey }) {
+                    if library[index].mergeEnrichment(from: record) { enriched += 1 }
+                } else if let index = queue.firstIndex(where: { $0.identityKey == record.identityKey }) {
+                    var merged = queue.remove(at: index); _ = merged.mergeEnrichment(from: record)
+                    merged.state = .imported; library.append(merged); added += 1
+                } else {
+                    library.append(record); added += 1
+                }
+            }
+            let receipt = receipts.appendingPathComponent(batch.batchID).appendingPathExtension("receipt")
+            do {
+                try Data("\(Date().ISO8601Format()) added=\(added) enriched=\(enriched)\n".utf8).write(to: receipt, options: .atomic)
+                serverImportedCount += added
+                serverBatchStatus = "Server Mac: added \(added), enriched \(enriched) from \(batch.sourceName)"
+                save()
+            } catch {
+                serverBatchStatus = "Could not acknowledge Server Mac catalog batch: \(error.localizedDescription)"
+            }
+        }
     }
 
     /// Runs one provider request at a time, imports successful partial results immediately,

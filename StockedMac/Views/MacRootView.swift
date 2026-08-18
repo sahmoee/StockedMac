@@ -202,6 +202,17 @@ struct MacRootView: View {
     private var syncFooter: some View {
         VStack(alignment: .leading, spacing: 4) {
             Divider()
+            if let health = harvest.serverCacheHealth {
+                HStack(spacing: 6) {
+                    Image(systemName: health.state == "healthy" ? "server.rack" : "exclamationmark.triangle")
+                        .foregroundStyle(health.state == "healthy" ? MacTheme.green : .orange)
+                    Text("Server: \(health.recipeBatchCount) recipe · \(health.catalogBatchCount) catalog")
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .help("Updated \(health.updatedAt.formatted()) · \(health.candidateCount) recipe candidates · \(health.catalogRecordCount) catalog records · \(health.sitemapCacheCount) cached sitemaps" + (health.lastError.map { " · \($0)" } ?? ""))
+            }
             HStack(spacing: 6) {
                 Circle()
                     .fill(footerTint)

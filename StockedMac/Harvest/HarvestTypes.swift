@@ -575,6 +575,27 @@ nonisolated struct ServerDiscoveryBatch: Codable, Sendable {
     var sourceID: String
     var sourceName: String
     var urls: [String]
+    var categoryIndexes: [ServerCategoryIndex]?
+}
+
+nonisolated struct ServerCategoryIndex: Codable, Sendable {
+    var pageURL: String
+    var name: String
+    var group: String?
+    var recipeURLs: [String]
+}
+
+nonisolated struct ServerCacheHealth: Codable, Sendable {
+    var schemaVersion: Int
+    var updatedAt: Date
+    var state: String
+    var currentSource: String?
+    var recipeBatchCount: Int
+    var catalogBatchCount: Int
+    var sitemapCacheCount: Int
+    var candidateCount: Int
+    var catalogRecordCount: Int
+    var lastError: String?
 }
 
 nonisolated struct SourceDiscoveryCacheSummary: Sendable {

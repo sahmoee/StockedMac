@@ -164,6 +164,7 @@ final class HarvestModel {
     /// Cross-site cuisine index used by the Categories UI. Rebuilt only when cached
     /// discovery/category data changes; rows never reread every JSON report on redraw.
     private(set) var cuisineRecipeCache: [String: [String]] = [:]
+    private(set) var serverCacheHealth: ServerCacheHealth?
     @ObservationIgnored private var cuisineCacheRebuildTask: Task<Void, Never>?
     @ObservationIgnored private var serverInboxTask: Task<Void, Never>?
     /// Sources still to visit in the current auto-rotate run.
@@ -381,10 +382,18 @@ final class HarvestModel {
         serverInboxTask?.cancel()
         serverInboxTask = Task { [weak self] in
             while !Task.isCancelled {
+                self?.loadServerCacheHealth()
                 self?.consumeServerInbox()
                 try? await Task.sleep(for: .seconds(60))
             }
         }
+    }
+
+    private func loadServerCacheHealth() {
+        guard let data = try? Data(contentsOf: paths.serverHealthFile),
+              let health = try? JSONCoding.decoder().decode(ServerCacheHealth.self, from: data),
+              health.schemaVersion == 1 else { return }
+        serverCacheHealth = health
     }
 
     private func consumeServerInbox() {
@@ -415,6 +424,12 @@ final class HarvestModel {
                 continue
             }
             let before = queuedURLCount
+            if let source = sources.first(where: { $0.id == batch.sourceID }),
+               let indexes = batch.categoryIndexes, !indexes.isEmpty {
+                recordCategories(indexes.map {
+                    MinedCategory(url: $0.pageURL, name: $0.name, group: $0.group, recipeURLs: $0.recipeURLs)
+                }, for: source)
+            }
             appendImportURLs(batch.urls)
             let accepted = max(0, queuedURLCount - before)
             let represented = Set(queuedURLs)
