@@ -289,7 +289,10 @@ struct MacRootView: View {
 
 private struct MacRecipeCategoriesView: View {
     @Environment(HarvestModel.self) private var harvest
+    @Environment(MacKitchenStore.self) private var store
     @State private var search = ""
+    @State private var recipeSearch = ""
+    @State private var selectedCategoryID: String?
 
     private var categories: [SourceCategory] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -299,6 +302,18 @@ private struct MacRecipeCategoriesView: View {
                 || $0.sourceName.localizedCaseInsensitiveContains(query)
                 || ($0.group?.localizedCaseInsensitiveContains(query) ?? false)
         }
+    }
+
+    private var selectedCategory: SourceCategory? {
+        if let selectedCategoryID,
+           let selected = categories.first(where: { $0.id == selectedCategoryID }) {
+            return selected
+        }
+        return categories.first
+    }
+
+    private var importedSourceURLs: Set<String> {
+        Set(store.recipes.compactMap(\.sourceURL).map(Self.normalizedURLKey))
     }
 
     var body: some View {
@@ -315,23 +330,144 @@ private struct MacRecipeCategoriesView: View {
                          message: "Find recipes from a website. Categories discovered during that bounded scan are cached here automatically.",
                          systemImage: "square.grid.2x2")
             } else {
-                List(categories) { category in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(category.name).font(.headline)
+                HSplitView {
+                    List(categories, selection: $selectedCategoryID) { category in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(category.name).font(.headline).lineLimit(2)
                             Text("\(category.sourceName) · \(category.group ?? "Other")")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Label(category.isReady ? "\(category.recipeCount) cached recipes" : "Not scanned",
+                                  systemImage: category.isReady ? "checkmark.circle.fill" : "magnifyingglass")
+                                .font(.caption2)
+                                .foregroundStyle(category.isReady ? MacTheme.green : Color.secondary)
                         }
-                        Spacer()
-                        Text(category.isReady ? "\(category.recipeCount) cached" : "Not scanned")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Button(category.isReady ? "Import" : "Scan") {
-                            harvest.importCategory(category)
-                        }.disabled(harvest.isImporting)
-                    }.padding(.vertical, 3)
+                        .padding(.vertical, 5)
+                        .tag(category.id)
+                    }
+                    .frame(minWidth: 260, idealWidth: 340)
+
+                    if let category = selectedCategory {
+                        categoryDetail(category)
+                            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ContentUnavailableView("Select a category", systemImage: "square.grid.2x2",
+                                               description: Text("Its cached recipes will appear here."))
+                            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
             }
         }
+        .onAppear { selectFirstVisibleCategory() }
+        .onChange(of: search) { _, _ in selectFirstVisibleCategory() }
+        .onChange(of: selectedCategoryID) { _, _ in recipeSearch = "" }
+    }
+
+    @ViewBuilder
+    private func categoryDetail(_ category: SourceCategory) -> some View {
+        let cached = harvest.cachedRecipes(for: category)
+        let term = recipeSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let visible = term.isEmpty ? cached : cached.filter {
+            Self.recipeTitle(for: $0).localizedCaseInsensitiveContains(term)
+                || $0.localizedCaseInsensitiveContains(term)
+        }
+
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(category.name).font(.title2.bold()).textSelection(.enabled)
+                    Text("\(category.sourceName) · \(category.group ?? "Other")")
+                        .foregroundStyle(.secondary)
+                    Text("\(cached.count) cached recipe\(cached.count == 1 ? "" : "s")")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let page = URL(string: category.url) {
+                    Link(destination: page) { Label("Open category", systemImage: "safari") }
+                }
+                Button(category.isReady ? "Import all" : "Scan category") {
+                    harvest.importCategory(category)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(harvest.isImporting)
+            }
+            .padding()
+
+            Divider()
+            if cached.isEmpty {
+                ContentUnavailableView("Category not scanned", systemImage: "doc.text.magnifyingglass",
+                                       description: Text("Scan this category to find and cache its recipes."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                TextField("Search recipes in this category", text: $recipeSearch)
+                    .textFieldStyle(.roundedBorder)
+                    .padding()
+                List(visible, id: \.self) { rawURL in
+                    cachedRecipeRow(rawURL)
+                }
+                .overlay {
+                    if visible.isEmpty {
+                        ContentUnavailableView.search(text: recipeSearch)
+                    }
+                }
+            }
+        }
+        .background(.background.opacity(0.18))
+    }
+
+    private func cachedRecipeRow(_ rawURL: String) -> some View {
+        let imported = importedSourceURLs.contains(Self.normalizedURLKey(rawURL))
+        return HStack(spacing: 12) {
+            Image(systemName: imported ? "checkmark.circle.fill" : "fork.knife.circle")
+                .font(.title3)
+                .foregroundStyle(imported ? MacTheme.green : MacTheme.low)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(Self.recipeTitle(for: rawURL)).font(.headline).lineLimit(2)
+                Text(URL(string: rawURL)?.host(percentEncoded: false) ?? rawURL)
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            if imported {
+                Text("In library").font(.caption).foregroundStyle(MacTheme.green)
+            }
+            if let url = URL(string: rawURL) {
+                Link(destination: url) { Image(systemName: "safari") }.help("Open recipe page")
+            }
+            Button(imported ? "Re-import" : "Import") { harvest.importDirect([rawURL]) }
+                .disabled(harvest.isImporting)
+        }
+        .padding(.vertical, 4)
+        .contextMenu {
+            Button("Import recipe") { harvest.importDirect([rawURL]) }
+            if let url = URL(string: rawURL) { Link("Open recipe page", destination: url) }
+            Button("Copy link") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(rawURL, forType: .string)
+            }
+        }
+    }
+
+    private func selectFirstVisibleCategory() {
+        if selectedCategoryID == nil || !categories.contains(where: { $0.id == selectedCategoryID }) {
+            selectedCategoryID = categories.first?.id
+            recipeSearch = ""
+        }
+    }
+
+    private static func normalizedURLKey(_ raw: String) -> String {
+        guard let url = URL(string: raw) else { return raw.lowercased() }
+        return URLSafety.normalized(url).absoluteString.lowercased()
+    }
+
+    private static func recipeTitle(for rawURL: String) -> String {
+        guard let url = URL(string: rawURL) else { return rawURL }
+        let slug = url.pathComponents.last(where: { $0 != "/" && !$0.isEmpty }) ?? url.host() ?? rawURL
+        let words = slug.removingPercentEncoding?.replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ") ?? slug
+        return words.split(separator: " ").map { word in
+            let lower = word.lowercased()
+            return lower == "and" || lower == "with" || lower == "of" ? lower : lower.capitalized
+        }.joined(separator: " ")
     }
 }
 
