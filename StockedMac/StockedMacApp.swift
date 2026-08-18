@@ -107,13 +107,22 @@ struct StockedMacApp: App {
                     // builds only published newly approved Harvester drafts, and the Worker
                     // also capped its index at 500, so an 882-recipe kitchen could never be
                     // fully available to iPhone/iPad. Upserts are idempotent by recipe UUID.
-                    harvest.syncKitchenToCloud(store.recipes)
-                    // Catalog maintenance is resumable and source-complete: every launch
-                    // advances through existing records, while future imports enqueue
-                    // themselves immediately after persistence.
-                    await catalog.enrichAllExisting()
-                    await catalog.enrichInventoryBatch(store: store)
-                    catalog.resumeBulkImportIfEnabled()
+                    // Let the window become interactive before starting maintenance.
+                    // These jobs used to stack during launch and briefly pushed the app
+                    // above a gigabyte while full catalog snapshots were also encoding.
+                    Task {
+                        try? await Task.sleep(for: .seconds(8))
+                        harvest.syncKitchenToCloud(store.recipes, force: false)
+                        if catalog.isBulkImportEnabled {
+                            // The continuous importer already enriches as it walks sources;
+                            // do only a small rotating retroactive pass alongside it.
+                            await catalog.enrichAllExisting(batchSize: 3)
+                        } else {
+                            await catalog.enrichAllExisting(batchSize: 8)
+                        }
+                        await catalog.enrichInventoryBatch(store: store, limit: 5)
+                        catalog.resumeBulkImportIfEnabled()
+                    }
                 }
         }
         .defaultSize(width: 1140, height: 760)

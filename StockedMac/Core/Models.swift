@@ -218,6 +218,9 @@ nonisolated struct UserRecipe: Identifiable, Codable, Sendable, Equatable {
     var notes:        String   = ""
     var imageData:    Data?
     var imageURL:     String?
+    /// Set after ImageIO has decoded bytes from imageURL. This lets Mac/iOS keep the
+    /// required-image guarantee without retaining a duplicate base64 image forever.
+    var imageValidatedAt: Date? = nil
     /// Additive source metadata shared with iOS. Optional fields keep every legacy
     /// on-disk and household payload decode-compatible.
     var sourceURL:    String?   = nil

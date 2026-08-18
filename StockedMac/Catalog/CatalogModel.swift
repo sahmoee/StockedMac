@@ -217,6 +217,9 @@ final class CatalogModel {
     private let saveURL: URL
     private var bulkTask: Task<Void, Never>?
     private var bulkRunID: UUID?
+    /// Catalog snapshots can be several megabytes. Coalescing nearby mutations avoids
+    /// repeatedly encoding the complete library while a provider batch is merging.
+    private var pendingSaveTask: Task<Void, Never>?
     private var bulkCursor = BulkCursor()
     private var requestQueryOverride: String?
     private var requestLocationOverride: String?
@@ -283,7 +286,7 @@ final class CatalogModel {
         bulkTask = nil
         bulkRunID = nil
         bulkStatus = "Paused safely — progress is saved"
-        save()
+        saveNow()
     }
 
     func stopBulkImport() {
@@ -297,7 +300,7 @@ final class CatalogModel {
         requestQueryOverride = nil
         requestLocationOverride = nil
         bulkStatus = "Stopped — saved position will be used the next time you start"
-        save()
+        saveNow()
     }
 
     func resumeBulkImport() {
@@ -929,6 +932,19 @@ final class CatalogModel {
     }
 
     private func save() {
+        pendingSaveTask?.cancel()
+        pendingSaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            self?.saveNow()
+        }
+    }
+
+    /// Used at pause/stop boundaries where the resumable cursor must be durable before
+    /// returning. Ordinary mutations use the coalesced writer above.
+    private func saveNow() {
+        pendingSaveTask?.cancel()
+        pendingSaveTask = nil
         try? JSONEncoder().encode(Snapshot(library: library, queue: queue)).write(to: saveURL, options: .atomic)
         UserDefaults.standard.set(usdaAPIKey, forKey: "stocked.usdaAPIKey")
         UserDefaults.standard.set(isBulkImportEnabled, forKey: "catalog.bulk.enabled.v1")

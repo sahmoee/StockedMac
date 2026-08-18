@@ -528,7 +528,7 @@ final class MacHouseholdSync {
     private func recipesForPayload(_ store: MacKitchenStore) -> [[String: Any]] {
         // Only sync recipes that have an image — imageless recipes render poorly
         // on iOS and unnecessarily inflate the payload.
-        let withImages = store.recipes.filter { MacRecipeImagePolicy.isUsable($0.imageData) }
+        let withImages = store.recipes.filter(MacRecipeImagePolicy.hasRequiredImage)
         var dicts = withImages.compactMap(userRecipeDict)
         guard !dicts.isEmpty else { return dicts }
 

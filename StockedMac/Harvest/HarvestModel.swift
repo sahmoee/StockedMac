@@ -370,17 +370,19 @@ final class HarvestModel {
             let removedDraftIDs = try await recipeStore.purgeImageLessImports()
             var removedSharedIDs = Set<UUID>()
             if let kitchen {
-                // Household payloads from older clients may contain only an image URL.
-                // Resolve those candidates before enforcing the byte-level invariant so
-                // a valid full-quality photo is retained and a dead/hotlink-blocked URL
-                // is removed. This runs on every reload but already-valid bytes skip I/O.
+                // Resolve only recipes that have neither validated local bytes nor a
+                // stable HTTPS image. Remote-backed recipes intentionally do not retain a
+                // duplicate base64 copy in memory.
                 let before = kitchen.recipes
                 let hydrated = await MacRecipeImagePolicy.hydrate(before)
                 let hydratedByID = Dictionary(hydrated.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 for index in kitchen.recipes.indices {
                     guard let resolved = hydratedByID[kitchen.recipes[index].id],
                           !MacRecipeImagePolicy.isUsable(kitchen.recipes[index].imageData) else { continue }
-                    kitchen.recipes[index].imageData = resolved.imageData
+                    kitchen.recipes[index].imageValidatedAt = resolved.imageValidatedAt
+                    // A successful decode validates the URL; the renderer can load it
+                    // on demand without keeping another base64 copy in the store.
+                    kitchen.recipes[index].imageData = nil
                 }
                 if hydrated.count != before.count || hydrated.contains(where: { recipe in
                     guard let old = before.first(where: { $0.id == recipe.id }) else { return false }
@@ -422,7 +424,7 @@ final class HarvestModel {
     }
 
     private static func isImportedWithoutUsableImage(_ recipe: UserRecipe) -> Bool {
-        !MacRecipeImagePolicy.isUsable(recipe.imageData)
+        !MacRecipeImagePolicy.hasRequiredImage(recipe)
     }
 
     // MARK: - Dashboard
@@ -2824,13 +2826,23 @@ final class HarvestModel {
 
     /// Publishes the Recipes-sidebar collection, including recipes that predate the
     /// Harvester approval flow. Safe on every launch because the Worker upserts by UUID.
-    func syncKitchenToCloud(_ recipes: [UserRecipe]) {
+    func syncKitchenToCloud(_ recipes: [UserRecipe], force: Bool = true) {
         guard !isCloudSyncing, !recipes.isEmpty, MacWorkerClient.isConfigured else { return }
+        let signature = recipes
+            .map { "\($0.id.uuidString):\($0.updatedAt):\($0.imageData?.count ?? 0)" }
+            .sorted()
+            .joined(separator: "|")
+        let signatureKey = "harvest.kitchenCloudSignature.v1"
+        if !force, UserDefaults.standard.string(forKey: signatureKey) == signature {
+            cloudSyncStatus = "Kitchen recipes are already synced."
+            return
+        }
         isCloudSyncing = true
         cloudSyncStatus = "Syncing all \(recipes.count) kitchen recipes…"
         Task { [weak self] in
             do {
                 let result = try await HarvestCloudSync.pushKitchenRecipes(recipes)
+                UserDefaults.standard.set(signature, forKey: signatureKey)
                 self?.cloudSyncStatus = "Synced all \(result.recipes) kitchen recipes to iPhone and iPad."
                 self?.log(.success, "Shared catalog backfill: \(result.recipes) recipes uploaded.")
             } catch {
