@@ -27,6 +27,9 @@ WebKit is a bounded fallback and interactive browser, not a background crawler. 
 The built-in recipe catalog contains 250 sources, including an audited batch of 100 English-language global publishers. Keep `default-sources.json` and `DefaultSourceCatalog.swift` synchronized. New sources require a reachable HTTPS homepage and XML sitemap, remain robots-aware and serial per host, and must not weaken the normal image, attribution, duplicate, or rate-limit gates.
 
 Household recipe sync is incremental and lossless: changed image-backed recipes are packed into complete byte-bounded pushes, intermediate batches request Worker acknowledgements, and only the final batch downloads and applies the merged household. Never restore tail trimming or full-library encoding every 30 seconds.
+Recoverable household storage failures retry automatically with capped 0.5, 1, and 2 second
+backoff while the UI reports `Repairing household storage…`; exhausted repair remains eligible for
+the ordinary 30-second auto-sync instead of becoming a permanent local pause.
 
 Every recipe-repair revision applies the latest nutrition, category, source, and image extraction to historical source URLs in bounded resumable batches; future imports use the same path. FatSecret enrichment is additive and may never replace stronger publisher/USDA facts or invent store-specific aisle, price, or inventory data.
 

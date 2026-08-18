@@ -84,14 +84,20 @@ final class MacHouseholdSync {
     nonisolated enum Status: Equatable, Sendable {
         case idle
         case syncing
+        case repairing(Int)
         case synced(Date)
         case failed(String)
 
-        var isBusy: Bool { self == .syncing }
+        var isBusy: Bool {
+            if case .syncing = self { return true }
+            if case .repairing = self { return true }
+            return false
+        }
         var message: String {
             switch self {
             case .idle:            return "Not synced yet"
             case .syncing:         return "Syncing…"
+            case .repairing:       return "Repairing household storage…"
             case .synced(let at):  return "Last synced \(Self.formatter.string(from: at))"
             case .failed(let why): return why
             }
@@ -229,7 +235,9 @@ final class MacHouseholdSync {
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 12
 
-        do {
+        let repairDelays: [Duration] = [.milliseconds(500), .seconds(1), .seconds(2)]
+        for attempt in 0...repairDelays.count {
+          do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else { return nil }
 
@@ -245,9 +253,15 @@ final class MacHouseholdSync {
             guard (200..<300).contains(http.statusCode) else {
                 let detail = object?["error"] as? String
                 let code = object?["code"] as? String
-                if code == "householdCrash" {
-                    status = .failed("Household sync paused temporarily — tap to retry.")
-                } else if code == "kvQuota" || http.statusCode == 503 {
+                if code == "householdCrash" || (http.statusCode == 503 && code != "kvQuota") {
+                    if attempt < repairDelays.count {
+                        status = .repairing(attempt + 1)
+                        try? await Task.sleep(for: repairDelays[attempt])
+                        guard !Task.isCancelled else { return nil }
+                        continue
+                    }
+                    status = .failed(detail ?? "Household storage repair couldn't finish. Sync will retry automatically.")
+                } else if code == "kvQuota" {
                     status = .failed(detail ?? "Household storage is temporarily unavailable.")
                 } else {
                     status = .failed(detail ?? "The server returned an error (\(http.statusCode)).")
@@ -255,11 +269,15 @@ final class MacHouseholdSync {
                 return nil
             }
             return object
-        } catch {
+          } catch is CancellationError {
+            return nil
+          } catch {
             log.error("household \(path, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             status = .failed("Couldn't reach Stocked. Check your connection.")
             return nil
+          }
         }
+        return nil
     }
 
     // MARK: - Membership

@@ -246,6 +246,7 @@ struct MacHouseholdView: View {
         switch sync.status {
         case .idle:     return .secondary
         case .syncing:  return MacTheme.gold
+        case .repairing: return .orange
         case .synced:   return MacTheme.green
         case .failed:   return .red
         }
