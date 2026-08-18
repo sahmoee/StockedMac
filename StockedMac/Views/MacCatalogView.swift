@@ -47,13 +47,31 @@ struct MacCatalogView: View {
                 GroupBox("Automatic bulk import") {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Label(catalog.isBulkImportEnabled ? "Running" : "Paused",
-                                  systemImage: catalog.isBulkImportEnabled ? "arrow.triangle.2.circlepath.circle.fill" : "pause.circle")
-                                .foregroundStyle(catalog.isBulkImportEnabled ? MacTheme.green : .secondary)
+                            Label(bulkStateTitle,
+                                  systemImage: catalog.isBulkImportRunning
+                                    ? "arrow.triangle.2.circlepath.circle.fill"
+                                    : (catalog.isBulkImportPaused ? "pause.circle.fill" : "stop.circle"))
+                                .foregroundStyle(catalog.isBulkImportRunning ? MacTheme.green : .secondary)
                             Spacer()
-                            Button(catalog.isBulkImportEnabled ? "Pause" : "Start") {
-                                catalog.isBulkImportEnabled ? catalog.stopBulkImport() : catalog.startBulkImport()
-                            }.buttonStyle(.borderedProminent)
+                            if catalog.isBulkImportRunning {
+                                Button { catalog.pauseBulkImport() } label: {
+                                    Label("Pause", systemImage: "pause.fill")
+                                }
+                                .buttonStyle(.borderedProminent)
+                            } else {
+                                Button {
+                                    catalog.isBulkImportPaused
+                                        ? catalog.resumeBulkImport()
+                                        : catalog.startBulkImport()
+                                } label: {
+                                    Label(catalog.isBulkImportPaused ? "Resume" : "Start", systemImage: "play.fill")
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
+                            Button(role: .destructive) { catalog.stopBulkImport() } label: {
+                                Label("Stop", systemImage: "stop.fill")
+                            }
+                            .disabled(!catalog.isBulkImportRunning && !catalog.isBulkImportPaused)
                         }
                         Text("No names are required. Stocked rotates through grocery categories, stores, providers, and result pages; imports immediately; skips duplicates; and resumes from its saved position after relaunch.")
                             .font(.caption).foregroundStyle(.secondary)
@@ -95,6 +113,12 @@ struct MacCatalogView: View {
                 }
             }.padding(18)
         }
+    }
+
+    private var bulkStateTitle: String {
+        if catalog.isBulkImportRunning { return "Running" }
+        if catalog.isBulkImportPaused { return "Paused" }
+        return "Stopped"
     }
 
     private var sourcesView: some View {

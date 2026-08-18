@@ -205,13 +205,18 @@ final class CatalogModel {
     var lastError: String?
     var usdaAPIKey = ""
     var isBulkImportEnabled = false
+    var isBulkImportPaused = false
     var bulkImportedCount = 0
     var bulkRequestCount = 0
     var bulkStatus = "Bulk import is off"
+    var isBulkImportRunning: Bool {
+        isBulkImportEnabled && !isBulkImportPaused && bulkRunID != nil
+    }
 
     private let session: URLSession
     private let saveURL: URL
     private var bulkTask: Task<Void, Never>?
+    private var bulkRunID: UUID?
     private var bulkCursor = BulkCursor()
     private var requestQueryOverride: String?
     private var requestLocationOverride: String?
@@ -249,20 +254,53 @@ final class CatalogModel {
 
     func startBulkImport() {
         guard bulkTask == nil else { return }
+        let continuingPausedRun = isBulkImportPaused
         isBulkImportEnabled = true
+        isBulkImportPaused = false
         UserDefaults.standard.set(true, forKey: "catalog.bulk.enabled.v1")
+        UserDefaults.standard.set(false, forKey: "catalog.bulk.paused.v1")
+        if !continuingPausedRun {
+            bulkImportedCount = 0
+            bulkRequestCount = 0
+        }
         lastError = nil
-        bulkStatus = "Starting automatic grocery catalog import…"
-        bulkTask = Task { [weak self] in await self?.runBulkImport() }
+        bulkStatus = continuingPausedRun
+            ? "Resuming automatic import from the saved position…"
+            : "Starting automatic grocery catalog import…"
+        let runID = UUID()
+        bulkRunID = runID
+        bulkTask = Task { [weak self] in await self?.runBulkImport(runID: runID) }
+    }
+
+    func pauseBulkImport() {
+        isBulkImportEnabled = false
+        isBulkImportPaused = true
+        UserDefaults.standard.set(false, forKey: "catalog.bulk.enabled.v1")
+        UserDefaults.standard.set(true, forKey: "catalog.bulk.paused.v1")
+        bulkTask?.cancel()
+        bulkTask = nil
+        bulkRunID = nil
+        bulkStatus = "Paused safely — progress is saved"
+        save()
     }
 
     func stopBulkImport() {
         isBulkImportEnabled = false
+        isBulkImportPaused = false
         UserDefaults.standard.set(false, forKey: "catalog.bulk.enabled.v1")
+        UserDefaults.standard.set(false, forKey: "catalog.bulk.paused.v1")
         bulkTask?.cancel()
         bulkTask = nil
-        bulkStatus = "Paused safely — progress is saved"
+        bulkRunID = nil
+        requestQueryOverride = nil
+        requestLocationOverride = nil
+        bulkStatus = "Stopped — saved position will be used the next time you start"
         save()
+    }
+
+    func resumeBulkImport() {
+        guard isBulkImportPaused else { startBulkImport(); return }
+        startBulkImport()
     }
 
     func resumeBulkImportIfEnabled() {
@@ -273,8 +311,15 @@ final class CatalogModel {
     /// Runs one provider request at a time, imports successful partial results immediately,
     /// and persists after every step. A provider failure only cools that provider down; it
     /// never resets the global sweep or strands already-discovered data in a review queue.
-    private func runBulkImport() async {
-        defer { bulkTask = nil }
+    private func runBulkImport(runID: UUID) async {
+        defer {
+            requestQueryOverride = nil
+            requestLocationOverride = nil
+            if bulkRunID == runID {
+                bulkTask = nil
+                bulkRunID = nil
+            }
+        }
         while isBulkImportEnabled && !Task.isCancelled {
             let sources = CatalogSource.allCases.filter { selectedSources.contains($0) }
             guard !sources.isEmpty else {
@@ -307,6 +352,8 @@ final class CatalogModel {
                 bulkStatus = "Added \(merged.added), enriched \(merged.enriched) · \(library.count) total"
                 bulkCursor.consecutiveFailures[source.rawValue] = 0
                 advanceBulkCursor(sourceCount: sources.count, received: records.count, source: source)
+            } catch is CancellationError {
+                break
             } catch MacServiceError.rateLimited(let retryAfter) {
                 let delay = max(60, retryAfter ?? 300)
                 bulkCursor.cooldowns[source.rawValue] = Date().addingTimeInterval(delay)
@@ -825,6 +872,8 @@ final class CatalogModel {
         } else {
             isBulkImportEnabled = UserDefaults.standard.bool(forKey: "catalog.bulk.enabled.v1")
         }
+        isBulkImportPaused = UserDefaults.standard.bool(forKey: "catalog.bulk.paused.v1")
+        if isBulkImportPaused { isBulkImportEnabled = false }
         if let data = UserDefaults.standard.data(forKey: "catalog.bulk.cursor.v1"),
            let cursor = try? JSONDecoder().decode(BulkCursor.self, from: data) { bulkCursor = cursor }
     }
@@ -833,6 +882,7 @@ final class CatalogModel {
         try? JSONEncoder().encode(Snapshot(library: library, queue: queue)).write(to: saveURL, options: .atomic)
         UserDefaults.standard.set(usdaAPIKey, forKey: "stocked.usdaAPIKey")
         UserDefaults.standard.set(isBulkImportEnabled, forKey: "catalog.bulk.enabled.v1")
+        UserDefaults.standard.set(isBulkImportPaused, forKey: "catalog.bulk.paused.v1")
         UserDefaults.standard.set(try? JSONEncoder().encode(bulkCursor), forKey: "catalog.bulk.cursor.v1")
     }
 
