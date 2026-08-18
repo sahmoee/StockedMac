@@ -38,6 +38,7 @@ final class WebKitRenderer: NSObject {
     private var timeoutTask: Task<Void, Never>?
     private var busy = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var didInstallResourceBlocker = false
 
     /// Loads the URL in a hidden web view, waits for the page (plus a beat for
     /// client-side hydration), and returns `document.documentElement.outerHTML`.
@@ -56,11 +57,9 @@ final class WebKitRenderer: NSObject {
         }
 
         let view = webView
+        await installResourceBlockerIfNeeded(on: view)
         view.customUserAgent = userAgent
-        defer {
-            view.stopLoading()
-            view.loadHTMLString("", baseURL: nil)
-        }
+        defer { view.stopLoading() }
 
         return try await withCheckedThrowingContinuation { cont in
             continuation = cont
@@ -71,6 +70,29 @@ final class WebKitRenderer: NSObject {
                 )))
             }
             view.load(URLRequest(url: url))
+        }
+    }
+
+    /// The importer only reads the DOM and schema.org JSON-LD. Preventing WebKit from
+    /// downloading images, media and fonts avoids malformed third-party WEBP/JPEG decode
+    /// failures and reduces memory/network pressure during large fallback batches.
+    private func installResourceBlockerIfNeeded(on view: WKWebView) async {
+        guard !didInstallResourceBlocker else { return }
+        let rules = """
+        [{"trigger":{"url-filter":".*","resource-type":["image","media","font"]},
+          "action":{"type":"block"}}]
+        """
+        let ruleList: WKContentRuleList? = await withCheckedContinuation { continuation in
+            WKContentRuleListStore.default().compileContentRuleList(
+                forIdentifier: "com.sowens.StockedMac.recipe-html-only.v1",
+                encodedContentRuleList: rules
+            ) { list, _ in
+                continuation.resume(returning: list)
+            }
+        }
+        if let ruleList {
+            view.configuration.userContentController.add(ruleList)
+            didInstallResourceBlocker = true
         }
     }
 
@@ -101,7 +123,7 @@ final class WebKitRenderer: NSObject {
     }
 }
 
-extension WebKitRenderer: @preconcurrency WKNavigationDelegate {
+extension WebKitRenderer: WKNavigationDelegate {
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         // A malformed image or an overloaded source can terminate WebKit's helper
