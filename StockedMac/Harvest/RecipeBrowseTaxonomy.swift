@@ -59,41 +59,16 @@ nonisolated enum RecipeBrowseTaxonomy {
             "Preserves", "Smoothies", "Coffee & tea",
         ])
 
+        // Keep this aligned with Stocked iOS RecipeTaxonomy.cuisines. "Other" is an
+        // import fallback, not a browse category; specific publisher labels normalize
+        // into one of these shared canonical choices instead of expanding the Mac UI.
         add("Cuisines & cultures", [
-            "Global & fusion", "African", "West African", "North African", "East African",
-            "South African", "Ethiopian", "Eritrean", "Nigerian", "Ghanaian", "Senegalese",
-            "Moroccan", "Egyptian", "Tunisian", "Kenyan", "Somali", "Asian", "East Asian",
-            "Southeast Asian", "South Asian", "Central Asian", "Chinese", "Cantonese",
-            "Sichuan", "Taiwanese", "Hong Kong", "Japanese", "Okinawan", "Korean",
-            "Vietnamese", "Thai", "Filipino", "Indonesian", "Malaysian", "Singaporean",
-            "Cambodian", "Laotian", "Burmese", "Indian", "North Indian", "South Indian",
-            "Punjabi", "Gujarati", "Bengali", "Goan", "Pakistani", "Bangladeshi",
-            "Sri Lankan", "Nepalese", "Tibetan", "Bhutanese", "Maldivian", "Mongolian",
-            "Afghan", "Uzbek", "Middle Eastern", "Arab", "Kurdish", "Jewish",
-            "Ashkenazi Jewish", "Sephardic Jewish", "Mizrahi Jewish",
-            "Levantine", "Lebanese", "Syrian", "Palestinian", "Jordanian", "Israeli",
-            "Iraqi", "Iranian & Persian", "Turkish", "Yemeni", "Gulf Arab", "Saudi Arabian",
-            "Emirati", "Omani", "Armenian",
-            "Georgian", "European", "Mediterranean", "Italian", "Sicilian", "French",
-            "Tuscan", "Roman", "Neapolitan", "Sardinian", "Provençal", "Spanish", "Catalan",
-            "Basque", "Galician", "Portuguese", "Greek", "Cypriot", "Maltese", "British", "English", "Scottish",
-            "Welsh", "Irish", "German", "Austrian", "Swiss", "Dutch", "Belgian",
-            "Scandinavian", "Swedish", "Norwegian", "Danish", "Finnish", "Icelandic",
-            "Polish", "Ukrainian", "Russian", "Czech", "Slovak", "Hungarian", "Romanian",
-            "Bulgarian", "Balkan", "Serbian", "Croatian", "Bosnian", "Albanian", "Slovenian",
-            "North Macedonian", "Moldovan", "Lithuanian", "Latvian", "Estonian", "Romani",
-            "North American", "American", "Southern US", "Soul food", "Cajun & Creole",
-            "Tex-Mex", "Appalachian", "New England", "Midwestern US", "Southwestern US",
-            "Californian", "Pacific Northwest", "Indigenous North American", "Canadian",
-            "Québécois", "French Canadian", "Latin American", "Mexican", "Oaxacan",
-            "Yucatecan", "Central American", "Belizean", "Salvadoran", "Guatemalan",
-            "Honduran", "Nicaraguan", "Costa Rican", "Panamanian", "Caribbean", "Jamaican",
-            "Cuban", "Puerto Rican", "Dominican", "Haitian", "Trinidadian", "Bahamian",
-            "Barbadian", "South American", "Brazilian", "Peruvian",
-            "Colombian", "Venezuelan", "Ecuadorian", "Bolivian", "Chilean", "Argentinian",
-            "Uruguayan", "Paraguayan", "Guyanese", "Surinamese", "Oceanian", "Australian",
-            "Indigenous Australian", "New Zealand", "Māori", "Hawaiian", "Native Hawaiian",
-            "Fijian", "Samoan", "Tongan", "Tahitian", "Chamorro", "Polynesian", "Pacific Islander",
+            "American", "Southern", "Cajun & Creole", "Tex-Mex", "BBQ", "New England",
+            "Soul Food", "Hawaiian", "Mexican", "Italian", "French", "Spanish", "Greek",
+            "Mediterranean", "Middle Eastern", "Indian", "Thai", "Chinese", "Japanese",
+            "Korean", "Vietnamese", "Filipino", "Caribbean", "African", "German", "British",
+            "Irish", "Eastern European", "Latin American", "Fusion", "Moroccan", "Turkish",
+            "Brazilian",
         ])
 
         add("Dietary needs", [
@@ -142,6 +117,16 @@ nonisolated enum RecipeBrowseTaxonomy {
 
     static func categories(in group: String) -> [RecipeBrowseCategory] {
         all.filter { $0.group == group }
+    }
+
+    /// Matches a group after normalizing evidence once. This is the bulk-indexing path;
+    /// calling `matches` separately for every cuisine repeated Unicode folding and URL
+    /// tokenization dozens of times per recipe and could stall tab changes on large caches.
+    static func matchingCategories(in group: String, values: [String]) -> [RecipeBrowseCategory] {
+        let haystack = " " + normalize(values.joined(separator: " ")) + " "
+        return categories(in: group).filter { category in
+            category.terms.contains { !$0.isEmpty && haystack.contains(" \($0) ") }
+        }
     }
 
     /// Build 101: a readable name for a discovered category, from its URL slug.

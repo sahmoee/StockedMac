@@ -158,9 +158,13 @@ final class HarvestModel {
     /// Build 101: the category catalog — one entry per source, each holding the categories
     /// discovered on it (organized, with a cached-recipe count). Browseable and cached.
     var sourceCategories: [String: SourceCategoryCatalog] = [:]
+    /// Pre-sorted category rows. Keeping this materialized prevents every sidebar badge,
+    /// search field, and tab transition from flattening and sorting ~1,000 records again.
+    private(set) var categoryIndex: [SourceCategory] = []
     /// Cross-site cuisine index used by the Categories UI. Rebuilt only when cached
     /// discovery/category data changes; rows never reread every JSON report on redraw.
     private(set) var cuisineRecipeCache: [String: [String]] = [:]
+    @ObservationIgnored private var cuisineCacheRebuildTask: Task<Void, Never>?
     /// Sources still to visit in the current auto-rotate run.
     var autoRotateRemaining = 0
     /// Explicitly selected sources still waiting their turn (multi-select browsing).
@@ -1464,10 +1468,7 @@ final class HarvestModel {
 
     /// Every discovered category across sources, most-ready first — for the browser.
     var allCategories: [SourceCategory] {
-        sourceCategories.values.flatMap(\.categories).sorted { lhs, rhs in
-            if lhs.recipeCount != rhs.recipeCount { return lhs.recipeCount > rhs.recipeCount }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
+        categoryIndex
     }
 
     /// Categories with recipes cached and ready to import right now.
@@ -1486,41 +1487,86 @@ final class HarvestModel {
     }
 
     private func rebuildCuisineRecipeCache() {
-        let cuisines = cuisineCategories
+        cuisineCacheRebuildTask?.cancel()
+        let categories = categoryIndex
+        let sourceSnapshot = sources
+        let sessionSnapshot = sessionHistory
+        let miningDirectory = paths.miningResultCache
+        let reportDirectory = paths.sourceDiscoveryCache
+        cuisineCacheRebuildTask = Task { [weak self] in
+            // Coalesce bursts caused by an import saving a report and several categories.
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            let rebuilt = await Task.detached(priority: .utility) {
+                Self.buildCuisineRecipeCache(
+                    categories: categories,
+                    sources: sourceSnapshot,
+                    sessions: sessionSnapshot,
+                    miningDirectory: miningDirectory,
+                    reportDirectory: reportDirectory
+                )
+            }.value
+            guard !Task.isCancelled else { return }
+            self?.cuisineRecipeCache = rebuilt
+        }
+    }
+
+    private nonisolated static func buildCuisineRecipeCache(
+        categories: [SourceCategory],
+        sources: [SourceProfile],
+        sessions: [DiscoveryReport],
+        miningDirectory: URL,
+        reportDirectory: URL
+    ) -> [String: [String]] {
         var indexed: [String: [String]] = [:]
         var seen: [String: Set<String>] = [:]
         func append(_ url: String, to cuisine: RecipeBrowseCategory) {
-            let key = Self.discoveryURLKey(url)
+            let key = discoveryURLKey(url)
             if seen[cuisine.id, default: []].insert(key).inserted {
                 indexed[cuisine.id, default: []].append(url)
             }
         }
+        func minedLinks(for pageURL: String) -> [String] {
+            let key = discoveryURLKey(pageURL)
+            let file = miningDirectory
+                .appendingPathComponent(String(Hashing.sha256(key).prefix(32)))
+                .appendingPathExtension("json")
+            guard let data = try? Data(contentsOf: file),
+                  let record = try? JSONCoding.decoder().decode(MinedPageCacheRecord.self, from: data)
+            else { return [] }
+            return record.recipeURLs
+        }
 
-        for sourceCategory in allCategories {
-            let evidence = [sourceCategory.name, sourceCategory.group ?? "", sourceCategory.url]
-                .joined(separator: " ")
-            for cuisine in cuisines where RecipeBrowseTaxonomy.matches(
-                DiscoveredLink(url: sourceCategory.url, title: sourceCategory.name, imageURL: nil),
-                selectedIDs: Set([cuisine.id]), supplementalText: evidence
-            ) {
-                for url in cachedRecipes(for: sourceCategory) { append(url, to: cuisine) }
+        for category in categories {
+            let matches = RecipeBrowseTaxonomy.matchingCategories(
+                in: "Cuisines & cultures",
+                values: [category.url, category.name, category.group ?? ""]
+            )
+            guard !matches.isEmpty else { continue }
+            for url in minedLinks(for: category.url) {
+                for cuisine in matches { append(url, to: cuisine) }
             }
         }
 
-        // Sitemap reports often contain cuisine-specific recipe URLs even when the site
-        // exposes no category page. Index those saved results once as well.
+        let fallbackReports = Dictionary(sessions.map { ($0.sourceID, $0) }, uniquingKeysWith: { first, _ in first })
         for source in sources {
-            guard let report = cachedReport(for: source.id) else { continue }
-            let supplemental = source.tags.joined(separator: " ")
+            let file = reportDirectory
+                .appendingPathComponent(String(Hashing.sha256(source.id).prefix(24)))
+                .appendingPathExtension("json")
+            let report: DiscoveryReport? = {
+                guard let data = try? Data(contentsOf: file) else { return fallbackReports[source.id] }
+                return (try? JSONCoding.decoder().decode(DiscoveryReport.self, from: data)) ?? fallbackReports[source.id]
+            }()
+            guard let report else { continue }
             for link in report.confirmed {
-                for cuisine in cuisines where RecipeBrowseTaxonomy.matches(
-                    link, selectedIDs: Set([cuisine.id]), supplementalText: supplemental
-                ) {
-                    append(link.url, to: cuisine)
-                }
+                let matches = RecipeBrowseTaxonomy.matchingCategories(
+                    in: "Cuisines & cultures",
+                    values: [link.url, link.title ?? "", source.tags.joined(separator: " ")]
+                )
+                for cuisine in matches { append(link.url, to: cuisine) }
             }
         }
-        cuisineRecipeCache = indexed
+        return indexed
     }
 
     /// Finds one cuisine across several relevant websites and imports the matches using
@@ -1603,6 +1649,7 @@ final class HarvestModel {
             updatedAt: Date(), categories: organized
         )
         sourceCategories[source.id] = catalog
+        rebuildCategoryIndex()
         persistCategoryCatalog(catalog)
         rebuildCuisineRecipeCache()
         let ready = organized.filter(\.isReady).count
@@ -1628,6 +1675,7 @@ final class HarvestModel {
             }
         }
         sourceCategories = loaded
+        rebuildCategoryIndex()
     }
 
     private func markCategoryImported(_ category: SourceCategory) {
@@ -1635,7 +1683,15 @@ final class HarvestModel {
               let idx = catalog.categories.firstIndex(where: { $0.id == category.id }) else { return }
         catalog.categories[idx].lastImportedAt = Date()
         sourceCategories[category.sourceID] = catalog
+        rebuildCategoryIndex()
         persistCategoryCatalog(catalog)
+    }
+
+    private func rebuildCategoryIndex() {
+        categoryIndex = sourceCategories.values.flatMap(\.categories).sorted { lhs, rhs in
+            if lhs.recipeCount != rhs.recipeCount { return lhs.recipeCount > rhs.recipeCount }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
     }
 
     /// Import a category's recipes. Cached ones import instantly with no refetch; an

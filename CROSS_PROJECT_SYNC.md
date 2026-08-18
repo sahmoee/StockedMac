@@ -8,7 +8,7 @@ Also apply the ten additive cross-project safeguards in `PROJECT_GUIDE_ADDITIONS
 
 Recipe schema, image, provenance, category, deduplication, or sync changes must be applied compatibly across StockedMac, stocked, and UnifiedWorker. Keep older records repairable.
 
-StockedMac owns cuisine discovery collections and their cross-site cache index. Imported records continue publishing ordinary cuisine/category strings through the existing shared recipe schema, so Stocked iOS and UnifiedWorker require no synthetic collection IDs or migration.
+StockedMac owns cuisine discovery collections and their cross-site cache index. Visible cultural categories are limited to Stocked iOS's canonical `RecipeTaxonomy.cuisines` set, excluding the hidden `Other` fallback; more-specific publisher labels remain internal matching evidence. Imported records continue publishing ordinary cuisine/category strings through the existing shared recipe schema, so Stocked iOS and UnifiedWorker require no synthetic collection IDs or migration.
 
 The expanded English-language global source catalog is StockedMac-owned discovery configuration. Only successfully parsed, image-complete recipes cross into the shared Worker/iOS recipe schema; source profiles and crawling policy do not sync to Stocked iOS.
 
