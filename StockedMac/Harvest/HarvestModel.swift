@@ -158,6 +158,9 @@ final class HarvestModel {
     /// Build 101: the category catalog — one entry per source, each holding the categories
     /// discovered on it (organized, with a cached-recipe count). Browseable and cached.
     var sourceCategories: [String: SourceCategoryCatalog] = [:]
+    /// Cross-site cuisine index used by the Categories UI. Rebuilt only when cached
+    /// discovery/category data changes; rows never reread every JSON report on redraw.
+    private(set) var cuisineRecipeCache: [String: [String]] = [:]
     /// Sources still to visit in the current auto-rotate run.
     var autoRotateRemaining = 0
     /// Explicitly selected sources still waiting their turn (multi-select browsing).
@@ -404,6 +407,7 @@ final class HarvestModel {
             }
             recipes = try await recipeStore.all()
             sources = try await sourceRegistry.all()
+            rebuildCuisineRecipeCache()
             duplicateGroups = (try? await recipeStore.duplicateGroups()) ?? []
             if let id = selectedRecipeID, !recipes.contains(where: { $0.id == id }) {
                 selectedRecipeID = recipes.first?.id
@@ -1469,6 +1473,102 @@ final class HarvestModel {
     /// Categories with recipes cached and ready to import right now.
     var readyCategoryCount: Int { allCategories.filter(\.isReady).count }
 
+    /// Canonical cuisine categories are always present, even before a site-specific
+    /// category page has been discovered. Their contents are derived from every saved
+    /// source report and mined category, so a cuisine automatically gains recipes as
+    /// any source is browsed without creating a second cache or duplicating URLs.
+    var cuisineCategories: [RecipeBrowseCategory] {
+        RecipeBrowseTaxonomy.categories(in: "Cuisines & cultures")
+    }
+
+    func cachedRecipes(forCuisine category: RecipeBrowseCategory) -> [String] {
+        cuisineRecipeCache[category.id] ?? []
+    }
+
+    private func rebuildCuisineRecipeCache() {
+        let cuisines = cuisineCategories
+        var indexed: [String: [String]] = [:]
+        var seen: [String: Set<String>] = [:]
+        func append(_ url: String, to cuisine: RecipeBrowseCategory) {
+            let key = Self.discoveryURLKey(url)
+            if seen[cuisine.id, default: []].insert(key).inserted {
+                indexed[cuisine.id, default: []].append(url)
+            }
+        }
+
+        for sourceCategory in allCategories {
+            let evidence = [sourceCategory.name, sourceCategory.group ?? "", sourceCategory.url]
+                .joined(separator: " ")
+            for cuisine in cuisines where RecipeBrowseTaxonomy.matches(
+                DiscoveredLink(url: sourceCategory.url, title: sourceCategory.name, imageURL: nil),
+                selectedIDs: Set([cuisine.id]), supplementalText: evidence
+            ) {
+                for url in cachedRecipes(for: sourceCategory) { append(url, to: cuisine) }
+            }
+        }
+
+        // Sitemap reports often contain cuisine-specific recipe URLs even when the site
+        // exposes no category page. Index those saved results once as well.
+        for source in sources {
+            guard let report = cachedReport(for: source.id) else { continue }
+            let supplemental = source.tags.joined(separator: " ")
+            for link in report.confirmed {
+                for cuisine in cuisines where RecipeBrowseTaxonomy.matches(
+                    link, selectedIDs: Set([cuisine.id]), supplementalText: supplemental
+                ) {
+                    append(link.url, to: cuisine)
+                }
+            }
+        }
+        cuisineRecipeCache = indexed
+    }
+
+    /// Finds one cuisine across several relevant websites and imports the matches using
+    /// the normal image-required, deduplicated, resumable pipeline. Sources explicitly
+    /// tagged for the cuisine lead, followed by diverse healthy discovery sources.
+    func findAndImportCuisine(_ category: RecipeBrowseCategory) {
+        guard !isAutopilotRunning else {
+            statusMessage = "Finish or stop the current run before starting another category."
+            return
+        }
+        settings.selectedBrowseCategoryIDs = [category.id]
+        scheduleSettingsSave()
+
+        let eligible = sources.filter { $0.enabled && $0.discoveryMode.supportsDiscovery }
+        let ranked = eligible.sorted { lhs, rhs in
+            let left = RecipeBrowseTaxonomy.matches(
+                DiscoveredLink(url: lhs.baseURL, title: lhs.name, imageURL: nil), selectedIDs: Set([category.id]),
+                supplementalText: ([lhs.name] + lhs.tags).joined(separator: " ")
+            )
+            let right = RecipeBrowseTaxonomy.matches(
+                DiscoveredLink(url: rhs.baseURL, title: rhs.name, imageURL: nil), selectedIDs: Set([category.id]),
+                supplementalText: ([rhs.name] + rhs.tags).joined(separator: " ")
+            )
+            if left != right { return left && !right }
+            if lhs.health != rhs.health { return lhs.health == .healthy }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+        let limit = max(3, min(12, settings.autoRotateSourceCount))
+        let chosen = Array(ranked.prefix(limit).map(\.id))
+        guard !chosen.isEmpty else {
+            discoveryFailure = "No enabled recipe sources are available for \(category.name)."
+            return
+        }
+        statusMessage = "Finding \(category.name) recipes across \(chosen.count) websites…"
+        log(.info, "Cuisine import: \(category.name) across \(chosen.count) sources.")
+        startAutopilot(sourceIDs: chosen)
+    }
+
+    func importCachedCuisine(_ category: RecipeBrowseCategory) {
+        let urls = cachedRecipes(forCuisine: category)
+        guard !urls.isEmpty else {
+            findAndImportCuisine(category)
+            return
+        }
+        statusMessage = "Importing \(urls.count) cached \(category.name) recipes from multiple websites…"
+        importDirect(urls)
+    }
+
     /// Folds a run's mined categories into the source's catalog: caches each category's
     /// recipes (so drill-in import is instant), derives its ready count, organizes and
     /// persists. Called after every fresh discovery.
@@ -1504,6 +1604,7 @@ final class HarvestModel {
         )
         sourceCategories[source.id] = catalog
         persistCategoryCatalog(catalog)
+        rebuildCuisineRecipeCache()
         let ready = organized.filter(\.isReady).count
         log(.success, "\(source.name): \(organized.count) categories organized, \(ready) ready to import.",
             url: source.baseURL)
@@ -1617,6 +1718,7 @@ final class HarvestModel {
         // A stable copy so the last run can be restored on the next launch.
         try? data.write(to: paths.lastDiscoveryReport, options: .atomic)
         loadSessionHistory()
+        rebuildCuisineRecipeCache()
     }
 
     private func loadLastReport() -> DiscoveryReport? {

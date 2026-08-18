@@ -12,6 +12,8 @@ Kroger discovery uses the authenticated UnifiedWorker retail gateway; Kroger and
 
 The normal Find flow is hands-off: discovery imports immediately, complete image-backed recipes approve and publish automatically, and only incomplete records wait for attention. Preserve original image bytes and URLs; never introduce lossy sync re-encoding.
 
+The Categories screen owns both source-specific category pages and canonical cross-site cuisine collections. Cuisine collections are always visible, automatically index matching cached recipes from multiple websites, and can run a bounded multi-source Find & Import through the same image-required, deduplicated, resumable import pipeline. Do not replace them with single-site links or compute their index during SwiftUI row rendering.
+
 Every recipe-repair revision applies the latest nutrition, category, source, and image extraction to historical source URLs in bounded resumable batches; future imports use the same path. FatSecret enrichment is additive and may never replace stronger publisher/USDA facts or invent store-specific aisle, price, or inventory data.
 
 The Brands & Stores catalog continuously reprocesses existing and future records through every
