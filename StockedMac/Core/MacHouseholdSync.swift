@@ -242,7 +242,10 @@ final class MacHouseholdSync {
 
             guard (200..<300).contains(http.statusCode) else {
                 let detail = object?["error"] as? String
-                if (object?["code"] as? String) == "kvQuota" || http.statusCode == 503 {
+                let code = object?["code"] as? String
+                if code == "householdCrash" {
+                    status = .failed("Household sync paused temporarily — tap to retry.")
+                } else if code == "kvQuota" || http.statusCode == 503 {
                     status = .failed(detail ?? "Household storage is temporarily unavailable.")
                 } else {
                     status = .failed(detail ?? "The server returned an error (\(http.statusCode)).")
