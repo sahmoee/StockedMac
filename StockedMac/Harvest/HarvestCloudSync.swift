@@ -93,7 +93,7 @@ enum HarvestCloudSync {
         guard let base = URL(string: MacBuildConfig.receiptWorkerURL) else {
             throw MacServiceError.notConfigured("The Stocked Worker URL")
         }
-        let recipes = recipes.filter { MacRecipeImagePolicy.isUsable($0.imageData) }
+        let recipes = recipes.filter(MacRecipeImagePolicy.hasRequiredImage)
         var pushedRecipes = 0
         var pushedImages = 0
 
@@ -111,8 +111,15 @@ enum HarvestCloudSync {
         }
 
         for recipe in recipes {
-            guard let data = recipe.imageData, !data.isEmpty else { continue }
-            let jpeg = data.count <= maxImageBytes ? data : downsampledJPEG(data, toAtMost: maxImageBytes)
+            // Imported recipes retain their original full-quality URL. Re-encoding and
+            // uploading hundreds of those images on launch was both redundant and the
+            // largest source of StockedMac's memory spike. Only personal/local-only
+            // images need a Worker-hosted copy.
+            guard recipe.imageURL?.nilIfBlank == nil,
+                  let data = recipe.imageData, !data.isEmpty else { continue }
+            let jpeg = autoreleasepool {
+                data.count <= maxImageBytes ? data : downsampledJPEG(data, toAtMost: maxImageBytes)
+            }
             guard let jpeg else { continue }
             do {
                 try await post([
@@ -248,8 +255,11 @@ enum HarvestCloudSync {
             "cookTime": recipe.cookTime,
         ]
         if let sourceURL { dict["sourceURL"] = sourceURL }
-        if let imageURL = recipe.imageURL?.nilIfBlank { dict["imageURL"] = imageURL }
-        if recipe.imageData != nil { dict["image"] = "/harvest/img/\(recipe.id.uuidString).jpg" }
+        if let imageURL = recipe.imageURL?.nilIfBlank {
+            dict["imageURL"] = imageURL
+        } else if recipe.imageData != nil {
+            dict["image"] = "/harvest/img/\(recipe.id.uuidString).jpg"
+        }
         return dict
     }
 

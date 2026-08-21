@@ -342,6 +342,12 @@ struct MacRecipesView: View {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFill()
+            } else if let rawURL = recipe.imageURL, let url = URL(string: rawURL) {
+                AsyncImage(url: url) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Color.secondary.opacity(0.10)
+                }
             } else {
                 ZStack {
                     Color.secondary.opacity(0.10)
@@ -445,6 +451,16 @@ struct MacRecipeDetail: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                         .clipped()
                         .accessibilityLabel("Photo of \(recipe.title)")
+                } else if let rawURL = recipe.imageURL, let url = URL(string: rawURL) {
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        Color.secondary.opacity(0.10)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 260)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .clipped()
+                    .accessibilityLabel("Photo of \(recipe.title)")
                 }
                 header
                 if !recipe.description.isEmpty {

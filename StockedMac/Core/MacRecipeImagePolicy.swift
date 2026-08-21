@@ -4,6 +4,17 @@ import ImageIO
 /// One image invariant for every recipe entry path. A URL is only a candidate; a recipe
 /// has an image after the bytes have downloaded and ImageIO can decode a real photo.
 nonisolated enum MacRecipeImagePolicy {
+    /// Imported images are validated before persistence. Once a recipe has a stable HTTPS
+    /// source, keeping the same bytes base64-encoded inside recipes.json only duplicates
+    /// hundreds of megabytes in memory. Local-only recipes still retain their bytes.
+    static func hasRequiredImage(_ recipe: UserRecipe) -> Bool {
+        if isUsable(recipe.imageData) { return true }
+        guard let url = URL(string: recipe.imageURL ?? "") else { return false }
+        return recipe.imageValidatedAt != nil
+            && url.scheme?.lowercased() == "https"
+            && url.host != nil
+    }
+
     static func isUsable(_ data: Data?) -> Bool {
         guard let data, data.count > 4_096,
               let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -37,11 +48,12 @@ nonisolated enum MacRecipeImagePolicy {
             func submitNext() {
                 guard let (index, recipe) = iterator.next() else { return }
                 group.addTask {
-                    if isUsable(recipe.imageData) { return (index, recipe) }
+                    if hasRequiredImage(recipe) { return (index, recipe) }
                     guard let imageURL = recipe.imageURL?.nilIfBlank else { return (index, nil) }
                     do {
                         var hydrated = recipe
                         hydrated.imageData = try await download(imageURL, referer: recipe.sourceURL)
+                        hydrated.imageValidatedAt = Date()
                         return (index, hydrated)
                     } catch {
                         return (index, nil)

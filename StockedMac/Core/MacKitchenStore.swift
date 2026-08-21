@@ -154,7 +154,18 @@ final class MacKitchenStore {
     func load() {
         isLoading = true
         isRestoring = true
-        defer { isRestoring = false; isLoading = false }
+        var compactedRemoteRecipeImages = false
+        defer {
+            isRestoring = false
+            isLoading = false
+            if compactedRemoteRecipeImages {
+                // Finish the one-time compaction before household work can re-enter the
+                // store. The compact payload is small; writing it now also ensures the
+                // next launch never has to decode the old 200+ MB base64 file again.
+                dirty.insert(.recipes)
+                flush()
+            }
+        }
 
         let decoder = JSONDecoder()
 
@@ -168,7 +179,14 @@ final class MacKitchenStore {
         }
         if let data = read(.recipes),
            let value = try? decoder.decode([UserRecipe].self, from: data) {
-            recipes = value
+            recipes = value.map { recipe in
+                guard recipe.imageURL?.nilIfBlank != nil, recipe.imageData != nil else { return recipe }
+                var compact = recipe
+                compact.imageValidatedAt = compact.imageValidatedAt ?? Date()
+                compact.imageData = nil
+                compactedRemoteRecipeImages = true
+                return compact
+            }
         }
         if let data = read(.savedRecipes),
            let value = try? decoder.decode([GeneratedRecipe].self, from: data) {
@@ -311,6 +329,7 @@ final class MacKitchenStore {
         copy.lastWriterID = writerID
         inventory.append(copy)
         scheduleSave(.inventory)
+        NotificationCenter.default.post(name: .macInventoryNeedsCatalogEnrichment, object: copy.id)
     }
 
     @discardableResult
@@ -328,15 +347,19 @@ final class MacKitchenStore {
         item.lastWriterID = writerID
         inventory.append(item)
         scheduleSave(.inventory)
+        NotificationCenter.default.post(name: .macInventoryNeedsCatalogEnrichment, object: item.id)
         return item
     }
 
     /// Applies an edit and stamps it. Takes the change as a closure so callers can't
     /// forget the stamp — the only supported way to change an item in place.
-    func updateInventory(id: UUID, _ change: (inout LocalInventoryItem) -> Void) {
+    func updateInventory(id: UUID, requestEnrichment: Bool = true, _ change: (inout LocalInventoryItem) -> Void) {
         guard let index = inventory.firstIndex(where: { $0.id == id }) else { return }
         change(&inventory[index])
         stampInventory(at: index)
+        if requestEnrichment {
+            NotificationCenter.default.post(name: .macInventoryNeedsCatalogEnrichment, object: id)
+        }
     }
 
     func deleteInventory(ids: Set<UUID>) {
@@ -442,7 +465,7 @@ final class MacKitchenStore {
     // MARK: - Recipes
 
     func addRecipe(_ recipe: UserRecipe) {
-        guard MacRecipeImagePolicy.isUsable(recipe.imageData) else { return }
+        guard MacRecipeImagePolicy.hasRequiredImage(recipe) else { return }
         var copy = recipe
         copy.title = RecipeTitlePolicy.cleaned(copy.title)
         copy.updatedAt = nowMillis
@@ -455,7 +478,7 @@ final class MacKitchenStore {
         guard let index = recipes.firstIndex(where: { $0.id == id }) else { return }
         var updated = recipes[index]
         change(&updated)
-        guard MacRecipeImagePolicy.isUsable(updated.imageData) else { return }
+        guard MacRecipeImagePolicy.hasRequiredImage(updated) else { return }
         updated.title = RecipeTitlePolicy.cleaned(updated.title)
         recipes[index] = updated
         stampRecipe(at: index)

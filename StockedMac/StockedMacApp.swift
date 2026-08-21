@@ -53,6 +53,10 @@ struct StockedMacApp: App {
                 // A gentle fade rather than a hard swap, so signing in doesn't feel like
                 // the window was replaced underneath you.
                 .animation(.easeInOut(duration: 0.22), value: auth.isSignedIn)
+                .onReceive(NotificationCenter.default.publisher(for: .macInventoryNeedsCatalogEnrichment)) { note in
+                    guard let id = note.object as? UUID else { return }
+                    Task { await catalog.enrichInventoryItem(id: id, store: store) }
+                }
                 .task {
                     // `.task` on the root view can run again if the window is recreated,
                     // so this is guarded — loading twice would be harmless but pulling
@@ -75,6 +79,7 @@ struct StockedMacApp: App {
                     // harvested recipe appear on the phone by itself.
                     harvest.kitchen = store
                     harvest.start()
+                    catalog.startServerInboxConsumer()
                     // The session is only needed by the AI routes, and getting it wrong
                     // must never block the kitchen from opening — so it is fired off
                     // rather than awaited in line with the pull.
@@ -103,7 +108,22 @@ struct StockedMacApp: App {
                     // builds only published newly approved Harvester drafts, and the Worker
                     // also capped its index at 500, so an 882-recipe kitchen could never be
                     // fully available to iPhone/iPad. Upserts are idempotent by recipe UUID.
-                    harvest.syncKitchenToCloud(store.recipes)
+                    // Let the window become interactive before starting maintenance.
+                    // These jobs used to stack during launch and briefly pushed the app
+                    // above a gigabyte while full catalog snapshots were also encoding.
+                    Task {
+                        try? await Task.sleep(for: .seconds(8))
+                        harvest.syncKitchenToCloud(store.recipes, force: false)
+                        if catalog.isBulkImportEnabled {
+                            // The continuous importer already enriches as it walks sources;
+                            // do only a small rotating retroactive pass alongside it.
+                            await catalog.enrichAllExisting(batchSize: 3)
+                        } else {
+                            await catalog.enrichAllExisting(batchSize: 8)
+                        }
+                        await catalog.enrichInventoryBatch(store: store, limit: 5)
+                        catalog.resumeBulkImportIfEnabled()
+                    }
                 }
         }
         .defaultSize(width: 1140, height: 760)
