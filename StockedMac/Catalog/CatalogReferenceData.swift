@@ -582,6 +582,21 @@ nonisolated enum CatalogReferenceData {
     Simple Truth
     Simply Nature
     Specially Selected
+    Sam's Choice
+    Waterfront Bistro
+    Primo Taglio
+    Nature's Promise
+    Taste of Inspirations
+    Guaranteed Value
+    CareOne
+    Wellsley Farms
+    Berkley Jensen
+    Wholesome Pantry
+    Paperbird
+    True Goodness by Meijer
+    Meijer Organics
+    Frederik's by Meijer
+    Purple Cow
     Trader Joe's
     """)
 
@@ -667,12 +682,124 @@ nonisolated enum CatalogReferenceData {
         .init("Priano Pasta", "Priano", "ALDI", "Pasta", "Pasta, Rice & Grains", aldiBrands),
         .init("Pueblo Lindo Tortillas", "Pueblo Lindo", "ALDI", "Tortillas", "International", aldiBrands),
         .init("Southern Grove Nuts", "Southern Grove", "ALDI", "Nuts", "Snacks", aldiBrands),
-        .init("Tuscan Garden Salad Dressing", "Tuscan Garden", "ALDI", "Salad dressing", "Condiments & Spices", aldiBrands)
+        .init("Tuscan Garden Salad Dressing", "Tuscan Garden", "ALDI", "Salad dressing", "Condiments & Spices", aldiBrands),
+
+        // Walmart own brands
+        .init("Great Value Whole Milk", "Great Value", "Walmart", "Milk", "Dairy & Eggs", walmartHub),
+        .init("Great Value Large White Eggs", "Great Value", "Walmart", "Eggs", "Dairy & Eggs", walmartHub),
+        .init("Great Value Shredded Mild Cheddar Cheese", "Great Value", "Walmart", "Cheese", "Dairy & Eggs", walmartHub),
+        .init("Great Value Creamy Peanut Butter", "Great Value", "Walmart", "Peanut butter", "Condiments & Spices", walmartHub),
+        .init("Great Value Thin Spaghetti", "Great Value", "Walmart", "Pasta", "Pasta, Rice & Grains", walmartHub),
+        .init("Marketside Caesar Salad Kit", "Marketside", "Walmart", "Salad kit", "Produce", walmartHub),
+        .init("Marketside Brioche Hamburger Buns", "Marketside", "Walmart", "Bread", "Bakery", walmartHub),
+        .init("Freshness Guaranteed Rotisserie Chicken", "Freshness Guaranteed", "Walmart", "Prepared chicken", "Deli & Prepared Foods", walmartHub),
+        .init("bettergoods Plant-Based Oat Milk", "bettergoods", "Walmart", "Plant based milk", "Dairy & Eggs", walmartHub),
+        .init("Sam's Choice Cola", "Sam's Choice", "Walmart", "Soda", "Beverages", walmartHub),
+
+        // Target own brands
+        .init("Good & Gather Whole Milk", "Good & Gather", "Target", "Milk", "Dairy & Eggs", targetHub),
+        .init("Good & Gather Large Grade A Eggs", "Good & Gather", "Target", "Eggs", "Dairy & Eggs", targetHub),
+        .init("Good & Gather Organic Baby Spinach", "Good & Gather", "Target", "Fresh vegetables", "Produce", targetHub),
+        .init("Good & Gather Thin Spaghetti", "Good & Gather", "Target", "Pasta", "Pasta, Rice & Grains", targetHub),
+        .init("Good & Gather Marinara Pasta Sauce", "Good & Gather", "Target", "Pasta sauce", "Canned & Jarred", targetHub),
+        .init("Good & Gather Kettle Cooked Potato Chips", "Good & Gather", "Target", "Potato chips", "Snacks", targetHub),
+        .init("Favorite Day Chocolate Chip Cookies", "Favorite Day", "Target", "Cookies", "Bakery", targetHub),
+        .init("Favorite Day Vanilla Ice Cream", "Favorite Day", "Target", "Ice cream", "Frozen", targetHub),
+        .init("Market Pantry Shredded Cheddar Cheese", "Market Pantry", "Target", "Cheese", "Dairy & Eggs", targetHub),
+        .init("Good & Gather Sparkling Water", "Good & Gather", "Target", "Sparkling water", "Beverages", targetHub),
+
+        // Kroger own brands
+        .init("Kroger Whole Milk", "Kroger", "Kroger", "Milk", "Dairy & Eggs", krogerHub),
+        .init("Kroger Large Eggs", "Kroger", "Kroger", "Eggs", "Dairy & Eggs", krogerHub),
+        .init("Kroger Shredded Cheddar Cheese", "Kroger", "Kroger", "Cheese", "Dairy & Eggs", krogerHub),
+        .init("Simple Truth Organic Baby Spinach", "Simple Truth", "Kroger", "Fresh vegetables", "Produce", krogerHub),
+        .init("Simple Truth Organic Black Beans", "Simple Truth", "Kroger", "Canned beans", "Canned & Jarred", krogerHub),
+        .init("Private Selection Marinara Pasta Sauce", "Private Selection", "Kroger", "Pasta sauce", "Canned & Jarred", krogerHub),
+        .init("Private Selection Vanilla Bean Ice Cream", "Private Selection", "Kroger", "Ice cream", "Frozen", krogerHub),
+        .init("Home Chef Heat & Eat Meal", "Home Chef", "Kroger", "Prepared meals", "Deli & Prepared Foods", krogerHub),
+        .init("Kroger Thin Spaghetti", "Kroger", "Kroger", "Pasta", "Pasta, Rice & Grains", krogerHub),
+        .init("Smart Way Potato Chips", "Smart Way", "Kroger", "Potato chips", "Snacks", krogerHub),
+
+        // Costco — Kirkland Signature
+        .init("Kirkland Signature Organic Whole Milk", "Kirkland Signature", "Costco", "Milk", "Dairy & Eggs", costcoHub),
+        .init("Kirkland Signature Cage Free Eggs", "Kirkland Signature", "Costco", "Eggs", "Dairy & Eggs", costcoHub),
+        .init("Kirkland Signature Organic Ground Beef", "Kirkland Signature", "Costco", "Ground beef", "Meat & Seafood", costcoHub),
+        .init("Kirkland Signature Rotisserie Chicken", "Kirkland Signature", "Costco", "Prepared chicken", "Deli & Prepared Foods", costcoHub),
+        .init("Kirkland Signature Organic Extra Virgin Olive Oil", "Kirkland Signature", "Costco", "Olive oil", "Condiments & Spices", costcoHub),
+        .init("Kirkland Signature Organic Peanut Butter", "Kirkland Signature", "Costco", "Peanut butter", "Condiments & Spices", costcoHub),
+        .init("Kirkland Signature Ground Coffee", "Kirkland Signature", "Costco", "Coffee", "Beverages", costcoHub),
+        .init("Kirkland Signature Semi-Sweet Chocolate Chips", "Kirkland Signature", "Costco", "Baking chips", "Baking", costcoHub),
+        .init("Kirkland Signature Trail Mix", "Kirkland Signature", "Costco", "Trail mix", "Snacks", costcoHub),
+        .init("Kirkland Signature Purified Water", "Kirkland Signature", "Costco", "Bottled water", "Beverages", costcoHub),
+
+        // Publix own brands
+        .init("Publix Whole Milk", "Publix", "Publix", "Milk", "Dairy & Eggs", publixHub),
+        .init("Publix Large Eggs", "Publix", "Publix", "Eggs", "Dairy & Eggs", publixHub),
+        .init("Publix Deli Chicken Tender Sub", "Publix Deli", "Publix", "Prepared sandwiches", "Deli & Prepared Foods", publixHub),
+        .init("Publix Bakery Chocolate Chip Cookies", "Publix Bakery", "Publix", "Cookies", "Bakery", publixHub),
+        .init("Publix Premium Vanilla Ice Cream", "Publix Premium", "Publix", "Ice cream", "Frozen", publixHub),
+        .init("Publix GreenWise Organic Baby Spinach", "Publix GreenWise", "Publix", "Fresh vegetables", "Produce", publixHub),
+        .init("Publix GreenWise Organic Black Beans", "Publix GreenWise", "Publix", "Canned beans", "Canned & Jarred", publixHub),
+        .init("Publix Thin Spaghetti", "Publix", "Publix", "Pasta", "Pasta, Rice & Grains", publixHub),
+        .init("Publix Kettle Cooked Potato Chips", "Publix", "Publix", "Potato chips", "Snacks", publixHub),
+        .init("Publix Shredded Cheddar Cheese", "Publix", "Publix", "Cheese", "Dairy & Eggs", publixHub),
+
+        // Sam's Club — Member's Mark
+        .init("Member's Mark Whole Milk", "Member's Mark", "Sam's Club", "Milk", "Dairy & Eggs", samsHub),
+        .init("Member's Mark Cage Free Large Eggs", "Member's Mark", "Sam's Club", "Eggs", "Dairy & Eggs", samsHub),
+        .init("Member's Mark Rotisserie Chicken", "Member's Mark", "Sam's Club", "Prepared chicken", "Deli & Prepared Foods", samsHub),
+        .init("Member's Mark Purified Water", "Member's Mark", "Sam's Club", "Bottled water", "Beverages", samsHub),
+        .init("Member's Mark Organic Extra Virgin Olive Oil", "Member's Mark", "Sam's Club", "Olive oil", "Condiments & Spices", samsHub),
+        .init("Member's Mark Ground Coffee", "Member's Mark", "Sam's Club", "Coffee", "Beverages", samsHub),
+        .init("Member's Mark Sea Salt Kettle Chips", "Member's Mark", "Sam's Club", "Potato chips", "Snacks", samsHub),
+        .init("Member's Mark Shredded Mozzarella Cheese", "Member's Mark", "Sam's Club", "Cheese", "Dairy & Eggs", samsHub),
+
+        // Albertsons / Safeway own brands
+        .init("Signature Select Whole Milk", "Signature Select", "Albertsons", "Milk", "Dairy & Eggs", albertsonsHub),
+        .init("Lucerne Large Eggs", "Lucerne", "Albertsons", "Eggs", "Dairy & Eggs", albertsonsHub),
+        .init("Lucerne Shredded Cheddar Cheese", "Lucerne", "Albertsons", "Cheese", "Dairy & Eggs", albertsonsHub),
+        .init("O Organics Organic Baby Spinach", "O Organics", "Albertsons", "Fresh vegetables", "Produce", albertsonsHub),
+        .init("O Organics Organic Black Beans", "O Organics", "Albertsons", "Canned beans", "Canned & Jarred", albertsonsHub),
+        .init("Open Nature Boneless Skinless Chicken Breast", "Open Nature", "Albertsons", "Chicken", "Meat & Seafood", albertsonsHub),
+        .init("Signature Select Marinara Pasta Sauce", "Signature Select", "Albertsons", "Pasta sauce", "Canned & Jarred", albertsonsHub),
+        .init("Primo Taglio Sliced Deli Turkey", "Primo Taglio", "Albertsons", "Deli meat", "Deli & Prepared Foods", albertsonsHub),
+        .init("Signature Select Kettle Potato Chips", "Signature Select", "Albertsons", "Potato chips", "Snacks", albertsonsHub),
+        .init("Signature Select Sparkling Water", "Signature Select", "Albertsons", "Sparkling water", "Beverages", albertsonsHub),
+
+        // Ahold Delhaize (Food Lion / Stop & Shop / Giant)
+        .init("Nature's Promise Organic Whole Milk", "Nature's Promise", "Food Lion", "Milk", "Dairy & Eggs", aholdHub),
+        .init("Nature's Promise Organic Large Eggs", "Nature's Promise", "Stop & Shop", "Eggs", "Dairy & Eggs", aholdHub),
+        .init("Nature's Promise Organic Baby Spinach", "Nature's Promise", "Giant Food", "Fresh vegetables", "Produce", aholdHub),
+        .init("Taste of Inspirations Brioche Buns", "Taste of Inspirations", "Stop & Shop", "Bread", "Bakery", aholdHub),
+        .init("Taste of Inspirations Aged Sharp Cheddar", "Taste of Inspirations", "Giant Food", "Cheese", "Dairy & Eggs", aholdHub),
+        .init("Guaranteed Value Thin Spaghetti", "Guaranteed Value", "Food Lion", "Pasta", "Pasta, Rice & Grains", aholdHub),
+        .init("Nature's Promise Organic Black Beans", "Nature's Promise", "Food Lion", "Canned beans", "Canned & Jarred", aholdHub),
+        .init("Nature's Promise Kettle Potato Chips", "Nature's Promise", "Stop & Shop", "Potato chips", "Snacks", aholdHub),
+
+        // Meijer own brands
+        .init("Meijer Whole Milk", "Meijer", "Meijer", "Milk", "Dairy & Eggs", meijerHub),
+        .init("Meijer Large Eggs", "Meijer", "Meijer", "Eggs", "Dairy & Eggs", meijerHub),
+        .init("Meijer Shredded Cheddar Cheese", "Meijer", "Meijer", "Cheese", "Dairy & Eggs", meijerHub),
+        .init("True Goodness by Meijer Organic Baby Spinach", "True Goodness by Meijer", "Meijer", "Fresh vegetables", "Produce", meijerHub),
+        .init("True Goodness by Meijer Organic Black Beans", "True Goodness by Meijer", "Meijer", "Canned beans", "Canned & Jarred", meijerHub),
+        .init("Meijer Marinara Pasta Sauce", "Meijer", "Meijer", "Pasta sauce", "Canned & Jarred", meijerHub),
+        .init("Purple Cow Vanilla Ice Cream", "Purple Cow", "Meijer", "Ice cream", "Frozen", meijerHub),
+        .init("Frederik's by Meijer Brie Cheese", "Frederik's by Meijer", "Meijer", "Specialty cheese", "Dairy & Eggs", meijerHub),
+        .init("Meijer Thin Spaghetti", "Meijer", "Meijer", "Pasta", "Pasta, Rice & Grains", meijerHub),
+        .init("Meijer Kettle Potato Chips", "Meijer", "Meijer", "Potato chips", "Snacks", meijerHub)
     ]
 
-    static func records(matching rawQuery: String, limit: Int) -> [CatalogRecord] {
+    static func records(matching rawQuery: String, limit: Int, homeState: String? = nil) -> [CatalogRecord] {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        let stores = filtered(storeNames, by: query)
+        var stores = filtered(storeNames, by: query)
+        if let homeState, !homeState.isEmpty {
+            let code = stateCode(homeState)
+            stores = stores.enumerated()
+                .sorted { storeRank($0.element, code) != storeRank($1.element, code)
+                    ? storeRank($0.element, code) < storeRank($1.element, code)
+                    : $0.offset < $1.offset }
+                .map(\.element)
+        }
         let brands = filtered(brandNames, by: query)
         let products = retailerProducts.filter { $0.matches(query) }
         let safeLimit = max(1, limit)
@@ -693,8 +820,106 @@ nonisolated enum CatalogReferenceData {
         return rows
     }
 
+    // MARK: - Regional weighting (Improvement 1)
+
+    /// Coarse state-level footprint for the clearly-regional banners, keyed by the exact name used
+    /// in `storeNames`. Stores absent here are treated as national and never demoted.
+    private static let storeRegions: [String: Set<String>] = [
+        "H-E-B": ["TX"], "H-E-B plus!": ["TX"], "Central Market": ["TX"], "Joe V's Smart Shop": ["TX"],
+        "Mi Tienda": ["TX"], "United Supermarkets": ["TX"], "Tom Thumb": ["TX"], "Randalls": ["TX"],
+        "Publix": ["FL", "GA", "AL", "SC", "NC", "TN", "VA", "KY"],
+        "Winn-Dixie": ["FL", "GA", "AL", "LA", "MS"], "Harveys Supermarket": ["FL", "GA", "SC"],
+        "Meijer": ["MI", "OH", "IN", "IL", "KY", "WI"], "Woodman's Markets": ["WI", "IL"],
+        "Food Lion": ["NC", "SC", "VA", "GA", "TN", "PA", "MD", "DE", "WV", "KY"],
+        "Giant Food": ["MD", "VA", "DC", "DE"], "Giant Eagle": ["PA", "OH", "WV", "IN", "MD"],
+        "Stop & Shop": ["MA", "CT", "RI", "NY", "NJ"], "Hannaford": ["ME", "NH", "VT", "MA", "NY"],
+        "ShopRite": ["NJ", "NY", "CT", "PA", "DE", "MD"], "Wegmans": ["NY", "NJ", "PA", "MD", "VA", "MA", "NC", "DE"],
+        "Hy-Vee": ["IA", "IL", "MO", "KS", "NE", "MN", "SD", "WI", "IN"],
+        "WinCo Foods": ["ID", "WA", "OR", "CA", "NV", "UT", "TX", "AZ", "OK", "MT"],
+        "Vons": ["CA", "NV"], "Ralphs": ["CA"], "Jewel-Osco": ["IL", "IN", "IA"], "Acme Markets": ["PA", "NJ", "DE", "MD", "NY", "CT"],
+        "Fred Meyer": ["OR", "WA", "ID", "AK"], "QFC": ["WA", "OR"], "King Soopers": ["CO"], "Fry's Food Stores": ["AZ"],
+        "Harris Teeter": ["NC", "SC", "VA", "GA", "MD", "DE", "FL", "DC"], "Ingles Markets": ["NC", "SC", "GA", "TN", "VA", "AL"],
+    ]
+
+    private static let stateNameToCode: [String: String] = [
+        "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
+        "colorado": "CO", "connecticut": "CT", "delaware": "DE", "district of columbia": "DC",
+        "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID", "illinois": "IL",
+        "indiana": "IN", "iowa": "IA", "kansas": "KS", "kentucky": "KY", "louisiana": "LA",
+        "maine": "ME", "maryland": "MD", "massachusetts": "MA", "michigan": "MI", "minnesota": "MN",
+        "mississippi": "MS", "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV",
+        "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+        "north carolina": "NC", "north dakota": "ND", "ohio": "OH", "oklahoma": "OK", "oregon": "OR",
+        "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC", "south dakota": "SD",
+        "tennessee": "TN", "texas": "TX", "utah": "UT", "vermont": "VT", "virginia": "VA",
+        "washington": "WA", "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
+    ]
+
+    /// Normalize a US state input (two-letter code or full name) to its uppercase code.
+    static func stateCode(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.count == 2 { return trimmed.uppercased() }
+        return stateNameToCode[trimmed.lowercased()] ?? trimmed.uppercased()
+    }
+
+    /// 0 = operates in the home state, 1 = national (unmapped), 2 = out-of-region.
+    private static func storeRank(_ storeName: String, _ code: String) -> Int {
+        guard let footprint = storeRegions[storeName], !footprint.isEmpty else { return 1 }
+        return footprint.contains(code) ? 0 : 2
+    }
+
+    // MARK: - Canonical product key + cross-store dedup (Improvement 2)
+
+    private static let canonicalNoise: Set<String> = [
+        "organic", "original", "classic", "premium", "natural", "fresh", "whole", "large", "small",
+        "kettle", "cooked", "style", "value", "brand", "the", "by", "of", "with", "and", "grade", "a",
+        "select", "signature", "family", "size", "pack", "sliced", "shredded", "boneless", "skinless",
+    ]
+
+    private static func canonicalNormalize(_ value: String) -> String {
+        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .replacingOccurrences(of: "&", with: " and ")
+            .replacingOccurrences(of: #"[^a-zA-Z0-9]+"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    /// Reduce a branded product name to a normalized generic key so store-brand equivalents across
+    /// banners ("Kroger Whole Milk", "Great Value Whole Milk") collapse for dedup/merge.
+    static func canonicalKey(_ name: String) -> String {
+        var value = " " + canonicalNormalize(name) + " "
+        for brand in brandNames.sorted(by: { $0.count > $1.count }) {
+            let token = canonicalNormalize(brand)
+            guard !token.isEmpty, value.contains(" " + token + " ") else { continue }
+            value = value.replacingOccurrences(of: " " + token + " ", with: " ")
+        }
+        let words = value.split(separator: " ").map(String.init)
+            .filter { !$0.isEmpty && !canonicalNoise.contains($0) }
+        return words.joined(separator: " ")
+    }
+
+    /// Every reference product that shares a product's canonical identity — the store-brand
+    /// equivalents of the same item across retailers. Used to merge rather than duplicate records.
+    static func productEquivalents(for name: String) -> [(name: String, brand: String, store: String)] {
+        let key = canonicalKey(name)
+        guard !key.isEmpty else { return [] }
+        return retailerProducts
+            .filter { canonicalKey($0.name) == key }
+            .map { (name: $0.name, brand: $0.brand, store: $0.store) }
+    }
+
     private static let hebHub = "https://www.heb.com/discover/own-brand-hub"
     private static let aldiBrands = "https://www.aldi.us/store/aldi/pages/aldi-brands"
+    private static let walmartHub = "https://www.walmart.com/cp/private-brands/1224932"
+    private static let targetHub = "https://www.target.com/c/our-own-brands/-/N-4tuxs"
+    private static let krogerHub = "https://www.kroger.com/pr/our-brands"
+    private static let costcoHub = "https://www.costco.com/kirkland-signature.html"
+    private static let publixHub = "https://www.publix.com/products-services/publix-brand"
+    private static let samsHub = "https://www.samsclub.com/b/members-mark"
+    private static let albertsonsHub = "https://www.albertsons.com/our-brands.html"
+    private static let aholdHub = "https://www.foodlion.com/brands/"
+    private static let meijerHub = "https://www.meijer.com/shopping/meijer-brands.html"
 
     private struct RetailerProduct: Sendable {
         var name: String
