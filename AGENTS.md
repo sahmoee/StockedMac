@@ -19,6 +19,8 @@ This is the single authoritative instruction contract for Codex, Claude, and any
 
 Every window, page, sheet, popover, and alert must use the StockedMac theme across its complete presentation surface. Layouts and controls must respond to live window size, display scale, accessibility settings, and full-screen or split-window use. Prefer resizable frames, adaptive columns, and minimum sizes; fixed dimensions are only for intentional image/media geometry. Do not lock scrolling where resized windows need it or force scrolling when content fits.
 
+App-level toolbars, sidebars, and tab selectors have one shared implementation and one geometry source. Feature pages must not locally override brand placement, chrome height, safe-area spacing, icon slots, labels, or selected-tab geometry.
+
 ## Cross-project ownership and synchronization
 
 
@@ -33,6 +35,8 @@ StockedMac owns cuisine discovery collections and their cross-site cache index. 
 The expanded English-language global source catalog is StockedMac-owned discovery configuration. Only successfully parsed, image-complete recipes cross into the shared Worker/iOS recipe schema; source profiles and crawling policy do not sync to Stocked iOS.
 
 The Server Mac may prefetch sitemap candidates and deliver versioned immutable batches to StockedMac. It must never write recipes directly to StockedMac, UnifiedWorker, or Stocked iOS. The existing StockedMac import and publication path remains the only funnel into shared recipe data.
+
+StockedMac's Browse screen is the operator view for that bridge. Keep server freshness/source, candidate, pending-batch, acknowledged-batch, approved, and Review counts visible without loading batch contents during SwiftUI rendering. Refresh uses the normal inbox consumer and may never bypass recipe validation.
 
 Server category indexes are source-scoped cache hints, not shared recipe taxonomy. Server catalog batches are grocery-only and merge into StockedMac by normalized identity and provenance; they do not bypass the Worker-owned retail adapters or create a second iOS schema.
 

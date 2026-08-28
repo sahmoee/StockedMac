@@ -110,7 +110,7 @@ final class HarvestModel {
     /// The versioned pass repairs local records and seeds their sources for bounded reparse.
     // v6 requeues every historical source so older recipes receive the same current
     // nutrition/category/source/image extraction used by all future imports.
-    static let currentRecipeRepairRevision = 6
+    static let currentRecipeRepairRevision = 7
 
     // MARK: - Observable state
 
@@ -165,6 +165,7 @@ final class HarvestModel {
     /// discovery/category data changes; rows never reread every JSON report on redraw.
     private(set) var cuisineRecipeCache: [String: [String]] = [:]
     private(set) var serverCacheHealth: ServerCacheHealth?
+    private(set) var serverRecipeBridgeStatus = ServerRecipeBridgeStatus()
     @ObservationIgnored private var cuisineCacheRebuildTask: Task<Void, Never>?
     @ObservationIgnored private var serverInboxTask: Task<Void, Never>?
     /// Sources still to visit in the current auto-rotate run.
@@ -396,6 +397,38 @@ final class HarvestModel {
         serverCacheHealth = health
     }
 
+    /// Refreshes both sides of the visible bridge immediately. The same safe consumer
+    /// used by the timer is used here, so Refresh cannot bypass queue, image, duplicate,
+    /// attribution, approval, or household publication rules.
+    func refreshServerRecipeBridge() {
+        loadServerCacheHealth()
+        consumeServerInbox()
+    }
+
+    private func updateServerRecipeBridgeStatus(pendingBatchCount: Int? = nil) {
+        let pending = pendingBatchCount ?? ((try? FileManager.default.contentsOfDirectory(
+            at: paths.serverInbox,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ))?.filter { file in
+            guard file.pathExtension.lowercased() == "json" else { return false }
+            let receipt = paths.serverInboxReceipts
+                .appendingPathComponent(file.deletingPathExtension().lastPathComponent)
+                .appendingPathExtension("receipt")
+            return !FileManager.default.fileExists(atPath: receipt.path)
+        }.count) ?? 0
+        let acknowledged = ((try? FileManager.default.contentsOfDirectory(
+            at: paths.serverInboxReceipts,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ))?.filter { $0.pathExtension.lowercased() == "receipt" }.count) ?? 0
+        serverRecipeBridgeStatus = ServerRecipeBridgeStatus(
+            pendingBatchCount: pending,
+            acknowledgedBatchCount: acknowledged,
+            lastCheckedAt: Date()
+        )
+    }
+
     private func consumeServerInbox() {
         let files = ((try? FileManager.default.contentsOfDirectory(
             at: paths.serverInbox,
@@ -408,7 +441,10 @@ final class HarvestModel {
                 .appendingPathExtension("receipt")
             return !FileManager.default.fileExists(atPath: receipt.path)
         }.sorted { $0.lastPathComponent < $1.lastPathComponent }) ?? []
-        guard !files.isEmpty else { return }
+        guard !files.isEmpty else {
+            updateServerRecipeBridgeStatus(pendingBatchCount: 0)
+            return
+        }
 
         let decoder = JSONCoding.decoder()
         for file in files.prefix(10) {
@@ -453,6 +489,7 @@ final class HarvestModel {
         if settings.autopilot, queuedURLCount > 0, !isImporting, !isDiscovering, !isBulkVerifying {
             importURLs()
         }
+        updateServerRecipeBridgeStatus()
     }
 
     func reload() async {
@@ -565,7 +602,7 @@ final class HarvestModel {
             errorMessage = "Enter at least one http or https recipe URL."
             return
         }
-        let batchSize = settings.importBatchSize
+        let batchSize = min(2_000, max(1, settings.importBatchSize))
         let batch = (batchSize > 0 && all.count > batchSize) ? Array(all.prefix(batchSize)) : all
         let rest = Array(all.dropFirst(batch.count))
         importText = rest.joined(separator: "\n")
@@ -585,7 +622,7 @@ final class HarvestModel {
             .compactMap { try? URLSafety.validatedRemoteURL($0) }
             .map { URLSafety.normalized($0).absoluteString }
             .filter { seen.insert($0).inserted }
-        let batchSize = max(1, settings.importBatchSize)
+        let batchSize = min(2_000, max(1, settings.importBatchSize))
         let batch = Array(urls.prefix(batchSize))
         let remainder = Array(urls.dropFirst(batch.count))
         if !remainder.isEmpty { _ = prependImportURLs(remainder) }
@@ -1287,7 +1324,11 @@ final class HarvestModel {
                 let shouldAutoImport = !addToQueueOnly
                     && (self.settings.autoImportVerified || self.settings.autopilot)
                 if shouldAutoImport, !report.confirmed.isEmpty {
-                    self.importDirect(report.confirmed.map(\.url))
+                    var candidates = report.confirmed.map(\.url)
+                    if self.settings.randomizeMultiSourceImports, candidates.count > 1 {
+                        candidates.shuffle()
+                    }
+                    self.importDirect(candidates)
                 } else if shouldAutoImport,
                           report.confirmed.isEmpty,
                           !report.unverified.isEmpty {
@@ -3228,9 +3269,12 @@ final class HarvestModel {
             discoveryFailure = "No enabled source supports browsing."
             return
         }
-        let chosen: [String] = sourceIDs.isEmpty
+        var chosen: [String] = sourceIDs.isEmpty
             ? Array(eligible.map(\.id).prefix(max(1, settings.autoRotateSourceCount)))
             : eligible.map(\.id).filter { sourceIDs.contains($0) }
+        if settings.randomizeMultiSourceImports, chosen.count > 1 {
+            chosen.shuffle()
+        }
         guard !chosen.isEmpty else {
             discoveryFailure = "None of the selected sources can browse."
             return

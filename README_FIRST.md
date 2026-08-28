@@ -10,6 +10,8 @@ Kroger discovery uses the authenticated UnifiedWorker retail gateway; Kroger and
 
 The normal Find flow is hands-off: discovery imports immediately, complete image-backed recipes approve and publish automatically, and only incomplete records wait for attention. Preserve original image bytes and URLs; never introduce lossy sync re-encoding.
 
+Recipe scan and import batches accept typed limits from 1 through 2,000. Multi-source runs may randomize the selected source subset and candidate order for variety, but randomization changes order only: requests remain bounded, serial per host, resumable, cooldown-aware, deduplicated, and subject to the same image and attribution gates.
+
 The Categories screen owns both source-specific category pages and canonical cross-site cuisine collections. Cuisine collections are always visible, automatically index matching cached recipes from multiple websites, and can run a bounded multi-source Find & Import through the same image-required, deduplicated, resumable import pipeline. Do not replace them with single-site links or compute their index during SwiftUI row rendering.
 
 The visible `Cuisines & cultures` collection must match Stocked iOS `RecipeTaxonomy.cuisines`, except that the non-browsable `Other` fallback stays hidden. Normalize specific publisher labels into that shared set; never expand the Mac-only cultural taxonomy independently.
@@ -17,6 +19,10 @@ The visible `Cuisines & cultures` collection must match Stocked iOS `RecipeTaxon
 Category rows stay materialized, and the cross-site cuisine cache rebuilds off the main actor with coalescing. Never restore per-render catalog sorting, per-cuisine repeated normalization, or synchronous reads of every cached report/category file; those paths block sidebar tab selection on large libraries.
 
 Server Mac discovery is an additive prefetch tier. It may emit immutable URL batches into `ServerInbox`, but those batches are untrusted candidates: StockedMac remains the sole owner of queue limits, parsing, required-image validation, deduplication, approval, publication, and household/iOS sync. A batch is acknowledged only after its valid URLs reach the durable queue.
+
+The Browse screen must keep the Server Mac recipe bridge observable at launch: show service freshness/current source, cached candidates, pending and accepted batches, approved recipes, and the count routed to Review. Its manual refresh must invoke the same gated consumer as the timer; complete image-backed recipes may auto-approve, while incomplete recipes remain visible in the ordinary Review list.
+
+The background discovery launch agent runs every 15 minutes and uses a persisted no-repeat shuffle bag for enabled publishers plus a deterministic shuffle of the shared cuisine set. It may randomize fair work order, but must never bypass robots, authentication, throttling, the required-image gate, canonical source attribution, or StockedMac's approval boundary. Imported and historical titles are standardized only when their casing is clearly broken; intentional publisher casing remains intact.
 
 Server batches may also carry source-scoped category indexes and grocery catalog records. Category indexes populate the same mined-page cache; grocery records enter only through `CatalogModel`'s grocery-only provenance and identity merge. Health telemetry is display-only and can never bypass a gate or make server availability a launch dependency.
 

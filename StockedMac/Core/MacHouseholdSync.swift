@@ -219,8 +219,11 @@ final class MacHouseholdSync {
 
     // MARK: - Transport
 
-    /// One POST helper for every household route. Kept byte-compatible with the iOS
-    /// version, including the 12-second timeout and the 429 / kvQuota handling.
+    /// One POST helper for every household route. Household writes are idempotent (rows
+    /// merge by id/revision), so transient transport failures can be retried safely.
+    /// Large recipe pushes need more headroom than presence and incremental pulls: the
+    /// Worker may merge hundreds of recipes and return the complete household on the
+    /// final batch.
     private func post(_ path: String, _ body: [String: Any]) async -> [String: Any]? {
         guard let url = URL(string: MacBuildConfig.receiptWorkerURL + path) else { return nil }
         guard JSONSerialization.isValidJSONObject(body) else {
@@ -233,7 +236,8 @@ final class MacHouseholdSync {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         MacBuildConfig.authorizeWorkerRequest(&request)
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        request.timeoutInterval = 12
+        let isHouseholdPush = path == "/household/push"
+        request.timeoutInterval = isHouseholdPush ? 30 : 12
 
         let repairDelays: [Duration] = [.milliseconds(500), .seconds(1), .seconds(2)]
         for attempt in 0...repairDelays.count {
@@ -271,6 +275,15 @@ final class MacHouseholdSync {
             return object
           } catch is CancellationError {
             return nil
+          } catch let error as URLError
+              where Self.isRecoverableTransportError(error) && attempt < repairDelays.count {
+            status = .repairing(attempt + 1)
+            log.warning(
+                "household \(path, privacy: .public) transport retry \(attempt + 1, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            try? await Task.sleep(for: repairDelays[attempt])
+            guard !Task.isCancelled else { return nil }
+            continue
           } catch {
             log.error("household \(path, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             status = .failed("Couldn't reach Stocked. Check your connection.")
@@ -278,6 +291,21 @@ final class MacHouseholdSync {
           }
         }
         return nil
+    }
+
+    private nonisolated static func isRecoverableTransportError(_ error: URLError) -> Bool {
+        switch error.code {
+        case .timedOut,
+             .cannotFindHost,
+             .cannotConnectToHost,
+             .dnsLookupFailed,
+             .networkConnectionLost,
+             .notConnectedToInternet,
+             .resourceUnavailable:
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: - Membership

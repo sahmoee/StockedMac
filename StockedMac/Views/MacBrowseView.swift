@@ -205,6 +205,7 @@ struct MacBrowseView: View {
         HStack(alignment: .top, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    serverRecipeBridgeCard
                     quickStartCard
                     directImportCard
                     sourceCard
@@ -220,6 +221,61 @@ struct MacBrowseView: View {
 
             resultsPanel
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var serverRecipeBridgeCard: some View {
+        let bridge = harvest.serverRecipeBridgeStatus
+        let health = harvest.serverCacheHealth
+        let isFresh = health.map { Date().timeIntervalSince($0.updatedAt) < 30 * 60 } ?? false
+        let stateColor: Color = isFresh ? MacTheme.green : .orange
+        return MacCard(
+            title: "Server Mac recipe service",
+            systemImage: "server.rack",
+            footnote: isFresh ? "Automatic" : "Needs refresh"
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 7) {
+                    Circle().fill(stateColor).frame(width: 8, height: 8)
+                    Text(isFresh
+                         ? "Browsing recipe sources automatically"
+                         : "Waiting for a recent Server Mac update")
+                        .font(.caption.bold())
+                    Spacer(minLength: 0)
+                }
+
+                if let health {
+                    bridgeMetric("Current source", health.currentSource ?? "Rotating sources")
+                    bridgeMetric("Candidates cached", health.candidateCount.formatted())
+                }
+                bridgeMetric("Batches waiting", bridge.pendingBatchCount.formatted())
+                bridgeMetric("Batches accepted", bridge.acknowledgedBatchCount.formatted())
+                bridgeMetric("Approved recipes", harvest.dashboard.approved.formatted())
+                bridgeMetric("Needs verification", reviewWaiting.formatted())
+
+                Text("StockedMac verifies every server candidate, requires an image, skips duplicates, auto-approves complete recipes, and sends only incomplete recipes to Review.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 7) {
+                    Button("Refresh now") { harvest.refreshServerRecipeBridge() }
+                    if reviewWaiting > 0 {
+                        Button("Review \(reviewWaiting)") { pane = .review }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .font(.caption)
+            }
+        }
+    }
+
+    private func bridgeMetric(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Text(value).font(.caption.monospacedDigit()).lineLimit(1)
         }
     }
 
@@ -491,13 +547,28 @@ struct MacBrowseView: View {
                 Stepper(value: Binding(
                     get: { harvest.settings.scanLimit },
                     set: { harvest.settings.scanLimit = $0; harvest.scheduleSettingsSave() }
-                ), in: 5...500, step: 5) {
+                ), in: 5...2_000, step: 25) {
                     Text("Scan up to \(harvest.settings.scanLimit) recipes")
                         .font(.caption)
                 }
 
+                Toggle("Randomize selected sources and recipe order", isOn: Binding(
+                    get: { harvest.settings.randomizeMultiSourceImports },
+                    set: {
+                        harvest.settings.randomizeMultiSourceImports = $0
+                        harvest.scheduleSettingsSave()
+                    }
+                ))
+                .font(.caption)
+                .help("Uses a fresh random source subset and recipe order each run while preserving rate limits and saved progress")
+
                 if selectedSources.count > 5 {
-                    Label("Only the first 5 selected sources will be checked in this pass.", systemImage: "info.circle")
+                    Label(
+                        harvest.settings.randomizeMultiSourceImports
+                            ? "A random 5 of the selected sources will be checked in this pass."
+                            : "Only the first 5 selected sources will be checked in this pass.",
+                        systemImage: "info.circle"
+                    )
                         .font(.caption2).foregroundStyle(.orange)
                 }
 
@@ -542,7 +613,10 @@ struct MacBrowseView: View {
 
     private func startFind(forceRefresh: Bool = false) {
         let preferred = selectedSources.isEmpty ? defaultDiscoverySources : selectedSources
-        let sources = Array(preferred.prefix(5))
+        let ordered = harvest.settings.randomizeMultiSourceImports && preferred.count > 1
+            ? preferred.shuffled()
+            : preferred
+        let sources = Array(ordered.prefix(5))
         guard !sources.isEmpty else { return }
         if forceRefresh, sources.count == 1, let source = sources.first {
             harvest.discover(source, forceRefresh: true, queueResults: false)
@@ -610,12 +684,19 @@ struct MacBrowseView: View {
                     }
                     .font(.callout)
                 } else {
-                    Stepper(value: Binding(
-                        get: { harvest.settings.importBatchSize },
-                        set: { harvest.settings.importBatchSize = $0; harvest.scheduleSettingsSave() }
-                    ), in: 1...200, step: 5) {
-                        Text("Import \(harvest.settings.importBatchSize) per batch")
+                    HStack(spacing: 7) {
+                        Text("Import per batch")
                             .font(.caption)
+                        TextField("Count", value: importBatchSizeBinding, format: .number.grouping(.never))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 76)
+                            .accessibilityLabel("Recipes to import per batch")
+                        Stepper("", value: importBatchSizeBinding, in: 1...2_000, step: 25)
+                            .labelsHidden()
+                        Text("1–2,000")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
                     }
                     HStack(spacing: 6) {
                         let count = min(harvest.queuedURLCount, harvest.settings.importBatchSize)
@@ -634,6 +715,18 @@ struct MacBrowseView: View {
                 }
             }
         }
+    }
+
+    private var importBatchSizeBinding: Binding<Int> {
+        Binding(
+            get: { min(2_000, max(1, harvest.settings.importBatchSize)) },
+            set: { value in
+                let clamped = min(2_000, max(1, value))
+                harvest.settings.importBatchSize = clamped
+                harvest.settings.queueCap = max(harvest.settings.queueCap, clamped)
+                harvest.scheduleSettingsSave()
+            }
+        )
     }
 
     // MARK: - Results panel
