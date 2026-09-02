@@ -28,11 +28,12 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
     /// recovery, cloud cache. Build 100 folds the review library in too, so Browse
     /// is now the single place recipes are found, imported, AND approved.
     case browse    = "Browse"
-    case categories = "Categories"
     case sync = "Recipe Sync"
     case catalog = "Brands & Stores"
 
-    static let recipeManagerSections: [MacSection] = [.recipes, .browse, .categories, .catalog, .sync]
+    /// Categories remain an internal discovery/cache concern. The dedicated browser is
+    /// intentionally absent from the operator shell; Browse consumes the same background data.
+    static let recipeManagerSections: [MacSection] = [.recipes, .browse, .catalog, .sync]
 
     var id: String { rawValue }
 
@@ -48,7 +49,6 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
         case .tools:     return "wrench.and.screwdriver"
         case .household: return "person.2"
         case .browse:    return "globe"
-        case .categories: return "square.grid.2x2"
         case .sync: return "arrow.triangle.2.circlepath"
         case .catalog: return "storefront"
         }
@@ -60,16 +60,15 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
         case .home:      return "1"
         case .inventory: return "2"
         case .grocery:   return "3"
-        case .recipes:   return "4"
+        case .recipes:   return "1"
         case .plan:      return "5"
         case .cook:      return "6"
         case .insights:  return "7"
         case .tools:     return "8"
         case .household: return "9"
-        case .browse:    return "b"
-        case .categories: return "3"
+        case .browse:    return "2"
         case .sync: return "4"
-        case .catalog: return "s"
+        case .catalog: return "3"
         }
     }
 }
@@ -98,6 +97,7 @@ struct MacRootView: View {
     /// Owned by the App so the menu bar commands can drive the same selection the sidebar
     /// shows. A window-local @State here would leave ⌘2 doing nothing.
     @Environment(MacNavigation.self) private var navigation
+    @Environment(MacDesktopExperience.self) private var desktop
     @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     var body: some View {
@@ -112,6 +112,14 @@ struct MacRootView: View {
         }
         .navigationTitle(navigation.section.rawValue)
         .toolbar { toolbarContent }
+        .sheet(isPresented: Binding(
+            get: { desktop.isCommandPalettePresented },
+            set: { desktop.isCommandPalettePresented = $0 }
+        )) { MacCommandPalette() }
+        .sheet(isPresented: Binding(
+            get: { desktop.isImportCenterPresented },
+            set: { desktop.isImportCenterPresented = $0 }
+        )) { MacImportCenter() }
         // Pull whenever the window comes back to the front. A Mac app is left open for
         // hours, so "refresh on launch" alone would leave stale numbers on screen all day.
         .onReceive(NotificationCenter.default.publisher(
@@ -188,8 +196,6 @@ struct MacRootView: View {
             return queued > 0 ? "\(queued)" : nil
         case .household:
             return sync.isJoined ? "\(max(1, sync.members.count))" : nil
-        case .categories:
-            return harvest.allCategories.isEmpty ? nil : "\(harvest.allCategories.count)"
         case .sync:
             return sync.isJoined ? "\(max(1, sync.members.count))" : nil
         case .catalog:
@@ -262,7 +268,6 @@ struct MacRootView: View {
         case .tools:     MacToolsView()
         case .household: MacHouseholdView()
         case .browse:    MacBrowseView()
-        case .categories: MacRecipeCategoriesView()
         case .sync: MacRecipeSyncView()
         case .catalog: MacCatalogView()
         }
@@ -272,6 +277,41 @@ struct MacRootView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
+            Button { desktop.isCommandPalettePresented = true } label: {
+                Label("Commands", systemImage: "command")
+            }
+            .help("Command Palette (⌘K)")
+            Button { desktop.isImportCenterPresented = true } label: {
+                Label("Import", systemImage: "square.and.arrow.down")
+            }
+            .help("Import Center (⇧⌘I)")
+        }
+        ToolbarItemGroup(placement: .secondaryAction) {
+            if navigation.section == .recipes {
+                Picker("Recipe view", selection: Binding(
+                    get: { desktop.recipeMode },
+                    set: { desktop.recipeMode = $0 }
+                )) {
+                    ForEach(MacRecipeWorkspaceMode.allCases) { mode in
+                        Label(mode.rawValue, systemImage: mode.systemImage).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .help("Recipe list presentation")
+                Button { desktop.isInspectorPresented.toggle() } label: {
+                    Label("Inspector", systemImage: "sidebar.right")
+                }
+                .help(desktop.isInspectorPresented ? "Hide Inspector" : "Show Inspector")
+            }
+            if sync.isJoined {
+                Button { Task { await sync.syncNow(store: store) } } label: {
+                    Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(sync.status.isBusy)
+                .help(sync.status.message)
+            }
+        }
         ToolbarItem(placement: .primaryAction) {
             Button {
                 navigation.isAddingItem = true

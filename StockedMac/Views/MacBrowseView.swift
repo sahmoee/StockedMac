@@ -230,7 +230,7 @@ struct MacBrowseView: View {
         let isFresh = health.map { Date().timeIntervalSince($0.updatedAt) < 30 * 60 } ?? false
         let stateColor: Color = isFresh ? MacTheme.green : .orange
         return MacCard(
-            title: "Server Mac recipe service",
+            title: "Stocked Server",
             systemImage: "server.rack",
             footnote: isFresh ? "Automatic" : "Needs refresh"
         ) {
@@ -246,14 +246,20 @@ struct MacBrowseView: View {
 
                 if let health {
                     bridgeMetric("Current source", health.currentSource ?? "Rotating sources")
-                    bridgeMetric("Candidates cached", health.candidateCount.formatted())
+                    bridgeMetric("Candidates tracked", (health.totalCandidateCount ?? health.candidateCount).formatted())
+                    bridgeMetric("Server queue", (health.queuedCount ?? 0).formatted())
+                    bridgeMetric("Preverified by server", (health.verifiedCount ?? 0).formatted())
+                    bridgeMetric("Server review", (health.reviewCount ?? 0).formatted())
+                    if health.discoveryPausedForBacklog == true {
+                        Text("Discovery is pacing itself while the importer drains the durable queue.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                bridgeMetric("Batches waiting", bridge.pendingBatchCount.formatted())
-                bridgeMetric("Batches accepted", bridge.acknowledgedBatchCount.formatted())
-                bridgeMetric("Approved recipes", harvest.dashboard.approved.formatted())
-                bridgeMetric("Needs verification", reviewWaiting.formatted())
+                bridgeMetric("Verified batches waiting", bridge.pendingBatchCount.formatted())
+                bridgeMetric("Local review", reviewWaiting.formatted())
 
-                Text("StockedMac verifies every server candidate, requires an image, skips duplicates, auto-approves complete recipes, and sends only incomplete recipes to Review.")
+                Text("Stocked Server browses and preverifies independently. This Mac receives immutable candidates, repeats every image, attribution, duplicate, and approval gate, then publishes complete recipes; only server exceptions are retained for review.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

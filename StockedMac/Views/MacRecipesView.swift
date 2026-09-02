@@ -8,16 +8,18 @@
 // an inventory at all, so it should be visible without pressing anything.
 
 import AppKit
+import QuickLook
 import SwiftUI
 
 struct MacRecipesView: View {
     @Environment(MacKitchenStore.self) private var store
     @Environment(MacNavigation.self) private var navigation
     @Environment(HarvestModel.self) private var harvest
+    @Environment(MacDesktopExperience.self) private var desktop
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var scheme
 
     @State private var selection: UUID?
-    @State private var search = ""
     @State private var sort: Sort = .name
     @State private var favoritesOnly = false
     @State private var selectedCuisine = ""
@@ -25,6 +27,7 @@ struct MacRecipesView: View {
     @State private var selectedDifficulty = ""
     @State private var selectedRole = ""
     @State private var editingID: UUID?
+    @State private var previewURL: URL?
     @FocusState private var searchFocused: Bool
 
     private enum Sort: String, CaseIterable, Identifiable {
@@ -55,7 +58,7 @@ struct MacRecipesView: View {
     private var rows: [UserRecipe] {
         var items = store.recipes
 
-        let tokens = searchTokens(search)
+        let tokens = searchTokens(navigation.searchText)
         if !tokens.isEmpty { items = items.filter { matchesSearch($0, tokens: tokens) } }
         if favoritesOnly { items = items.filter(\.isFavorited) }
         if !selectedCuisine.isEmpty {
@@ -90,7 +93,7 @@ struct MacRecipesView: View {
     }
 
     private var activeFilterCount: Int {
-        (search.nilIfBlank == nil ? 0 : 1)
+        (navigation.searchText.nilIfBlank == nil ? 0 : 1)
             + (favoritesOnly ? 1 : 0)
             + (selectedCuisine.isEmpty ? 0 : 1)
             + (selectedTag.isEmpty ? 0 : 1)
@@ -103,10 +106,9 @@ struct MacRecipesView: View {
     var body: some View {
         @Bindable var navigation = navigation
 
-        HStack(spacing: 0) {
+        HSplitView {
             index
-                .frame(width: 330)
-            Divider()
+                .frame(minWidth: 250, idealWidth: 330, maxWidth: 500)
             Group {
                 if let recipe = current {
                     MacRecipeDetail(recipe: recipe, onEdit: { editingID = recipe.id })
@@ -125,6 +127,13 @@ struct MacRecipesView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .searchable(text: searchBinding, placement: .toolbar, prompt: "Search all recipe fields")
+        .inspector(isPresented: Binding(
+            get: { desktop.isInspectorPresented },
+            set: { desktop.isInspectorPresented = $0 }
+        )) { recipeInspector }
+        .quickLookPreview($previewURL)
+        .onDeleteCommand { deleteCurrentRecipe() }
         .sheet(isPresented: $navigation.isAddingItem) {
             MacRecipeEditor(recipe: nil) { newRecipe in
                 store.addRecipe(newRecipe)
@@ -153,13 +162,13 @@ struct MacRecipesView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search recipes", text: $search)
+                TextField("Search recipes", text: searchBinding)
                     .textFieldStyle(.plain)
                     .focused($searchFocused)
                     .help("Use quotes for an exact phrase or prefix a word with - to exclude it")
-                if !search.isEmpty {
+                if !navigation.searchText.isEmpty {
                     Button {
-                        search = ""
+                        navigation.searchText = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                     }
@@ -202,23 +211,7 @@ struct MacRecipesView: View {
 
             Divider()
 
-            List(rows, selection: $selection) { recipe in
-                indexRow(recipe)
-                    .tag(recipe.id)
-                    .contextMenu {
-                        Button("Edit…") { editingID = recipe.id }
-                        Button(recipe.isFavorited ? "Remove from favourites" : "Add to favourites") {
-                            store.toggleFavorite(recipeID: recipe.id)
-                        }
-                        Button("Copy ingredients") { copyIngredients(recipe) }
-                        Divider()
-                        Button("Delete", role: .destructive) {
-                            store.deleteRecipe(ids: [recipe.id])
-                            if selection == recipe.id { selection = nil }
-                        }
-                    }
-            }
-            .listStyle(.sidebar)
+            recipeCollection
 
             Divider()
 
@@ -246,7 +239,7 @@ struct MacRecipesView: View {
 
     private func indexRow(_ recipe: UserRecipe) -> some View {
         HStack(spacing: 9) {
-            recipeThumbnail(recipe, size: 44)
+            recipeThumbnail(recipe, size: desktop.density.thumbnailSize)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
                     if recipe.isFavorited {
@@ -275,9 +268,111 @@ struct MacRecipesView: View {
                 .font(.caption2).foregroundStyle(.tertiary)
             }
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, desktop.density.rowPadding)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(recipe.title)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { openWindow(id: "recipe", value: recipe.id) }
+        .draggable(recipe.id.uuidString)
+    }
+
+    @ViewBuilder
+    private var recipeCollection: some View {
+        switch desktop.recipeMode {
+        case .list:
+            List(rows, selection: $selection) { recipe in
+                indexRow(recipe)
+                    .tag(recipe.id)
+                    .contextMenu { recipeMenu(recipe) }
+            }
+            .listStyle(.sidebar)
+        case .table:
+            Table(rows, selection: $selection) {
+                TableColumn("Recipe") { recipe in
+                    HStack(spacing: 7) {
+                        recipeThumbnail(recipe, size: desktop.density.thumbnailSize)
+                        Text(recipe.title).lineLimit(2)
+                    }
+                    .contextMenu { recipeMenu(recipe) }
+                }
+                TableColumn("Cuisine") { recipe in Text(recipe.cuisine.nilIfBlank ?? "—") }
+                    .width(min: 80, ideal: 110)
+                TableColumn("Source") { recipe in Text(recipe.sourceName?.nilIfBlank ?? "Personal") }
+                    .width(min: 90, ideal: 130)
+                TableColumn("Added") { recipe in Text(recipe.dateCreated, style: .date) }
+                    .width(min: 80, ideal: 100)
+            }
+            .tableStyle(.inset(alternatesRowBackgrounds: true))
+        }
+    }
+
+    @ViewBuilder
+    private func recipeMenu(_ recipe: UserRecipe) -> some View {
+        Button("Open in New Window") { openWindow(id: "recipe", value: recipe.id) }
+        Button("Quick Look") { preview(recipe) }
+        Button("Edit…") { editingID = recipe.id }
+        Button(recipe.isFavorited ? "Remove from favourites" : "Add to favourites") {
+            store.toggleFavorite(recipeID: recipe.id)
+        }
+        Button("Copy ingredients") { copyIngredients(recipe) }
+        Divider()
+        Button("Delete", role: .destructive) {
+            store.deleteRecipe(ids: [recipe.id])
+            if selection == recipe.id { selection = nil }
+        }
+    }
+
+    @ViewBuilder
+    private var recipeInspector: some View {
+        if let recipe = current {
+            Form {
+                Section("Recipe") {
+                    LabeledContent("Cuisine", value: recipe.cuisine.nilIfBlank ?? "Not set")
+                    LabeledContent("Role", value: recipe.dishRole.label)
+                    LabeledContent("Difficulty", value: recipe.difficulty)
+                    LabeledContent("Servings", value: "\(recipe.servings)")
+                    LabeledContent("Ingredients", value: "\(recipe.ingredients.count)")
+                    LabeledContent("Steps", value: "\(recipe.instructions.count)")
+                }
+                Section("Provenance") {
+                    LabeledContent("Source", value: recipe.sourceName?.nilIfBlank ?? "Personal recipe")
+                    if let raw = recipe.sourceURL?.nilIfBlank, let url = URL(string: raw) {
+                        Link("Open original", destination: url)
+                    }
+                    LabeledContent("Added") { Text(recipe.dateCreated, style: .date) }
+                }
+                Section {
+                    Button("Open in New Window") { openWindow(id: "recipe", value: recipe.id) }
+                    Button("Quick Look") { preview(recipe) }
+                    Button("Edit…") { editingID = recipe.id }
+                }
+            }
+            .formStyle(.grouped)
+            .inspectorColumnWidth(min: 220, ideal: 270, max: 360)
+        } else {
+            MacEmpty(title: "No recipe selected", message: "Select a recipe to inspect its details.", systemImage: "sidebar.right")
+                .inspectorColumnWidth(min: 220, ideal: 270, max: 360)
+        }
+    }
+
+    private func deleteCurrentRecipe() {
+        guard let recipe = current else { return }
+        store.deleteRecipe(ids: [recipe.id])
+        selection = nil
+    }
+
+    private func preview(_ recipe: UserRecipe) {
+        let ingredients = recipe.ingredients.map {
+            "• " + ($0.amount.isEmpty ? $0.name : "\($0.amount) \($0.name)")
+        }.joined(separator: "\n")
+        let method = recipe.instructions.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+        let value = "\(recipe.title)\n\n\(recipe.description)\n\nINGREDIENTS\n\(ingredients)\n\nMETHOD\n\(method)\n"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Stocked-QuickLook", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let safe = recipe.title.replacingOccurrences(of: "/", with: "-")
+        let url = directory.appendingPathComponent(safe.isEmpty ? "Recipe.txt" : "\(safe).txt")
+        do { try value.write(to: url, atomically: true, encoding: .utf8); previewURL = url }
+        catch { NSSound.beep() }
     }
 
     private var filterMenu: some View {
@@ -370,7 +465,7 @@ struct MacRecipesView: View {
     }
 
     private func resetFilters() {
-        search = ""
+        navigation.searchText = ""
         favoritesOnly = false
         selectedCuisine = ""
         selectedTag = ""
@@ -385,6 +480,10 @@ struct MacRecipesView: View {
         guard !value.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(value, forType: .string)
+    }
+
+    private var searchBinding: Binding<String> {
+        Binding(get: { navigation.searchText }, set: { navigation.searchText = $0 })
     }
 
     private struct SearchToken {

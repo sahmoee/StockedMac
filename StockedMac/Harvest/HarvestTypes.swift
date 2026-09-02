@@ -604,6 +604,19 @@ nonisolated struct ServerCacheHealth: Codable, Sendable {
     var candidateCount: Int
     var catalogRecordCount: Int
     var lastError: String?
+    var service: String?
+    var independentImporter: Bool?
+    var queuedCount: Int?
+    var retryCount: Int?
+    var verifiedCount: Int?
+    var reviewCount: Int?
+    var verifiedThisRun: Int?
+    var totalCandidateCount: Int?
+    var processedCount: Int?
+    var requeuedRuntimeFailures: Int?
+    var lastSuccessfulImportAt: Date?
+    var discoveryPausedForBacklog: Bool?
+    var ignoredCount: Int?
 }
 
 /// Local, app-owned view of the Server Mac handoff. The server only supplies immutable

@@ -161,8 +161,9 @@ final class HarvestModel {
     /// Pre-sorted category rows. Keeping this materialized prevents every sidebar badge,
     /// search field, and tab transition from flattening and sorting ~1,000 records again.
     private(set) var categoryIndex: [SourceCategory] = []
-    /// Cross-site cuisine index used by the Categories UI. Rebuilt only when cached
-    /// discovery/category data changes; rows never reread every JSON report on redraw.
+    /// Background cross-site cuisine index used by discovery/import matching. Rebuilt
+    /// only when cached discovery/category data changes; app rendering never rereads
+    /// every JSON report.
     private(set) var cuisineRecipeCache: [String: [String]] = [:]
     private(set) var serverCacheHealth: ServerCacheHealth?
     private(set) var serverRecipeBridgeStatus = ServerRecipeBridgeStatus()
@@ -393,7 +394,7 @@ final class HarvestModel {
     private func loadServerCacheHealth() {
         guard let data = try? Data(contentsOf: paths.serverHealthFile),
               let health = try? JSONCoding.decoder().decode(ServerCacheHealth.self, from: data),
-              health.schemaVersion == 1 else { return }
+              (1...3).contains(health.schemaVersion) else { return }
         serverCacheHealth = health
     }
 
@@ -1168,6 +1169,18 @@ final class HarvestModel {
         if autoRotateRemaining > 0, !isDiscovering, !autopilotStopRequested {
             autoRotateRemaining -= 1
             browseNextSource()
+            return
+        }
+
+        // A Server Mac handoff can contain more URLs than one bounded import run. Keep
+        // draining the durable queue in finite passes while Autopilot is enabled; without
+        // this continuation the first pass stopped and left the rest waiting indefinitely.
+        if settings.autopilot, queuedURLCount > 0, !autopilotStopRequested {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                guard let self, !self.isImporting, !self.isDiscovering, !self.isBulkVerifying else { return }
+                self.importURLs()
+            }
             return
         }
 
