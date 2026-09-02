@@ -68,6 +68,7 @@ struct StockedMacApp: App {
                     store.sync = sync
                     store.writerID = sync.memberID
                     store.load()
+                    MacPublicRecipeSync.shared.start(store: store)
                     // StockedMac is recipe-only. Keep household transport compatible
                     // with iOS while excluding every non-recipe collection.
                     sync.syncInventory = false

@@ -4,6 +4,13 @@ import ImageIO
 /// One image invariant for every recipe entry path. A URL is only a candidate; a recipe
 /// has an image after the bytes have downloaded and ImageIO can decode a real photo.
 nonisolated enum MacRecipeImagePolicy {
+    static func isPublicImport(_ recipe: UserRecipe) -> Bool {
+        guard let raw = recipe.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let url = URL(string: raw), url.scheme?.lowercased() == "https",
+              url.host != nil else { return false }
+        return hasRequiredImage(recipe)
+    }
+
     /// Imported images are validated before persistence. Once a recipe has a stable HTTPS
     /// source, keeping the same bytes base64-encoded inside recipes.json only duplicates
     /// hundreds of megabytes in memory. Local-only recipes still retain their bytes.

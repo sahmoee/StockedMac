@@ -646,7 +646,14 @@ final class MacHouseholdSync {
         if syncPlan {
             rows += store.plannedMeals.map { "p|\($0.id)|\($0.updatedAt)|\($0.lastWriterID)" }
         }
-        let digest = SHA256.hash(data: Data(rows.sorted().joined(separator: "\n").utf8))
+        // Feed the digest a row at a time. Building one giant joined String briefly
+        // duplicates the complete recipe index every 30 seconds on large libraries.
+        var hasher = SHA256()
+        for row in rows.sorted() {
+            hasher.update(data: Data(row.utf8))
+            hasher.update(data: Data([0x0a]))
+        }
+        let digest = hasher.finalize()
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
@@ -745,8 +752,9 @@ final class MacHouseholdSync {
             let deleted = Set((payload["invDeleted"] as? [String]) ?? [])
                 .union(pendingInventoryDeletes)
             var merged = store.inventory
+            var positions = Dictionary(merged.indices.map { (merged[$0].id, $0) }, uniquingKeysWith: { first, _ in first })
             for item in remote {
-                if let index = merged.firstIndex(where: { $0.id == item.id }) {
+                if let index = positions[item.id] {
                     let local = merged[index]
                     if HouseholdMergePolicy.remoteWins(remoteUpdatedAt: item.updatedAt,
                                                        remoteWriterID: item.lastWriterID,
@@ -765,6 +773,7 @@ final class MacHouseholdSync {
                         merged[index] = updated
                     }
                 } else {
+                    positions[item.id] = merged.count
                     merged.append(item)
                 }
             }
@@ -776,8 +785,9 @@ final class MacHouseholdSync {
             let deleted = Set((payload["groDeleted"] as? [String]) ?? [])
                 .union(pendingGroceryDeletes)
             var merged = store.grocery
+            var positions = Dictionary(merged.indices.map { (merged[$0].id, $0) }, uniquingKeysWith: { first, _ in first })
             for item in remote {
-                if let index = merged.firstIndex(where: { $0.id == item.id }) {
+                if let index = positions[item.id] {
                     let local = merged[index]
                     if HouseholdMergePolicy.remoteWins(remoteUpdatedAt: item.updatedAt,
                                                        remoteWriterID: item.lastWriterID,
@@ -786,6 +796,7 @@ final class MacHouseholdSync {
                         merged[index] = item
                     }
                 } else {
+                    positions[item.id] = merged.count
                     merged.append(item)
                 }
             }
@@ -802,8 +813,9 @@ final class MacHouseholdSync {
             let deleted = Set((payload["userRecipeDeleted"] as? [String]) ?? [])
                 .union(pendingRecipeDeletes)
             var merged = store.recipes
+            var positions = Dictionary(merged.indices.map { (merged[$0].id, $0) }, uniquingKeysWith: { first, _ in first })
             for recipe in remote {
-                if let index = merged.firstIndex(where: { $0.id == recipe.id }) {
+                if let index = positions[recipe.id] {
                     let local = merged[index]
                     if HouseholdMergePolicy.remoteWins(remoteUpdatedAt: recipe.updatedAt,
                                                        remoteWriterID: recipe.lastWriterID,
@@ -812,6 +824,7 @@ final class MacHouseholdSync {
                         merged[index] = recipe
                     }
                 } else {
+                    positions[recipe.id] = merged.count
                     merged.append(recipe)
                 }
             }
@@ -823,8 +836,9 @@ final class MacHouseholdSync {
             let deleted = Set((payload["mealDeleted"] as? [String]) ?? [])
                 .union(pendingMealDeletes)
             var merged = store.plannedMeals
+            var positions = Dictionary(merged.indices.map { (merged[$0].id, $0) }, uniquingKeysWith: { first, _ in first })
             for meal in remote {
-                if let index = merged.firstIndex(where: { $0.id == meal.id }) {
+                if let index = positions[meal.id] {
                     let local = merged[index]
                     if HouseholdMergePolicy.remoteWins(remoteUpdatedAt: meal.updatedAt,
                                                        remoteWriterID: meal.lastWriterID,
@@ -833,6 +847,7 @@ final class MacHouseholdSync {
                         merged[index] = meal
                     }
                 } else {
+                    positions[meal.id] = merged.count
                     merged.append(meal)
                 }
             }

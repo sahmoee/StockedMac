@@ -1,5 +1,22 @@
 # Read me first
 
+StockedMac pulls the public catalogue at launch and every 15 minutes, independently of
+household membership. Recipes offers a refresh control, explicit completeness status, and
+filtered-versus-total local counts. The Worker-owned `harvest/recipes?pageSize=100&cursor=...`
+contract enumerates actual stored records, including imports outside the legacy capped index.
+Pages merge into the existing library by UUID/canonical source; local notes, favourites, and
+newer edits survive. Catalogue image URLs load on demand, not in a whole-library image pass.
+Deploy the additive Worker route before shipping this Mac client. Legacy responses still load
+but show a server-update warning rather than claiming a complete catalogue. Failures preserve
+previously loaded records, and subsequent passes safely replay pages. iOS's legacy route is unchanged.
+The standalone `scripts/test-public-catalogue.swift` harness validates production decoding,
+stable identities, image URL resolution, private-row exclusion, empty-page continuation,
+legacy warnings, and repeated-cursor failure using fake transport/store boundaries.
+
+Household merge indexes tolerate legacy duplicate UUIDs without trapping. Public cleanup must
+distinguish source-less recipes from imports awaiting image repair; a failed image gate alone
+does not authorize deletion from the shared catalogue.
+
 StockedMac is the content-management companion to Stocked iOS. It imports, repairs, edits, categorizes, images, and publishes recipes, and maintains the shared brands, products, stores, and grocery-aisle catalog. Do not restore inventory, grocery-list, meal-planning, cooking, or analytics workflows. Imported recipes require a usable image and original source attribution. Catalog records require source provenance and must remain deduplicated and resumable.
 
 The Mac desktop shell is a native recipe-management workspace. Its shared `MacDesktopExperience`
@@ -17,6 +34,12 @@ Kroger discovery uses the authenticated UnifiedWorker retail gateway; Kroger and
 `Secrets.xcconfig` is local and ignored. Production sync uses `https://api.sowensstudios.com`. Preserve partial scan results, resumable queues, limits, deduplication, and retroactive repair. Verify the `StockedMac` scheme.
 
 The normal Find flow is hands-off: discovery imports immediately, complete image-backed recipes approve and publish automatically, and only incomplete records wait for attention. Preserve original image bytes and URLs; never introduce lossy sync re-encoding.
+Imported recipes are shared catalogue records regardless of household membership. Always retain
+their original publisher attribution and source URL; rights remain with that source. Only genuinely
+personal source-less recipes may remain household-scoped.
+The launch backfill republishes all historical source-attributed imports and removes source-less
+recipe UUIDs that an older release may have placed in the public index; both operations are safe to
+retry.
 
 Recipe scan and import batches accept typed limits from 1 through 2,000. Multi-source runs may randomize the selected source subset and candidate order for variety, but randomization changes order only: requests remain bounded, serial per host, resumable, cooldown-aware, deduplicated, and subject to the same image and attribution gates.
 
@@ -41,6 +64,11 @@ WebKit is a bounded fallback and interactive browser, not a background crawler. 
 The built-in recipe catalog contains 250 sources, including an audited batch of 100 English-language global publishers. Keep `default-sources.json` and `DefaultSourceCatalog.swift` synchronized. New sources require a reachable HTTPS homepage and XML sitemap, remain robots-aware and serial per host, and must not weaken the normal image, attribution, duplicate, or rate-limit gates.
 
 Household recipe sync is incremental and lossless: changed image-backed recipes are packed into complete byte-bounded pushes, intermediate batches request Worker acknowledgements, and only the final batch downloads and applies the merged household. Never restore tail trimming or full-library encoding every 30 seconds.
+The Recipes library is the Mac's complete approved recipe database whether or not the Mac has
+joined a household. Harvester approval and Server-inbox consumption both enter that same
+`MacKitchenStore.recipes` collection; household sync is an additional producer/consumer, not a
+filter on the library or its displayed total. Large household merges must use maintained id
+indexes, and periodic sync fingerprints must not assemble a duplicate full-library payload.
 The fourth sidebar destination is `Household Sync`. When the Mac is not joined, the sidebar footer also exposes `Enter household code`; both routes open the full join/create household screen rather than a separate abbreviated sync form.
 Recoverable household storage failures retry automatically with capped 0.5, 1, and 2 second
 backoff while the UI reports `Repairing household storage…`; exhausted repair remains eligible for

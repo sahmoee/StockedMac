@@ -45,6 +45,15 @@ StockedMac's Browse screen is the operator view for that bridge. Keep server fre
 Server category indexes are source-scoped cache hints, not shared recipe taxonomy. Server catalog batches are grocery-only and merge into StockedMac by normalized identity and provenance; they do not bypass the Worker-owned retail adapters or create a second iOS schema.
 
 StockedMac owns incremental recipe batching for household pushes; UnifiedWorker supports additive `responseMode: "ack"` on intermediate batches and returns the legacy full household on the final batch. Older Stocked iOS clients remain compatible and need no request change.
+`MacKitchenStore.recipes` is the complete approved Mac recipe database and displayed count whether
+or not a household is joined; Harvester, Server inbox, local edits, and household sync all converge
+there. Keep large merges indexed by recipe id and periodic signatures allocation-bounded.
+The public catalogue is also an independent producer: `MacPublicRecipeSync` must run without
+a household and page through the Worker-owned record enumeration until explicit completion.
+Never infer completion from a short/empty page or a legacy response. Preserve local annotations
+and newer edits, and do not echo freshly downloaded catalogue records back through publication.
+Merge indexes must tolerate historical duplicate UUIDs without crashing. Failed image validation
+does not make a source-attributed import personal and must never trigger public deletion.
 
 Brand/store discovery is grocery-scoped and uses Open Food Facts, USDA FoodData Central, OpenStreetMap, Wikidata/Wikimedia Commons, Stocked's offline grocery-brand/store reference, and the offline aisle taxonomy. Do not add dedicated beauty, pet, or general-merchandise catalogs. Catalog records may carry optional `imageURL`, `imagePreviewURL`, `imageSourceURL`, and `imageAttribution`; old saved records without them must continue decoding. Preserve original-resolution URLs and attribution, use previews only for rendering, fault-isolate providers, and enrich duplicates in both durable queues and the imported library.
 

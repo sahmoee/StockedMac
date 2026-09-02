@@ -93,7 +93,9 @@ enum HarvestCloudSync {
         guard let base = URL(string: MacBuildConfig.receiptWorkerURL) else {
             throw MacServiceError.notConfigured("The Stocked Worker URL")
         }
-        let recipes = recipes.filter(MacRecipeImagePolicy.hasRequiredImage)
+        // The public catalogue contains imports with original publisher provenance.
+        // Manually-created/source-less recipes remain local or household-only.
+        let recipes = recipes.filter(MacRecipeImagePolicy.isPublicImport)
         var pushedRecipes = 0
         var pushedImages = 0
 

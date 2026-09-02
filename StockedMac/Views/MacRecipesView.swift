@@ -146,7 +146,7 @@ struct MacRecipesView: View {
                 store.updateRecipe(id: recipe.id) { $0 = updated }
             }
         }
-        .onChange(of: store.recipes.map { "\($0.id):\($0.updatedAt)" }) {
+        .onChange(of: store.recipes.filter { $0.lastWriterID != "shared-catalogue" }.map { "\($0.id):\($0.updatedAt)" }) {
             harvest.syncKitchenToCloud(store.recipes)
         }
         .onChange(of: rows.map(\.id)) {
@@ -182,6 +182,13 @@ struct MacRecipesView: View {
             Divider()
 
             HStack(spacing: 7) {
+                Button {
+                    Task { await MacPublicRecipeSync.shared.refresh(store: store) }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .disabled(MacPublicRecipeSync.shared.isSyncing)
+                .help(MacPublicRecipeSync.shared.status)
                 Text(rows.count == store.recipes.count
                      ? "\(rows.count) recipes"
                      : "\(rows.count) of \(store.recipes.count)")
@@ -208,6 +215,13 @@ struct MacRecipesView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
+
+            Text(MacPublicRecipeSync.shared.status)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
 
             Divider()
 

@@ -3122,9 +3122,15 @@ final class HarvestModel {
     /// Publishes the Recipes-sidebar collection, including recipes that predate the
     /// Harvester approval flow. Safe on every launch because the Worker upserts by UUID.
     func syncKitchenToCloud(_ recipes: [UserRecipe], force: Bool = true) {
+        let publicImports = recipes.filter { $0.lastWriterID != "shared-catalogue" && MacRecipeImagePolicy.isPublicImport($0) }
+        // Failed image validation is not evidence that an imported recipe is personal.
+        let personalIDs = Set(recipes.filter {
+            $0.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+        }.map(\.id))
         guard !isCloudSyncing, !recipes.isEmpty, MacWorkerClient.isConfigured else { return }
-        let signature = recipes
+        let signature = (publicImports
             .map { "\($0.id.uuidString):\($0.updatedAt):\($0.imageData?.count ?? 0)" }
+            + personalIDs.map { "private:\($0.uuidString)" })
             .sorted()
             .joined(separator: "|")
         let signatureKey = "harvest.kitchenCloudSignature.v1"
@@ -3133,10 +3139,13 @@ final class HarvestModel {
             return
         }
         isCloudSyncing = true
-        cloudSyncStatus = "Syncing all \(recipes.count) kitchen recipes…"
+        cloudSyncStatus = "Syncing all \(publicImports.count) imported recipes…"
         Task { [weak self] in
             do {
-                let result = try await HarvestCloudSync.pushKitchenRecipes(recipes)
+                // Repair earlier releases that published the complete kitchen blindly.
+                // Source-less/manual UUIDs are removed from the public index idempotently.
+                if !personalIDs.isEmpty { try await HarvestCloudSync.delete(recipeIDs: personalIDs) }
+                let result = try await HarvestCloudSync.pushKitchenRecipes(publicImports)
                 UserDefaults.standard.set(signature, forKey: signatureKey)
                 self?.cloudSyncStatus = "Synced all \(result.recipes) kitchen recipes to iPhone and iPad."
                 self?.log(.success, "Shared catalog backfill: \(result.recipes) recipes uploaded.")

@@ -464,6 +464,41 @@ final class MacKitchenStore {
 
     // MARK: - Recipes
 
+    /// The authenticated public catalogue is already publisher/image gated by the
+    /// Worker. Keep local annotations and newer edits; never delete private/local rows.
+    func mergePublicRecipes(_ incoming: [UserRecipe]) {
+        var merged = recipes
+        var byID = Dictionary(merged.indices.map { (merged[$0].id, $0) }, uniquingKeysWith: { a, _ in a })
+        var bySource = Dictionary(merged.indices.map { (MacPublicRecipePage.identity(merged[$0]), $0) }, uniquingKeysWith: { a, _ in a })
+        var changed = false
+        for remote in incoming {
+            let key = MacPublicRecipePage.identity(remote)
+            if let index = byID[remote.id] ?? bySource[key] {
+                let local = merged[index]
+                guard remote.updatedAt > local.updatedAt else { continue }
+                var next = remote
+                next.id = local.id
+                next.notes = local.notes
+                next.isFavorited = local.isFavorited
+                next.cookCount = local.cookCount
+                next.lastCooked = local.lastCooked
+                if next.imageURL == local.imageURL {
+                    next.imageData = local.imageData
+                    next.imageValidatedAt = local.imageValidatedAt
+                }
+                if next != local { merged[index] = next; changed = true }
+                byID[remote.id] = index
+                bySource[key] = index
+            } else {
+                byID[remote.id] = merged.count
+                bySource[key] = merged.count
+                merged.append(remote)
+                changed = true
+            }
+        }
+        if changed { recipes = merged; scheduleSave(.recipes) }
+    }
+
     func addRecipe(_ recipe: UserRecipe) {
         guard MacRecipeImagePolicy.hasRequiredImage(recipe) else { return }
         var copy = recipe
