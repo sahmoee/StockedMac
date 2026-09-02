@@ -28,7 +28,7 @@ nonisolated enum MacSection: String, CaseIterable, Identifiable, Hashable, Senda
     /// recovery, cloud cache. Build 100 folds the review library in too, so Browse
     /// is now the single place recipes are found, imported, AND approved.
     case browse    = "Browse"
-    case sync = "Recipe Sync"
+    case sync = "Household Sync"
     case catalog = "Brands & Stores"
 
     /// Categories remain an internal discovery/cache concern. The dedicated browser is
@@ -219,24 +219,37 @@ struct MacRootView: View {
                 .padding(.horizontal, 12)
                 .help("Updated \(health.updatedAt.formatted()) · \(health.candidateCount) recipe candidates · \(health.catalogRecordCount) catalog records · \(health.sitemapCacheCount) cached sitemaps" + (health.lastError.map { " · \($0)" } ?? ""))
             }
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(footerTint)
-                    .frame(width: 6, height: 6)
-                Text(sync.isJoined ? sync.status.message : "Not sharing")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
+            Group {
                 if sync.isJoined {
-                    Button {
-                        Task { await sync.syncNow(store: store) }
-                    } label: {
-                        Image(systemName: "arrow.triangle.2.circlepath")
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(footerTint)
+                            .frame(width: 6, height: 6)
+                        Text(sync.status.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        Button {
+                            Task { await sync.syncNow(store: store) }
+                        } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(sync.status.isBusy)
+                        .help("Sync now")
                     }
-                    .buttonStyle(.borderless)
-                    .disabled(sync.status.isBusy)
-                    .help("Sync now")
+                } else {
+                    Button {
+                        navigation.section = .sync
+                    } label: {
+                        Label("Enter household code", systemImage: "person.badge.key")
+                            .font(.caption)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(MacTheme.gold)
+                    .accessibilityHint("Opens Household Sync so you can join the household used by Stocked on iPhone.")
                 }
             }
             .padding(.horizontal, 12)
@@ -268,7 +281,7 @@ struct MacRootView: View {
         case .tools:     MacToolsView()
         case .household: MacHouseholdView()
         case .browse:    MacBrowseView()
-        case .sync: MacRecipeSyncView()
+        case .sync: MacHouseholdView()
         case .catalog: MacCatalogView()
         }
     }
@@ -606,61 +619,5 @@ private struct MacRecipeCategoriesView: View {
             let lower = word.lowercased()
             return lower == "and" || lower == "with" || lower == "of" ? lower : lower.capitalized
         }.joined(separator: " ")
-    }
-}
-
-private struct MacRecipeSyncView: View {
-    @Environment(MacKitchenStore.self) private var store
-    @Environment(MacHouseholdSync.self) private var sync
-    @Environment(HarvestModel.self) private var harvest
-    @State private var code = ""
-    @State private var name = ""
-
-    var body: some View {
-        Form {
-            Section("Stocked iOS recipe sync") {
-                Text("This Mac shares only recipes. Inventory, groceries, and meal plans stay out of this app.")
-                    .foregroundStyle(.secondary)
-                if sync.isJoined {
-                    LabeledContent("Household", value: sync.householdName.nilIfBlank ?? sync.code)
-                    LabeledContent("Status", value: sync.status.message)
-                    LabeledContent("Recipes", value: "\(store.recipes.count)")
-                    Button("Sync recipes now") {
-                        Task {
-                            await sync.syncNow(store: store)
-                            harvest.syncKitchenToCloud(store.recipes)
-                        }
-                    }.disabled(sync.status.isBusy)
-                    ForEach(sync.members) { member in
-                        Label("\(member.name) · \(member.displayLabel)",
-                              systemImage: member.isOnline ? "circle.fill" : "circle")
-                    }
-                } else {
-                    TextField("Your name", text: $name)
-                    TextField("Household code from Stocked iOS", text: $code)
-                    Button("Join and sync recipes") {
-                        Task {
-                            if await sync.join(code: code, as: name) {
-                                await sync.resyncEverything(into: store)
-                                harvest.syncKitchenToCloud(store.recipes)
-                            }
-                        }
-                    }
-                }
-            }
-            Section("Historical repairs") {
-                LabeledContent("Sources remaining", value: "\(harvest.retroactiveRefreshRemaining)")
-                Stepper(value: Binding(
-                    get: { harvest.settings.retroactiveRefreshBatchSize },
-                    set: { harvest.settings.retroactiveRefreshBatchSize = $0; harvest.scheduleSettingsSave() }
-                ), in: 1...100, step: 5) {
-                    Text("Refresh \(harvest.settings.retroactiveRefreshBatchSize) per batch")
-                }
-                Button("Retry historical refresh") { harvest.restartHistoricalRefresh() }
-                    .disabled(harvest.retroactiveRefreshRemaining == 0 || harvest.isImporting)
-                Text("Future repair revisions normalize every saved recipe and reparse old source pages in a durable, shrinking queue. Recipes without recovered images remain excluded from sync.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }.formStyle(.grouped).padding()
     }
 }
