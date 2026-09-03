@@ -115,6 +115,7 @@ final class HarvestModel {
     // MARK: - Observable state
 
     var recipes: [RecipeDraft] = []
+    @ObservationIgnored private var coveragePlan = RecipeCoveragePlan.bootstrap
     var sources: [SourceProfile] = []
     var logs: [CrawlLogEntry] = []
     var settings: AppSettings = .defaults
@@ -598,7 +599,7 @@ final class HarvestModel {
         }
         // Build 99: Import DRAINS the queue now — taken URLs leave the text, and an
         // import-batch size takes only the first N, leaving the rest for next press.
-        let all = parsedImportURLs()
+        let all = coveragePlan.prioritized(parsedImportURLs()) { [$0] }
         guard !all.isEmpty else {
             errorMessage = "Enter at least one http or https recipe URL."
             return
@@ -619,7 +620,7 @@ final class HarvestModel {
     /// Import text box.
     func importDirect(_ rawURLs: [String], parserModeOverride: ParserMode? = nil) {
         var seen = Set<String>()
-        let urls = rawURLs
+        let urls = coveragePlan.prioritized(rawURLs) { [$0] }
             .compactMap { try? URLSafety.validatedRemoteURL($0) }
             .map { URLSafety.normalized($0).absoluteString }
             .filter { seen.insert($0).inserted }
@@ -1630,21 +1631,33 @@ final class HarvestModel {
         let sessionSnapshot = sessionHistory
         let miningDirectory = paths.miningResultCache
         let reportDirectory = paths.sourceDiscoveryCache
+        let library = kitchen?.recipes ?? []
+        let coverageURL = paths.root.appendingPathComponent("recipe-coverage-priority.json")
         cuisineCacheRebuildTask = Task { [weak self] in
             // Coalesce bursts caused by an import saving a report and several categories.
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
-            let rebuilt = await Task.detached(priority: .utility) {
-                Self.buildCuisineRecipeCache(
+            let worker = Task.detached(priority: .utility) {
+                let rebuilt = Self.buildCuisineRecipeCache(
                     categories: categories,
                     sources: sourceSnapshot,
                     sessions: sessionSnapshot,
                     miningDirectory: miningDirectory,
                     reportDirectory: reportDirectory
                 )
-            }.value
+                let evidence = library.filter { $0.sourceURL?.isEmpty == false }.map {
+                    [$0.title, $0.cuisine, $0.sourceURL ?? ""] + $0.tags + $0.ingredients.map(\.name)
+                }
+                let plan = RecipeCoveragePlan.build(evidence: evidence)
+                if !Task.isCancelled, let data = try? JSONEncoder().encode(plan) {
+                    try? data.write(to: coverageURL, options: .atomic)
+                }
+                return (rebuilt, plan)
+            }
+            let (rebuilt, plan) = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard !Task.isCancelled else { return }
             self?.cuisineRecipeCache = rebuilt
+            self?.coveragePlan = plan
         }
     }
 
@@ -2113,6 +2126,7 @@ final class HarvestModel {
         guard let kitchen, !drafts.isEmpty else { return }
         let added = MacHarvestBridge.add(drafts, to: kitchen)
         guard added > 0 else { return }
+        rebuildCuisineRecipeCache()
         log(.success, "Added \(added) recipe\(added == 1 ? "" : "s") to Stocked; the household will pick \(added == 1 ? "it" : "them") up on the next sync.")
     }
 
@@ -2915,7 +2929,7 @@ final class HarvestModel {
             statusMessage = "An import is running — verify again once it finishes."
             return
         }
-        let all = parsedImportURLs()
+        let all = coveragePlan.prioritized(parsedImportURLs()) { [$0] }
         guard !all.isEmpty else {
             statusMessage = "The queue is empty."
             return
@@ -3292,10 +3306,18 @@ final class HarvestModel {
             return
         }
         var chosen: [String] = sourceIDs.isEmpty
-            ? Array(eligible.map(\.id).prefix(max(1, settings.autoRotateSourceCount)))
+            ? eligible.map(\.id)
             : eligible.map(\.id).filter { sourceIDs.contains($0) }
         if settings.randomizeMultiSourceImports, chosen.count > 1 {
             chosen.shuffle()
+        }
+        if sourceIDs.isEmpty {
+            let byID = Dictionary(eligible.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            chosen = coveragePlan.prioritized(chosen) { id in
+                guard let source = byID[id] else { return [] }
+                return [source.name, source.baseURL] + source.tags
+            }
+            chosen = Array(chosen.prefix(max(1, settings.autoRotateSourceCount)))
         }
         guard !chosen.isEmpty else {
             discoveryFailure = "None of the selected sources can browse."

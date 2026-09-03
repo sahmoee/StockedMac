@@ -47,6 +47,16 @@ Category discovery and canonical cross-site cuisine collections run in the backg
 ordinary Browse/import pipeline. Do not expose a dedicated Categories destination in the sidebar,
 command palette, or section shortcuts; do not compute the category index during SwiftUI rendering.
 
+STK-89-0135: Jamaican is a canonical collection aligned with iOS. `RecipeCoveragePlan` measures
+underfilled discovery categories from the approved, source-attributed Mac library off the main actor.
+It emits `recipe-coverage-priority.json` (schema 1, aggregate deficits/terms only) through the existing
+cache bridge to Stocked Server. Automatic source selection now samples the complete source pool
+before limiting, and source/candidate ordering alternates gap-priority and ordinary work. The initial
+Jamaican/chicken QA hint expires when measured coverage reaches 12; this is not a promise of 12
+matches for every quiz combination. No eligibility, dietary or Comfort labels are inferred by this plan.
+Native check: compile `RecipeBrowseTaxonomy.swift`, `RecipeCoveragePlan.swift`, and
+`scripts/test-recipe-coverage.swift`; then build the `StockedMac` target normally.
+
 The visible `Cuisines & cultures` collection must match Stocked iOS `RecipeTaxonomy.cuisines`, except that the non-browsable `Other` fallback stays hidden. Normalize specific publisher labels into that shared set; never expand the Mac-only cultural taxonomy independently.
 
 Category rows stay materialized, and the cross-site cuisine cache rebuilds off the main actor with coalescing. Never restore per-render catalog sorting, per-cuisine repeated normalization, or synchronous reads of every cached report/category file; those paths block sidebar tab selection on large libraries.

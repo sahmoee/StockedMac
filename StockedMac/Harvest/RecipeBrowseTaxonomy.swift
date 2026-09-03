@@ -66,7 +66,7 @@ nonisolated enum RecipeBrowseTaxonomy {
             "American", "Southern", "Cajun & Creole", "Tex-Mex", "BBQ", "New England",
             "Soul Food", "Hawaiian", "Mexican", "Italian", "French", "Spanish", "Greek",
             "Mediterranean", "Middle Eastern", "Indian", "Thai", "Chinese", "Japanese",
-            "Korean", "Vietnamese", "Filipino", "Caribbean", "African", "German", "British",
+            "Korean", "Vietnamese", "Filipino", "Caribbean", "Jamaican", "African", "German", "British",
             "Irish", "Eastern European", "Latin American", "Fusion", "Moroccan", "Turkish",
             "Brazilian",
         ])
@@ -270,6 +270,7 @@ nonisolated enum RecipeBrowseTaxonomy {
         "North American": ["american", "canadian", "mexican", "cajun", "creole", "tex mex", "soul food"],
         "Latin American": ["latin american", "latino", "mexican", "central american", "caribbean", "south american", "brazilian", "peruvian", "colombian", "venezuelan", "argentinian"],
         "Caribbean": ["jamaican", "cuban", "puerto rican", "dominican", "haitian", "trinidadian"],
+        "Jamaican": ["jamaica", "jamaicanfoodsandrecipes"],
         "South American": ["brazilian", "peruvian", "colombian", "venezuelan", "ecuadorian", "bolivian", "chilean", "argentinian", "uruguayan"],
         "Oceanian": ["australian", "new zealand", "maori", "hawaiian", "polynesian", "pacific islander"],
         "Cajun & Creole": ["cajun", "creole"],

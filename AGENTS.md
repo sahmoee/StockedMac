@@ -32,6 +32,14 @@ Recipe schema, image, provenance, category, deduplication, or sync changes must 
 
 StockedMac owns cuisine discovery collections and their cross-site cache index. Visible cultural categories are limited to Stocked iOS's canonical `RecipeTaxonomy.cuisines` set, excluding the hidden `Other` fallback; more-specific publisher labels remain internal matching evidence. Imported records continue publishing ordinary cuisine/category strings through the existing shared recipe schema, so Stocked iOS and UnifiedWorker require no synthetic collection IDs or migration.
 
+StockedMac also owns the additive schema-1 `recipe-coverage-priority.json` discovery hint. Build it
+off-main from approved source-attributed library metadata; export aggregate deficits and terms only.
+MacStorageSystem's cache bridge transfers it to server discovery/import ordering. Roll out the
+server's tolerant reader before the Mac producer; missing/stale hints retain bounded QA bootstrap
+and fair ordinary work. Never use these heuristic discovery counts as iOS result counts, safety
+metadata, or permission to bypass the parser/image/provenance gates. Validate native Mac ordering,
+server fairness/retry tests and the iOS exact-match/opt-in-alternative selector together.
+
 Category discovery, source indexes, and canonical cuisine matching are background services. Do not
 expose a dedicated Categories sidebar destination or navigation shortcut; Browse and automatic
 imports consume those caches through the existing validation pipeline.
