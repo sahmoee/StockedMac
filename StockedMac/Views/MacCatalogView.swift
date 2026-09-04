@@ -24,9 +24,10 @@ struct MacCatalogView: View {
             else if mode == .discover { discoverView }
             else { libraryView }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .macThemedSurface()
         .sheet(item: $editingRecord) { record in
             CatalogRecordEditor(record: record) { catalog.update($0) }
+                .macThemedSurface()
         }
         .confirmationDialog("Delete all records from this source?", isPresented: Binding(
             get: { sourcePendingDeletion != nil }, set: { if !$0 { sourcePendingDeletion = nil } }

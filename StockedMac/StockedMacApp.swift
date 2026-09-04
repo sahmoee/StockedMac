@@ -50,6 +50,7 @@ struct StockedMacApp: App {
                 .environment(harvest)
                 .environment(catalog)
                 .environment(desktop)
+                .macThemedSurface()
                 .frame(minWidth: MacTheme.minWindowWidth,
                        minHeight: MacTheme.minWindowHeight)
                 // A gentle fade rather than a hard swap, so signing in doesn't feel like
@@ -143,9 +144,11 @@ struct StockedMacApp: App {
                     .environment(navigation)
                     .environment(harvest)
                     .environment(desktop)
+                    .macThemedSurface()
                     .frame(minWidth: 560, minHeight: 460)
             } else {
                 MacEmpty(title: "Recipe unavailable", message: "Choose a recipe from the main window.", systemImage: "book")
+                    .macThemedSurface()
             }
         }
         .defaultSize(width: 820, height: 720)
@@ -156,6 +159,7 @@ struct StockedMacApp: App {
                 .environment(sync)
                 .environment(auth)
                 .environment(desktop)
+                .macThemedSurface()
                 .frame(minWidth: 560, idealWidth: 680, minHeight: 520, idealHeight: 620)
         }
 
@@ -164,6 +168,7 @@ struct StockedMacApp: App {
                 .environment(store)
                 .environment(sync)
                 .environment(harvest)
+                .macThemedSurface()
                 .frame(width: 330)
         }
         .menuBarExtraStyle(.window)

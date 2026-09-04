@@ -215,11 +215,12 @@ struct MacDetachedRecipeView: View {
                         MacRecipeEditor(recipe: recipe) { updated in
                             store.updateRecipe(id: recipe.id) { $0 = updated }
                         }
+                        .macThemedSurface()
                     }
             } else {
                 MacEmpty(title: "Recipe unavailable", message: "It may have been removed or has not synced to this Mac yet.", systemImage: "book.closed")
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .macThemedSurface()
     }
 }

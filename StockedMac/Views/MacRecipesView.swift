@@ -126,7 +126,7 @@ struct MacRecipesView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .macThemedSurface()
         .searchable(text: searchBinding, placement: .toolbar, prompt: "Search all recipe fields")
         .inspector(isPresented: Binding(
             get: { desktop.isInspectorPresented },
@@ -139,12 +139,14 @@ struct MacRecipesView: View {
                 store.addRecipe(newRecipe)
                 selection = newRecipe.id
             }
+            .macThemedSurface()
         }
         .sheet(item: Binding(get: { editingID.flatMap { id in store.recipes.first { $0.id == id } } },
                              set: { editingID = $0?.id })) { recipe in
             MacRecipeEditor(recipe: recipe) { updated in
                 store.updateRecipe(id: recipe.id) { $0 = updated }
             }
+            .macThemedSurface()
         }
         .onChange(of: store.recipes.filter { $0.lastWriterID != "shared-catalogue" }.map { "\($0.id):\($0.updatedAt)" }) {
             harvest.syncKitchenToCloud(store.recipes)

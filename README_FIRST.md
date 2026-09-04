@@ -19,6 +19,9 @@ does not authorize deletion from the shared catalogue.
 
 StockedMac is the content-management companion to Stocked iOS. It imports, repairs, edits, categorizes, images, and publishes recipes, and maintains the shared brands, products, stores, and grocery-aisle catalog. Do not restore inventory, grocery-list, meal-planning, cooking, or analytics workflows. Imported recipes require a usable image and original source attribution. Catalog records require source provenance and must remain deduplicated and resumable.
 
+Shared household cooking is owned by Stocked iOS and UnifiedWorker. StockedMac remains a tolerant
+household client and recipe producer; it does not display or author `activeCookSessions`.
+
 The Mac desktop shell is a native recipe-management workspace. Its shared `MacDesktopExperience`
 owns persisted list/table presentation, comfortable/compact density, inspector visibility, the
 Command Palette, and Import Center. Recipes can open in independent windows and Quick Look;
@@ -32,6 +35,8 @@ Brand/store discovery is grocery-scoped, additive, and fault-isolated. Preserve 
 Kroger discovery uses the authenticated UnifiedWorker retail gateway; Kroger and RapidAPI credentials remain server-side. Preserve official store IDs, UPCs, current price/availability, exact aisle/shelf data, provenance, and the largest original product image. RapidAPI data is fallback-only. For bulk repair or import cleanup, run `scripts/catalog-quality.py`; keep it deterministic, standard-library-only, and safe to rerun.
 
 `Secrets.xcconfig` is local and ignored. Production sync uses `https://api.sowensstudios.com`. Preserve partial scan results, resumable queues, limits, deduplication, and retroactive repair. Verify the `StockedMac` scheme.
+
+`macThemedSurface()` owns the adaptive warm canvas for every scene and presentation; `MacCard` uses the matching semantic card and border colors. Apply these shared primitives to new windows, sheets, popovers, and detached panels instead of native window backgrounds or fixed light/dark colors.
 
 The normal Find flow is hands-off: discovery imports immediately, complete image-backed recipes approve and publish automatically, and only incomplete records wait for attention. Preserve original image bytes and URLs; never introduce lossy sync re-encoding.
 Imported recipes are shared catalogue records regardless of household membership. Always retain

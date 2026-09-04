@@ -95,7 +95,7 @@ struct MacBrowseView: View {
             Divider()
             content
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .macThemedSurface()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -514,6 +514,7 @@ struct MacBrowseView: View {
                         favoriteIDs: $harvest.settings.favoriteSourceIDs,
                         onFavoritesChanged: harvest.scheduleSettingsSave
                     )
+                    .macThemedSurface()
                 }
 
                 if browsableSources.isEmpty {
@@ -546,6 +547,7 @@ struct MacBrowseView: View {
                             harvest.scheduleSettingsSave()
                         }
                     ))
+                    .macThemedSurface()
                 }
 
                 findButtonRow
@@ -1464,6 +1466,7 @@ private struct SourceMultiPicker: View {
                 harvest.updateSource(updated)
                 editingSource = nil
             }
+            .macThemedSurface()
         }
         .alert("Delete recipes from sources?", isPresented: Binding(
             get: { !deletingSources.isEmpty },

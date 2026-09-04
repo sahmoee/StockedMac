@@ -90,6 +90,7 @@ final class MacNavigation {
 }
 
 struct MacRootView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(MacKitchenStore.self) private var store
     @Environment(MacHouseholdSync.self) private var sync
     @Environment(HarvestModel.self) private var harvest
@@ -115,11 +116,11 @@ struct MacRootView: View {
         .sheet(isPresented: Binding(
             get: { desktop.isCommandPalettePresented },
             set: { desktop.isCommandPalettePresented = $0 }
-        )) { MacCommandPalette() }
+        )) { MacCommandPalette().macThemedSurface() }
         .sheet(isPresented: Binding(
             get: { desktop.isImportCenterPresented },
             set: { desktop.isImportCenterPresented = $0 }
-        )) { MacImportCenter() }
+        )) { MacImportCenter().macThemedSurface() }
         // Pull whenever the window comes back to the front. A Mac app is left open for
         // hours, so "refresh on launch" alone would leave stale numbers on screen all day.
         .onReceive(NotificationCenter.default.publisher(
@@ -137,6 +138,7 @@ struct MacRootView: View {
                 navigation.section = .recipes
             }
         }
+        .macThemedSurface()
     }
 
     // MARK: - Sidebar
@@ -164,6 +166,8 @@ struct MacRootView: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(MacTheme.sidebar(dark: colorScheme == .dark))
         .safeAreaInset(edge: .bottom) { syncFooter }
     }
 

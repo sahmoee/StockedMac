@@ -17,11 +17,61 @@ enum MacTheme {
         dark ? Color(red: 0.95, green: 0.75, blue: 0.30) : gold
     }
 
+    /// Warm Stocked surfaces shared by every window and presentation.  These are
+    /// deliberately semantic functions so changing appearance never leaves a
+    /// hard-coded light card inside a dark window (or vice versa).
+    static func canvas(dark: Bool) -> Color {
+        dark
+            ? Color(red: 0.085, green: 0.078, blue: 0.067)
+            : Color(red: 0.91, green: 0.82, blue: 0.67)
+    }
+
+    static func sidebar(dark: Bool) -> Color {
+        dark
+            ? Color(red: 0.105, green: 0.096, blue: 0.082)
+            : Color(red: 0.88, green: 0.78, blue: 0.62)
+    }
+
+    static func card(dark: Bool) -> Color {
+        dark
+            ? Color(red: 0.145, green: 0.132, blue: 0.113)
+            : Color(red: 0.975, green: 0.955, blue: 0.91)
+    }
+
+    static func cardBorder(dark: Bool) -> Color {
+        dark ? Color.white.opacity(0.14) : Color.black.opacity(0.13)
+    }
+
     static func expiryColor(daysLeft: Int?) -> Color {
         guard let daysLeft else { return .secondary }
         if daysLeft < 0 { return urgent }
         if daysLeft <= 2 { return .orange }
         return green
+    }
+}
+
+/// Complete StockedMac presentation boundary. Apply it to scene roots and to
+/// standalone sheet/popover roots; controls still use native macOS behavior,
+/// while every exposed canvas uses the same warm adaptive palette.
+private struct MacThemedSurfaceModifier: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        let dark = scheme == .dark
+        ZStack {
+            MacTheme.canvas(dark: dark).ignoresSafeArea()
+            content
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MacTheme.canvas(dark: dark))
+        .presentationBackground(MacTheme.canvas(dark: dark))
+        .tint(MacTheme.accent(dark: dark))
+    }
+}
+
+extension View {
+    func macThemedSurface() -> some View {
+        modifier(MacThemedSurfaceModifier())
     }
 }
 
@@ -64,6 +114,7 @@ struct MacEmpty: View {
 }
 
 struct MacCard<Content: View>: View {
+    @Environment(\.colorScheme) private var scheme
     var title: String? = nil
     var systemImage: String? = nil
     var footnote: String? = nil
@@ -94,7 +145,8 @@ struct MacCard<Content: View>: View {
             content
         }
         .padding(MacTheme.pad)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.separator.opacity(0.35)))
+        .background(MacTheme.card(dark: scheme == .dark), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12)
+            .stroke(MacTheme.cardBorder(dark: scheme == .dark)))
     }
 }

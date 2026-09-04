@@ -45,7 +45,7 @@ struct MacHouseholdView: View {
             .frame(maxWidth: 720, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .macThemedSurface()
         .onAppear {
             nameDraft = sync.memberName
             if joinName.isEmpty { joinName = defaultName }
