@@ -15,6 +15,11 @@ This is the single authoritative instruction contract for Codex, Claude, and any
 
 ## Project and UI rules
 
+Keep recipe deletion confirmation in both context-menu and keyboard routes; keyboard deletion
+requires explicit selection. Catalogue imports must check cancellation after decoding, preserve
+case-sensitive URL identities and report rejected records. Worker requests remain HTTPS-only,
+redirect-refusing, bounded and cookie-free. See docs/STOCKED_MAC_40_2026_09_05.md for validation.
+
 
 
 Every window, page, sheet, popover, and alert must use the StockedMac theme across its complete presentation surface. Layouts and controls must respond to live window size, display scale, accessibility settings, and full-screen or split-window use. Prefer resizable frames, adaptive columns, and minimum sizes; fixed dimensions are only for intentional image/media geometry. Do not lock scrolling where resized windows need it or force scrolling when content fits.
@@ -48,7 +53,7 @@ The expanded English-language global source catalog is StockedMac-owned discover
 
 The Server Mac may prefetch sitemap candidates and deliver versioned immutable batches to StockedMac. It must never write recipes directly to StockedMac, UnifiedWorker, or Stocked iOS. The existing StockedMac import and publication path remains the only funnel into shared recipe data.
 
-StockedMac's Browse screen is the operator view for that bridge. Keep server freshness/source, candidate, pending-batch, acknowledged-batch, approved, and Review counts visible without loading batch contents during SwiftUI rendering. Refresh uses the normal inbox consumer and may never bypass recipe validation.
+StockedMac's Browse screen is the operator view for that bridge. Keep server freshness/source, candidate, pending-batch, acknowledged-batch, approved, and Review counts visible without loading batch contents during SwiftUI rendering. Refresh uses the normal inbox consumer and may never bypass recipe validation. Large inboxes use a materialized pending queue; do not restore per-minute full-directory receipt checks or sorting. The external bridge runs every 30 minutes without rsync compression.
 
 Server category indexes are source-scoped cache hints, not shared recipe taxonomy. Server catalog batches are grocery-only and merge into StockedMac by normalized identity and provenance; they do not bypass the Worker-owned retail adapters or create a second iOS schema.
 
@@ -58,6 +63,9 @@ or not a household is joined; Harvester, Server inbox, local edits, and househol
 there. Keep large merges indexed by recipe id and periodic signatures allocation-bounded.
 The public catalogue is also an independent producer: `MacPublicRecipeSync` must run without
 a household and page through the Worker-owned record enumeration until explicit completion.
+Automatic passes are bounded and cursor-checkpointed after each accepted page so the durable local
+cache grows across launches without loading the complete remote catalogue in one pass. Manual refresh
+may use a larger bounded batch. Restore cached recipes and completion metadata before revalidation.
 Never infer completion from a short/empty page or a legacy response. Preserve local annotations
 and newer edits, and do not echo freshly downloaded catalogue records back through publication.
 Merge indexes must tolerate historical duplicate UUIDs without crashing. Failed image validation

@@ -180,6 +180,11 @@ final class MacKitchenStore {
         if let data = read(.recipes),
            let value = try? decoder.decode([UserRecipe].self, from: data) {
             recipes = value.map { recipe in
+                var recipe = recipe
+                if let cuisine = RecipeCuisineClassifier.infer(for: recipe) {
+                    recipe.cuisine = cuisine
+                    compactedRemoteRecipeImages = true
+                }
                 guard recipe.imageURL?.nilIfBlank != nil, recipe.imageData != nil else { return recipe }
                 var compact = recipe
                 compact.imageValidatedAt = compact.imageValidatedAt ?? Date()
@@ -224,6 +229,7 @@ final class MacKitchenStore {
     /// editing a value through a binding.
     func save() {
         guard !isRestoring else { return }
+        assignMissingRecipeCuisines()
         dirty.formUnion(Collection.allCases)
         scheduleFlush()
     }
@@ -471,7 +477,8 @@ final class MacKitchenStore {
         var byID = Dictionary(merged.indices.map { (merged[$0].id, $0) }, uniquingKeysWith: { a, _ in a })
         var bySource = Dictionary(merged.indices.map { (MacPublicRecipePage.identity(merged[$0]), $0) }, uniquingKeysWith: { a, _ in a })
         var changed = false
-        for remote in incoming {
+        for var remote in incoming {
+            if let cuisine = RecipeCuisineClassifier.infer(for: remote) { remote.cuisine = cuisine }
             let key = MacPublicRecipePage.identity(remote)
             if let index = byID[remote.id] ?? bySource[key] {
                 let local = merged[index]
@@ -502,6 +509,7 @@ final class MacKitchenStore {
     func addRecipe(_ recipe: UserRecipe) {
         guard MacRecipeImagePolicy.hasRequiredImage(recipe) else { return }
         var copy = recipe
+        if let cuisine = RecipeCuisineClassifier.infer(for: copy) { copy.cuisine = cuisine }
         copy.title = RecipeTitlePolicy.cleaned(copy.title)
         copy.updatedAt = nowMillis
         copy.lastWriterID = writerID
@@ -513,10 +521,27 @@ final class MacKitchenStore {
         guard let index = recipes.firstIndex(where: { $0.id == id }) else { return }
         var updated = recipes[index]
         change(&updated)
+        if let cuisine = RecipeCuisineClassifier.infer(for: updated) { updated.cuisine = cuisine }
         guard MacRecipeImagePolicy.hasRequiredImage(updated) else { return }
         updated.title = RecipeTitlePolicy.cleaned(updated.title)
         recipes[index] = updated
         stampRecipe(at: index)
+    }
+
+    /// Idempotent historical/household backfill. Assignment mutates only blank cuisines
+    /// and schedules one coalesced recipe write instead of refreshing the whole UI per row.
+    @discardableResult
+    func assignMissingRecipeCuisines(limit: Int = .max) -> Int {
+        var assigned = 0
+        for index in recipes.indices where assigned < max(0, limit) {
+            guard let cuisine = RecipeCuisineClassifier.infer(for: recipes[index]) else { continue }
+            recipes[index].cuisine = cuisine
+            recipes[index].updatedAt = nowMillis
+            recipes[index].lastWriterID = writerID
+            assigned += 1
+        }
+        if assigned > 0 { scheduleSave(.recipes) }
+        return assigned
     }
 
     func deleteRecipe(ids: Set<UUID>) {

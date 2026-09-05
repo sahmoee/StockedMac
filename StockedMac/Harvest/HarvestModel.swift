@@ -110,7 +110,7 @@ final class HarvestModel {
     /// The versioned pass repairs local records and seeds their sources for bounded reparse.
     // v6 requeues every historical source so older recipes receive the same current
     // nutrition/category/source/image extraction used by all future imports.
-    static let currentRecipeRepairRevision = 7
+    static let currentRecipeRepairRevision = 8
 
     // MARK: - Observable state
 
@@ -170,6 +170,10 @@ final class HarvestModel {
     private(set) var serverRecipeBridgeStatus = ServerRecipeBridgeStatus()
     @ObservationIgnored private var cuisineCacheRebuildTask: Task<Void, Never>?
     @ObservationIgnored private var serverInboxTask: Task<Void, Never>?
+    @ObservationIgnored private var serverPendingFiles: [URL] = []
+    @ObservationIgnored private var serverPendingPaths = Set<String>()
+    @ObservationIgnored private var serverAcknowledgedCount = 0
+    @ObservationIgnored private var lastServerInboxScan = Date.distantPast
     /// Sources still to visit in the current auto-rotate run.
     var autoRotateRemaining = 0
     /// Explicitly selected sources still waiting their turn (multi-select browsing).
@@ -408,48 +412,48 @@ final class HarvestModel {
     }
 
     private func updateServerRecipeBridgeStatus(pendingBatchCount: Int? = nil) {
-        let pending = pendingBatchCount ?? ((try? FileManager.default.contentsOfDirectory(
-            at: paths.serverInbox,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ))?.filter { file in
-            guard file.pathExtension.lowercased() == "json" else { return false }
-            let receipt = paths.serverInboxReceipts
-                .appendingPathComponent(file.deletingPathExtension().lastPathComponent)
-                .appendingPathExtension("receipt")
-            return !FileManager.default.fileExists(atPath: receipt.path)
-        }.count) ?? 0
-        let acknowledged = ((try? FileManager.default.contentsOfDirectory(
-            at: paths.serverInboxReceipts,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ))?.filter { $0.pathExtension.lowercased() == "receipt" }.count) ?? 0
         serverRecipeBridgeStatus = ServerRecipeBridgeStatus(
-            pendingBatchCount: pending,
-            acknowledgedBatchCount: acknowledged,
+            pendingBatchCount: pendingBatchCount ?? serverPendingFiles.count,
+            acknowledgedBatchCount: serverAcknowledgedCount,
             lastCheckedAt: Date()
         )
     }
 
     private func consumeServerInbox() {
-        let files = ((try? FileManager.default.contentsOfDirectory(
-            at: paths.serverInbox,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ))?.filter { file in
-            guard file.pathExtension.lowercased() == "json" else { return false }
-            let receipt = paths.serverInboxReceipts
-                .appendingPathComponent(file.deletingPathExtension().lastPathComponent)
-                .appendingPathExtension("receipt")
-            return !FileManager.default.fileExists(atPath: receipt.path)
-        }.sorted { $0.lastPathComponent < $1.lastPathComponent }) ?? []
-        guard !files.isEmpty else {
+        // Do not enumerate, receipt-check, and sort tens of thousands of files every
+        // minute. Materialize a pending queue at most twice an hour and drain ten rows
+        // per tick; new files join the existing queue on the next bounded rescan.
+        if serverPendingFiles.isEmpty || Date().timeIntervalSince(lastServerInboxScan) >= 30 * 60 {
+            let receipts = ((try? FileManager.default.contentsOfDirectory(
+                at: paths.serverInboxReceipts, includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )) ?? []).filter { $0.pathExtension.lowercased() == "receipt" }
+            let acknowledgedNames = Set(receipts.map { $0.deletingPathExtension().lastPathComponent })
+            serverAcknowledgedCount = acknowledgedNames.count
+            let discovered = ((try? FileManager.default.contentsOfDirectory(
+                at: paths.serverInbox, includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )) ?? []).filter {
+                $0.pathExtension.lowercased() == "json"
+                    && !acknowledgedNames.contains($0.deletingPathExtension().lastPathComponent)
+                    && !serverPendingPaths.contains($0.path)
+            }
+            serverPendingFiles.append(contentsOf: discovered)
+            serverPendingFiles.sort { $0.lastPathComponent < $1.lastPathComponent }
+            serverPendingPaths.formUnion(discovered.map(\.path))
+            lastServerInboxScan = Date()
+        }
+        guard !serverPendingFiles.isEmpty else {
             updateServerRecipeBridgeStatus(pendingBatchCount: 0)
             return
         }
 
         let decoder = JSONCoding.decoder()
-        for file in files.prefix(10) {
+        let files = Array(serverPendingFiles.prefix(10))
+        serverPendingFiles.removeFirst(files.count)
+        for file in files { serverPendingPaths.remove(file.path) }
+        var retryFiles: [URL] = []
+        for file in files {
             guard let data = try? Data(contentsOf: file),
                   let batch = try? decoder.decode(ServerDiscoveryBatch.self, from: data),
                   batch.schemaVersion == 1,
@@ -478,16 +482,21 @@ final class HarvestModel {
                 .filter { !represented.contains($0) }
             guard unresolved.isEmpty else {
                 log(.info, "Server Mac batch \(batch.batchID) queued \(accepted); \(unresolved.count) remain safely pending behind the queue limit.")
+                retryFiles.append(file)
                 continue
             }
             do {
                 try Data("\(Date().ISO8601Format()) accepted=\(accepted) source=\(batch.sourceID)\n".utf8)
                     .write(to: receipt, options: .atomic)
+                serverAcknowledgedCount += 1
                 log(.info, "Server Mac queued \(accepted) new recipe URL\(accepted == 1 ? "" : "s") from \(batch.sourceName).")
             } catch {
+                retryFiles.append(file)
                 log(.warning, "Could not acknowledge Server Mac batch \(batch.batchID): \(error.localizedDescription)")
             }
         }
+        serverPendingFiles.append(contentsOf: retryFiles)
+        serverPendingPaths.formUnion(retryFiles.map(\.path))
         if settings.autopilot, queuedURLCount > 0, !isImporting, !isDiscovering, !isBulkVerifying {
             importURLs()
         }

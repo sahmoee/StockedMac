@@ -6,22 +6,40 @@ import Observation
 final class MacPublicRecipeSync {
     static let shared = MacPublicRecipeSync()
     private(set) var isSyncing = false
-    private(set) var status = "Shared catalogue not yet refreshed"
+    private(set) var status: String
     private(set) var lastCompleteCount: Int?
+    private(set) var lastCompletedAt: Date?
+    private(set) var pagesLoaded = 0
+    private(set) var rejectedCount = 0
     @ObservationIgnored private var loop: Task<Void, Never>?
+
+    private static let cursorKey = "publicRecipeCatalogueCursor.v1"
+    private static let completedAtKey = "publicRecipeCatalogueCompletedAt.v1"
+    private static let completedCountKey = "publicRecipeCatalogueCompletedCount.v1"
+
+    init(defaults: UserDefaults = .standard) {
+        let timestamp = defaults.double(forKey: Self.completedAtKey)
+        let count = defaults.object(forKey: Self.completedCountKey) as? Int
+        lastCompletedAt = timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : nil
+        lastCompleteCount = count
+        status = count.map { "\($0) cached shared recipes · checking for updates" }
+            ?? "Shared catalogue not yet refreshed"
+    }
 
     func start(store: MacKitchenStore) {
         guard loop == nil else { return }
         loop = Task { [weak self, weak store] in
             while !Task.isCancelled {
                 guard let self, let store else { return }
-                await self.refresh(store: store)
+                // Four 100-row pages is a large warm batch without decoding the complete
+                // remote catalogue in one launch. The committed cursor resumes next pass.
+                await self.refresh(store: store, maxPages: 4)
                 do { try await Task.sleep(for: .seconds(900)) } catch { return }
             }
         }
     }
 
-    func refresh(store: MacKitchenStore) async {
+    func refresh(store: MacKitchenStore, maxPages: Int = 4) async {
         guard !isSyncing else { return }
         guard MacWorkerClient.isConfigured else {
             status = "Configure the Worker to load the shared catalogue"
@@ -29,9 +47,11 @@ final class MacPublicRecipeSync {
         }
         isSyncing = true
         defer { isSyncing = false }
-        var cursor: String?
-        var seenCursors = Set<String>()
+        var cursor = UserDefaults.standard.string(forKey: Self.cursorKey)
+        var seenCursors = Set(cursor.map { [$0] } ?? [])
         var identities = Set<String>()
+        pagesLoaded = 0
+        rejectedCount = 0
         do {
             repeat {
                 try Task.checkCancellation()
@@ -42,24 +62,40 @@ final class MacPublicRecipeSync {
                 let page = try await Task.detached(priority: .utility) {
                     try MacPublicRecipePage.decode(data, baseURL: base)
                 }.value
+                try Task.checkCancellation()
+                pagesLoaded += 1
+                rejectedCount += page.rejectedCount
                 // Merge text/URLs only. Artwork is fetched by visible rows, never by a
                 // whole-library image download that delays browsing or spikes memory.
                 store.mergePublicRecipes(page.recipes)
                 for recipe in page.recipes { identities.insert(MacPublicRecipePage.identity(recipe)) }
-                status = "Loading shared catalogue · \(identities.count) recipes"
+                status = "Loading page \(pagesLoaded) · \(identities.count) shared recipes"
                 guard let complete = page.complete else {
                     status = "Loaded legacy catalogue; server update needed for all recipes"
                     return
                 }
                 if complete {
-                    lastCompleteCount = identities.count
-                    status = "\(identities.count) shared recipes · catalogue up to date"
+                    UserDefaults.standard.removeObject(forKey: Self.cursorKey)
+                    lastCompleteCount = store.recipes.count
+                    let completedAt = Date()
+                    lastCompletedAt = completedAt
+                    UserDefaults.standard.set(store.recipes.count, forKey: Self.completedCountKey)
+                    UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: Self.completedAtKey)
+                    status = "\(store.recipes.count) cached recipes · catalogue up to date"
+                        + (rejectedCount == 0 ? "" : " · \(rejectedCount) invalid records skipped")
                     return
                 }
                 guard let next = page.nextCursor, !next.isEmpty, seenCursors.insert(next).inserted else {
                     throw MacServiceError.malformedResponse("Catalogue pagination did not advance")
                 }
                 cursor = next
+                // Checkpoint only after the page was decoded, validated, merged, and its
+                // durable recipe write was scheduled. A relaunch continues from here.
+                UserDefaults.standard.set(next, forKey: Self.cursorKey)
+                if pagesLoaded >= max(1, maxPages) {
+                    status = "\(store.recipes.count) recipes cached · more updates scheduled"
+                    return
+                }
                 await Task.yield()
             } while !Task.isCancelled
         } catch {
@@ -72,6 +108,7 @@ nonisolated struct MacPublicRecipePage: Sendable {
     var recipes: [UserRecipe]
     var complete: Bool?
     var nextCursor: String?
+    var rejectedCount: Int = 0
 
     static func identity(_ recipe: UserRecipe) -> String {
         guard let raw = recipe.sourceURL, var url = URLComponents(string: raw) else { return recipe.id.uuidString }
@@ -80,13 +117,24 @@ nonisolated struct MacPublicRecipePage: Sendable {
             !$0.name.lowercased().hasPrefix("utm_") && !["fbclid", "gclid", "ref"].contains($0.name.lowercased())
         }
         if url.queryItems?.isEmpty == true { url.queryItems = nil }
-        return (url.string ?? raw).trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+        url.scheme = url.scheme?.lowercased()
+        url.host = url.host?.lowercased()
+        if url.port == 443 { url.port = nil }
+        if url.path.count > 1 && url.path.hasSuffix("/") { url.path.removeLast() }
+        return url.string ?? raw
     }
 
     static func decode(_ data: Data, baseURL: String) throws -> Self {
+        guard data.count <= 16 * 1024 * 1024 else {
+            throw MacServiceError.malformedResponse("Catalogue page is too large")
+        }
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let rows = object["recipes"] as? [[String: Any]] else {
             throw MacServiceError.malformedResponse("Missing catalogue recipes")
+        }
+        // Legacy unpaged responses remain compatible with the retained server index.
+        guard rows.count <= (object["complete"] == nil ? 8000 : 100) else {
+            throw MacServiceError.malformedResponse("Catalogue page exceeds the record limit")
         }
         let formatter = ISO8601DateFormatter()
         func date(_ value: Any?) -> Date? {
@@ -98,14 +146,19 @@ nonisolated struct MacPublicRecipePage: Sendable {
         }
         let recipes = rows.compactMap { row -> UserRecipe? in
             guard let rawID = row["id"] as? String, !rawID.isEmpty,
-                  let title = row["title"] as? String, !title.isEmpty,
+                  let rawTitle = row["title"] as? String,
                   let source = row["sourceURL"] as? String,
                   let sourceURL = URL(string: source), sourceURL.scheme?.lowercased() == "https", sourceURL.host != nil,
-                  let steps = row["instructions"] as? [String], !steps.isEmpty else { return nil }
+                  sourceURL.user == nil, sourceURL.password == nil,
+                  let rawSteps = row["instructions"] as? [String] else { return nil }
+            let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            let steps = rawSteps.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            guard !title.isEmpty, title.count <= 500, !steps.isEmpty else { return nil }
             let rawImage = (row["imageURL"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? row["image"] as? String ?? ""
             guard !rawImage.isEmpty,
                   let image = URL(string: rawImage, relativeTo: URL(string: baseURL))?.absoluteURL,
-                  image.scheme?.lowercased() == "https", image.host != nil else { return nil }
+                  image.scheme?.lowercased() == "https", image.host != nil,
+                  image.user == nil, image.password == nil else { return nil }
             var recipe = UserRecipe(title: title)
             if let uuid = UUID(uuidString: rawID) { recipe.id = uuid }
             else {
@@ -121,16 +174,21 @@ nonisolated struct MacPublicRecipePage: Sendable {
             recipe.description = row["description"] as? String ?? ""
             recipe.instructions = steps
             recipe.ingredients = (row["ingredients"] as? [[String: Any]] ?? []).compactMap {
-                guard let name = $0["name"] as? String, !name.isEmpty else { return nil }
-                return RecipeIngredient(name: name, amount: $0["amount"] as? String ?? "")
+                guard let raw = $0["name"] as? String else { return nil }
+                let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return nil }
+                return RecipeIngredient(name: name, amount: ($0["amount"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
             }
+            guard !recipe.ingredients.isEmpty else { return nil }
             recipe.imageURL = image.absoluteString
             recipe.sourceURL = source
             recipe.sourceName = row["attribution"] as? String ?? sourceURL.host
-            recipe.tags = row["tags"] as? [String] ?? []
+            var seenTags = Set<String>()
+            recipe.tags = (row["tags"] as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty && seenTags.insert($0.lowercased()).inserted }
             recipe.categories = row["categories"] as? [String]
             recipe.cuisine = row["cuisine"] as? String ?? ""
-            recipe.servings = max(1, row["servings"] as? Int ?? 4)
+            recipe.servings = min(1000, max(1, row["servings"] as? Int ?? 4))
             recipe.prepTime = row["prepTime"] as? String ?? ""
             recipe.cookTime = row["cookTime"] as? String ?? ""
             recipe.dateCreated = date(row["importedAt"]) ?? date(row["storedAt"]) ?? .distantPast
@@ -138,6 +196,7 @@ nonisolated struct MacPublicRecipePage: Sendable {
             recipe.lastWriterID = "shared-catalogue"
             return recipe
         }
-        return Self(recipes: recipes, complete: object["complete"] as? Bool, nextCursor: object["nextCursor"] as? String)
+        return Self(recipes: recipes, complete: object["complete"] as? Bool, nextCursor: object["nextCursor"] as? String,
+                    rejectedCount: rows.count - recipes.count)
     }
 }

@@ -109,8 +109,16 @@ struct MacRootView: View {
                                                 max: MacTheme.sidebarMax)
         } detail: {
             detail
-                .frame(minWidth: 640, minHeight: 420)
+                // The window scene owns the usable minimum size. Giving the detail
+                // column another hard minimum makes AppKit preserve two incompatible
+                // widths while a split item is inserted, removed, or restored.
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .layoutPriority(1)
         }
+        // Prefer preserving the detail rather than asking both split items to retain
+        // their width during sidebar transitions. This avoids transient mutually
+        // exclusive NSSplitView safe-area constraints on macOS.
+        .navigationSplitViewStyle(.prominentDetail)
         .navigationTitle(navigation.section.rawValue)
         .toolbar { toolbarContent }
         .sheet(isPresented: Binding(
@@ -446,18 +454,22 @@ private struct MacRecipeCategoriesView: View {
                             }
                         }
                     }
-                    .frame(minWidth: 260, idealWidth: 340)
+                    .frame(minWidth: 220, idealWidth: 340)
+                    .layoutPriority(0)
 
                     if let cuisine = selectedCuisine {
                         cuisineDetail(cuisine)
-                            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+                            .layoutPriority(1)
                     } else if let category = selectedCategory {
                         categoryDetail(category)
-                            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+                            .layoutPriority(1)
                     } else {
                         ContentUnavailableView("Select a category", systemImage: "square.grid.2x2",
                                                description: Text("Its cached recipes will appear here."))
-                            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+                            .layoutPriority(1)
                     }
                 }
             }

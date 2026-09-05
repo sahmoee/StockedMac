@@ -1,7 +1,17 @@
 # Read me first
 
-StockedMac pulls the public catalogue at launch and every 15 minutes, independently of
-household membership. Recipes offers a refresh control, explicit completeness status, and
+September 5 reliability/workspace batch: `docs/STOCKED_MAC_40_2026_09_05.md` lists 40 changes.
+Worker utility calls use bounded cookie-free HTTPS transport, refuse redirects and preserve rate
+limits/cancellation. Catalogue pages validate usable content and display progress/rejections.
+Library deletion requires confirmation; Quick Look uses identity-safe names; new sorts/source
+actions retain the existing store. Server companion changes are owned by MacStorageSystem.
+
+StockedMac restores its atomic local recipe library before networking, then pulls the public
+catalogue in checkpointed 100-row pages at launch and every 15 minutes, independently of
+household membership. Automatic passes are capped at four pages and resume their durable cursor;
+manual refresh warms up to eight pages. This grows a large offline cache over time without
+decoding the entire remote catalogue in one pass. The completed count/date survives relaunch,
+and a bounded disk response cache keeps cacheable artwork warm. Recipes offers a refresh control, explicit completeness status, and
 filtered-versus-total local counts. The Worker-owned `harvest/recipes?pageSize=100&cursor=...`
 contract enumerates actual stored records, including imports outside the legacy capped index.
 Pages merge into the existing library by UUID/canonical source; local notes, favourites, and
@@ -64,11 +74,21 @@ Native check: compile `RecipeBrowseTaxonomy.swift`, `RecipeCoveragePlan.swift`, 
 
 The visible `Cuisines & cultures` collection must match Stocked iOS `RecipeTaxonomy.cuisines`, except that the non-browsable `Other` fallback stays hidden. Normalize specific publisher labels into that shared set; never expand the Mac-only cultural taxonomy independently.
 
+`RecipeCuisineClassifier` conservatively fills only blank cuisine fields from weighted publisher
+metadata, title, source, summary, and ingredient evidence. Recipe repair revision 8 backfills both
+Harvester drafts and the shared Mac library; all future add, merge, edit, and draft-import paths run
+the same idempotent assignment. Existing cuisines are never overwritten.
+
 Category rows stay materialized, and the cross-site cuisine cache rebuilds off the main actor with coalescing. Never restore per-render catalog sorting, per-cuisine repeated normalization, or synchronous reads of every cached report/category file; those paths block sidebar tab selection on large libraries.
 
 Stocked Server is an independent discovery and preverification tier. It discovers into a durable server-owned queue, invokes the same bundled structured-recipe parser headlessly, requires usable image bytes plus complete ingredients and instructions, and deduplicates by canonical URL without requiring StockedMac to be open. Transient failures retry with bounded exponential backoff; terminal or incomplete records enter the server review outbox. Preverified URLs are still untrusted candidates: StockedMac remains the only final parser, approval, Worker-publication, and household/iOS-sync boundary.
 
-The Browse screen must keep Stocked Server observable at launch: show service freshness/current source, discovery candidates, server queue/retry/verified/review counts, and local review. The five-minute bridge transfers immutable preverified candidates into `ServerInbox`; the one-minute app consumer re-runs the ordinary local gates and drains the durable queue in finite passes. Manual refresh invokes that same safe consumer.
+The Browse screen must keep Stocked Server observable at launch: show service freshness/current source, discovery candidates, server queue/retry/verified/review counts, and local review. The 30-minute bridge transfers immutable preverified candidates into `ServerInbox`; the one-minute app consumer re-runs the ordinary local gates and drains the durable queue in finite passes. Manual refresh invokes that same safe consumer.
+
+Large Server inboxes are materialized into an in-memory pending queue at most twice an hour and
+drained ten batches per minute. Never restore per-minute enumeration, receipt lookup, and sorting
+of the complete directory. The external cache bridge runs every 30 minutes without rsync transport
+compression; JSON is already compact and Tailscale/LAN compression needlessly consumes a CPU core.
 
 Stocked Server discovery runs every 15 minutes and its separately locked importer drains work every five minutes. Discovery uses a persisted no-repeat shuffle bag, per-source deadlines, source cooldowns, a whole-run budget, media-URL filtering, and durable-queue backpressure. The architecture-neutral parser is launch-probed before queue work and past architecture failures are requeued automatically. It may randomize fair work order, but must never bypass robots, authentication, throttling, the required-image gate, canonical source attribution, or complete-recipe validation. Imported and historical titles are standardized only when their casing is clearly broken; intentional publisher casing remains intact.
 

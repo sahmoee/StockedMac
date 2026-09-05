@@ -28,12 +28,18 @@ struct MacRecipesView: View {
     @State private var selectedRole = ""
     @State private var editingID: UUID?
     @State private var previewURL: URL?
+    @State private var pendingDeletion: UserRecipe?
+    @State private var previewError: String?
     @FocusState private var searchFocused: Bool
 
     private enum Sort: String, CaseIterable, Identifiable {
         case name     = "Name"
         case recent   = "Recently added"
         case favorites = "Favorites first"
+        case oldest = "Oldest added"
+        case updated = "Recently updated"
+        case source = "Source"
+        case ingredients = "Fewest ingredients"
         var id: String { rawValue }
     }
 
@@ -76,15 +82,29 @@ struct MacRecipesView: View {
             items = items.filter { $0.dishRole.rawValue == selectedRole }
         }
         switch sort {
-        case .name:   items.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .recent: items.sort { $0.dateCreated > $1.dateCreated }
+        case .name:   items.sort(by: titleOrder)
+        case .recent: items.sort { $0.dateCreated == $1.dateCreated ? titleOrder($0, $1) : $0.dateCreated > $1.dateCreated }
+        case .oldest: items.sort { $0.dateCreated == $1.dateCreated ? titleOrder($0, $1) : $0.dateCreated < $1.dateCreated }
+        case .updated: items.sort { $0.updatedAt == $1.updatedAt ? titleOrder($0, $1) : $0.updatedAt > $1.updatedAt }
+        case .source:
+            items.sort {
+                let a = $0.sourceName ?? "", b = $1.sourceName ?? ""
+                return a == b ? titleOrder($0, $1) : a.localizedCaseInsensitiveCompare(b) == .orderedAscending
+            }
+        case .ingredients:
+            items.sort { $0.ingredients.count == $1.ingredients.count ? titleOrder($0, $1) : $0.ingredients.count < $1.ingredients.count }
         case .favorites:
             items.sort {
                 if $0.isFavorited != $1.isFavorited { return $0.isFavorited }
-                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+                return titleOrder($0, $1)
             }
         }
         return items
+    }
+
+    private func titleOrder(_ a: UserRecipe, _ b: UserRecipe) -> Bool {
+        let order = a.title.localizedCaseInsensitiveCompare(b.title)
+        return order == .orderedSame ? a.id.uuidString < b.id.uuidString : order == .orderedAscending
     }
 
     private var current: UserRecipe? {
@@ -106,9 +126,14 @@ struct MacRecipesView: View {
     var body: some View {
         @Bindable var navigation = navigation
 
-        HSplitView {
+        MacAdjustableSplit(
+            initialLeadingWidth: 330,
+            minimumLeadingWidth: 220,
+            maximumLeadingWidth: 500,
+            minimumTrailingWidth: 320
+        ) {
             index
-                .frame(minWidth: 250, idealWidth: 330, maxWidth: 500)
+        } trailing: {
             Group {
                 if let recipe = current {
                     MacRecipeDetail(recipe: recipe, onEdit: { editingID = recipe.id })
@@ -118,13 +143,12 @@ struct MacRecipesView: View {
                                     + "across everything already saved on your phone.",
                              systemImage: "book")
                 } else {
-                    MacEmpty(title: "Nothing matches",
-                             message: "No recipe matches that search. Try a shorter word, or turn "
-                                    + "off \"only what I can cook\".",
-                             systemImage: "magnifyingglass")
+                    VStack(spacing: 12) {
+                        MacEmpty(title: "Nothing matches", message: "Try another search or reset your recipe filters.", systemImage: "magnifyingglass")
+                        Button("Reset search and filters") { resetFilters() }
+                    }.padding()
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .macThemedSurface()
         .searchable(text: searchBinding, placement: .toolbar, prompt: "Search all recipe fields")
@@ -134,6 +158,22 @@ struct MacRecipesView: View {
         )) { recipeInspector }
         .quickLookPreview($previewURL)
         .onDeleteCommand { deleteCurrentRecipe() }
+        .confirmationDialog("Delete recipe?", isPresented: Binding(
+            get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }
+        ), titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                guard let recipe = pendingDeletion else { return }
+                store.deleteRecipe(ids: [recipe.id])
+                if selection == recipe.id { selection = nil }
+                pendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDeletion = nil }
+        } message: {
+            Text("Remove “\(pendingDeletion?.title ?? "")” from your recipe library? This change also syncs to your household.")
+        }
+        .alert("Quick Look unavailable", isPresented: Binding(
+            get: { previewError != nil }, set: { if !$0 { previewError = nil } }
+        )) { Button("OK") { previewError = nil } } message: { Text(previewError ?? "") }
         .sheet(isPresented: $navigation.isAddingItem) {
             MacRecipeEditor(recipe: nil) { newRecipe in
                 store.addRecipe(newRecipe)
@@ -185,7 +225,7 @@ struct MacRecipesView: View {
 
             HStack(spacing: 7) {
                 Button {
-                    Task { await MacPublicRecipeSync.shared.refresh(store: store) }
+                    Task { await MacPublicRecipeSync.shared.refresh(store: store, maxPages: 8) }
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
@@ -224,6 +264,13 @@ struct MacRecipesView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 6)
+            if MacPublicRecipeSync.shared.isSyncing {
+                ProgressView().controlSize(.small).padding(.bottom, 6)
+            } else if let date = MacPublicRecipeSync.shared.lastCompletedAt {
+                Text("Last complete refresh: \(date.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .padding(.horizontal, 12).padding(.bottom, 6)
+            }
 
             Divider()
 
@@ -263,7 +310,7 @@ struct MacRecipesView: View {
                             .font(.system(size: 9))
                             .foregroundStyle(MacTheme.gold)
                     }
-                    Text(recipe.title).font(.callout.weight(.medium)).lineLimit(1)
+                    Text(recipe.title).font(.callout.weight(.medium)).fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(spacing: 6) {
                     Text(recipe.sourceName?.nilIfBlank ?? "Personal recipe")
@@ -331,10 +378,16 @@ struct MacRecipesView: View {
             store.toggleFavorite(recipeID: recipe.id)
         }
         Button("Copy ingredients") { copyIngredients(recipe) }
+        if let raw = recipe.sourceURL, let url = URL(string: raw), url.scheme == "https" {
+            Link("Open original source", destination: url)
+            Button("Copy source link") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url.absoluteString, forType: .string)
+            }
+        }
         Divider()
         Button("Delete", role: .destructive) {
-            store.deleteRecipe(ids: [recipe.id])
-            if selection == recipe.id { selection = nil }
+            pendingDeletion = recipe
         }
     }
 
@@ -372,9 +425,8 @@ struct MacRecipesView: View {
     }
 
     private func deleteCurrentRecipe() {
-        guard let recipe = current else { return }
-        store.deleteRecipe(ids: [recipe.id])
-        selection = nil
+        guard let selection, let recipe = store.recipes.first(where: { $0.id == selection }) else { return }
+        pendingDeletion = recipe
     }
 
     private func preview(_ recipe: UserRecipe) {
@@ -385,10 +437,9 @@ struct MacRecipesView: View {
         let value = "\(recipe.title)\n\n\(recipe.description)\n\nINGREDIENTS\n\(ingredients)\n\nMETHOD\n\(method)\n"
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Stocked-QuickLook", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let safe = recipe.title.replacingOccurrences(of: "/", with: "-")
-        let url = directory.appendingPathComponent(safe.isEmpty ? "Recipe.txt" : "\(safe).txt")
+        let url = directory.appendingPathComponent("Recipe-\(recipe.id.uuidString).txt")
         do { try value.write(to: url, atomically: true, encoding: .utf8); previewURL = url }
-        catch { NSSound.beep() }
+        catch { previewError = "The preview could not be saved. Check available disk space and try again." }
     }
 
     private var filterMenu: some View {

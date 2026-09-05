@@ -33,6 +33,14 @@ struct StockedMacApp: App {
     @State private var desktop = MacDesktopExperience()
     @State private var didStart = false
 
+    init() {
+        // Recipe rows live in MacKitchenStore's atomic Application Support cache. Keep
+        // cacheable catalogue responses and remote artwork on disk too, so visible cards
+        // survive relaunch while the bounded background updater revalidates them.
+        URLCache.shared = URLCache(memoryCapacity: 32 * 1024 * 1024,
+                                   diskCapacity: 256 * 1024 * 1024)
+    }
+
     var body: some Scene {
 
         WindowGroup {
@@ -95,6 +103,7 @@ struct StockedMacApp: App {
                         // to. That makes an empty joined Mac self-correcting on every
                         // launch, whatever an earlier build left on disk.
                         await sync.pullAtLaunch(into: store)
+                        store.assignMissingRecipeCuisines()
                         await sync.refreshPresence()
                         // Keeps this Mac within a few seconds of the phones for as long as
                         // the app is open, which is the whole point of a desktop app that

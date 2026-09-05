@@ -16,8 +16,8 @@
 		7C0000000000000000000013 /* Exceptions for "StockedMac" folder in "StockedMac" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Info.plist,
 				Harvest/Resources/StockedRecipeWorker,
+				Info.plist,
 			);
 			target = 7C0000000000000000000006 /* StockedMac */;
 		};

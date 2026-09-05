@@ -7,6 +7,20 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class DesktopExperienceRegressionTests(unittest.TestCase):
+    def test_delete_requires_confirmation_and_explicit_selection(self):
+        source = self.read("StockedMac/Views/MacRecipesView.swift")
+        self.assertIn('.confirmationDialog("Delete recipe?"', source)
+        handler = source.split("private func deleteCurrentRecipe()",1)[1].split("private func preview",1)[0]
+        self.assertIn("guard let selection", handler)
+        self.assertIn("pendingDeletion = recipe", handler)
+        self.assertNotIn("store.deleteRecipe", handler)
+
+    def test_preview_identity_and_new_library_tools(self):
+        source = self.read("StockedMac/Views/MacRecipesView.swift")
+        self.assertIn('Recipe-\\(recipe.id.uuidString).txt',source)
+        for label in ["Oldest added", "Recently updated", "Fewest ingredients", "Copy source link", "Reset search and filters", "Quick Look unavailable"]:
+            self.assertIn(label,source)
+
     def read(self, relative):
         return (ROOT / relative).read_text(encoding="utf-8")
 

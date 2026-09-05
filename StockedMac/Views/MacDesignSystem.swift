@@ -75,6 +75,85 @@ extension View {
     }
 }
 
+/// A two-pane desktop layout that keeps the familiar draggable divider without
+/// relying on `NSSplitView`. SwiftUI's AppKit bridge can briefly install mutually
+/// exclusive safe-area constraints when a nested split is restored near its maximum
+/// width; this layout has the same interaction with deterministic geometry.
+struct MacAdjustableSplit<Leading: View, Trailing: View>: View {
+    private let minimumLeadingWidth: CGFloat
+    private let maximumLeadingWidth: CGFloat
+    private let minimumTrailingWidth: CGFloat
+    private let leading: Leading
+    private let trailing: Trailing
+
+    @State private var settledLeadingWidth: CGFloat
+    @GestureState private var dragTranslation: CGFloat = 0
+
+    init(
+        initialLeadingWidth: CGFloat,
+        minimumLeadingWidth: CGFloat,
+        maximumLeadingWidth: CGFloat,
+        minimumTrailingWidth: CGFloat,
+        @ViewBuilder leading: () -> Leading,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        _settledLeadingWidth = State(initialValue: initialLeadingWidth)
+        self.minimumLeadingWidth = minimumLeadingWidth
+        self.maximumLeadingWidth = maximumLeadingWidth
+        self.minimumTrailingWidth = minimumTrailingWidth
+        self.leading = leading()
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let upperBound = max(
+                minimumLeadingWidth,
+                min(maximumLeadingWidth, geometry.size.width - minimumTrailingWidth - 9)
+            )
+            let proposedWidth = settledLeadingWidth + dragTranslation
+            let visibleWidth = min(max(proposedWidth, minimumLeadingWidth), upperBound)
+
+            HStack(spacing: 0) {
+                leading
+                    .frame(width: visibleWidth)
+                    .clipped()
+
+                ZStack {
+                    Color.clear
+                    Divider()
+                }
+                .frame(width: 9)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .updating($dragTranslation) { value, state, _ in
+                            state = value.translation.width
+                        }
+                        .onEnded { value in
+                            settledLeadingWidth = min(
+                                max(settledLeadingWidth + value.translation.width, minimumLeadingWidth),
+                                upperBound
+                            )
+                        }
+                )
+                .accessibilityElement()
+                .accessibilityLabel("Resize sidebar")
+                .accessibilityAdjustableAction { direction in
+                    let change: CGFloat = direction == .increment ? 24 : -24
+                    settledLeadingWidth = min(
+                        max(settledLeadingWidth + change, minimumLeadingWidth),
+                        upperBound
+                    )
+                }
+
+                trailing
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+}
+
 struct MacSectionHeader: View {
     let title: String
 
