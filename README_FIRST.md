@@ -1,5 +1,10 @@
 # Read me first
 
+Stocked's approved default icon is the byte-identical `Brand/Stocked-AppIcon-Master.png` copied
+from the `stocked` repository, which owns the brand master. The macOS app icon set and public
+website consume that same artwork. Preserve the previous icon in Git for rollback, regenerate
+every catalog size together, and verify dimensions plus a generic Mac build before release.
+
 File → Import Center → Explore Cooklang community recipes now uses the actual free Cooklang
 Federation search/detail API. Searches are explicit, bounded, cancellable and cookie-free; a custom
 public HTTPS Federation endpoint may be remembered only after validation. Recipe text enters the
