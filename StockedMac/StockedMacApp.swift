@@ -31,6 +31,7 @@ struct StockedMacApp: App {
     @State private var harvest = HarvestModel()
     @State private var catalog = CatalogModel()
     @State private var desktop = MacDesktopExperience()
+    @State private var recipeInbox = MacRecipeFolderInbox()
     @State private var didStart = false
 
     init() {
@@ -58,6 +59,7 @@ struct StockedMacApp: App {
                 .environment(harvest)
                 .environment(catalog)
                 .environment(desktop)
+                .environment(recipeInbox)
                 .macThemedSurface()
                 .frame(minWidth: MacTheme.minWindowWidth,
                        minHeight: MacTheme.minWindowHeight)
@@ -77,6 +79,7 @@ struct StockedMacApp: App {
                     store.sync = sync
                     store.writerID = sync.memberID
                     store.load()
+                    recipeInbox.start()
                     MacPublicRecipeSync.shared.start(store: store)
                     // StockedMac is recipe-only. Keep household transport compatible
                     // with iOS while excluding every non-recipe collection.
@@ -103,7 +106,6 @@ struct StockedMacApp: App {
                         // to. That makes an empty joined Mac self-correcting on every
                         // launch, whatever an earlier build left on disk.
                         await sync.pullAtLaunch(into: store)
-                        store.assignMissingRecipeCuisines()
                         await sync.refreshPresence()
                         // Keeps this Mac within a few seconds of the phones for as long as
                         // the app is open, which is the whole point of a desktop app that
@@ -125,7 +127,10 @@ struct StockedMacApp: App {
                     // These jobs used to stack during launch and briefly pushed the app
                     // above a gigabyte while full catalog snapshots were also encoding.
                     Task {
-                        try? await Task.sleep(for: .seconds(8))
+                        // Keep maintenance well clear of window restoration, Harvester
+                        // startup, and the first progressive public-catalogue pass.
+                        try? await Task.sleep(for: .seconds(45))
+                        await store.backfillMissingRecipeCuisines()
                         harvest.syncKitchenToCloud(store.recipes, force: false)
                         if catalog.isBulkImportEnabled {
                             // The continuous importer already enriches as it walks sources;

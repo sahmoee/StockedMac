@@ -103,7 +103,7 @@ struct MacRecipesView: View {
     }
 
     private func titleOrder(_ a: UserRecipe, _ b: UserRecipe) -> Bool {
-        let order = a.title.localizedCaseInsensitiveCompare(b.title)
+        let order = RecipeTitlePolicy.sortKey(a.title).localizedCaseInsensitiveCompare(RecipeTitlePolicy.sortKey(b.title))
         return order == .orderedSame ? a.id.uuidString < b.id.uuidString : order == .orderedAscending
     }
 
@@ -635,14 +635,17 @@ struct MacRecipeDetail: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if recipe.sourceName?.nilIfBlank != nil || recipe.sourceURL?.nilIfBlank != nil {
+                if recipe.sourceName?.nilIfBlank != nil || recipe.attributedSourceURL?.nilIfBlank != nil || recipe.author?.nilIfBlank != nil || recipe.license?.nilIfBlank != nil || recipe.imageAttribution?.nilIfBlank != nil {
                     MacCard(title: "Source", systemImage: "link") {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(recipe.sourceName?.nilIfBlank ?? "Original source")
-                            if let source = recipe.sourceURL?.nilIfBlank,
-                               let url = URL(string: source) {
+                            if let source = recipe.attributedSourceURL?.nilIfBlank,
+                               let url = URL(string: source), ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
                                 Link(source, destination: url).font(.caption).lineLimit(1)
                             }
+                            if let author = recipe.author?.nilIfBlank { Text("Author: " + author).font(.caption) }
+                            if let license = recipe.license?.nilIfBlank { Text("Recipe license: " + license).font(.caption) }
+                            if let credit = recipe.imageAttribution?.nilIfBlank { Text("Photo credit: " + credit).font(.caption) }
                         }
                     }
                 }
@@ -1005,7 +1008,7 @@ struct MacRecipeEditor: View {
         role       = recipe.dishRole
         notes      = recipe.notes
         sourceName = recipe.sourceName ?? ""
-        sourceURL = recipe.sourceURL ?? ""
+        sourceURL = recipe.attributedSourceURL ?? ""
         categoriesText = (recipe.categories ?? []).joined(separator: ", ")
         tagsText = recipe.tags.joined(separator: ", ")
         imageURL = recipe.imageURL ?? ""
@@ -1031,6 +1034,10 @@ struct MacRecipeEditor: View {
         result.notes       = notes
         result.sourceName  = sourceName.nilIfBlank
         result.sourceURL   = sourceURL.nilIfBlank
+        if let original = result.portableSource, original.catalogueSharingApproved != true {
+            result.portableSource?.originalSourceURL = sourceURL.nilIfBlank
+            result.sourceURL = nil
+        }
         result.categories  = Self.parseList(categoriesText)
         result.tags        = Self.parseList(tagsText)
         result.imageURL    = imageURL.nilIfBlank

@@ -23,6 +23,14 @@ nonisolated enum RecipeTitlePolicy {
         return standardizedCase(value)
     }
 
+    /// Alphabetic ordering must not promote quoted/parenthesized titles ahead of A.
+    /// Keep meaningful punctuation in the displayed title and ignore it only for order.
+    static func sortKey(_ raw: String) -> String {
+        let cleaned = cleaned(raw).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        let start = cleaned.firstIndex { $0.isLetter || $0.isNumber } ?? cleaned.startIndex
+        return String(cleaned[start...])
+    }
+
     private static func standardizedCase(_ value: String) -> String {
         let letters = value.filter(\.isLetter)
         guard !letters.isEmpty else { return value }

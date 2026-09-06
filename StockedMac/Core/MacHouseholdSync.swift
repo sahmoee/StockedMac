@@ -821,11 +821,11 @@ final class MacHouseholdSync {
                                                        remoteWriterID: recipe.lastWriterID,
                                                        localUpdatedAt: local.updatedAt,
                                                        localWriterID: local.lastWriterID) {
-                        merged[index] = recipe
+                        merged[index] = MacPortableRecipePolicy.repaired(recipe, preserving: local)
                     }
                 } else {
                     positions[recipe.id] = merged.count
-                    merged.append(recipe)
+                    merged.append(MacPortableRecipePolicy.repaired(recipe))
                 }
             }
             store.recipes = merged.filter { !deleted.contains($0.id.uuidString) }

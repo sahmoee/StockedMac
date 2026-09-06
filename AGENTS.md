@@ -15,6 +15,37 @@ This is the single authoritative instruction contract for Codex, Claude, and any
 
 ## Project and UI rules
 
+Cooklang Federation connections are explicit read-only searches, not background crawlers or generic
+RSS import. Keep `CooklangFederation.swift` and `CooklangConnectionPanel.swift` identical to Stocked
+iOS. Only validated credential-free HTTPS endpoints may enter preferences. Refuse redirects,
+bound streamed responses, cancel replaced work and retain original index text/author provenance.
+`MacRecipeInterchangeView(connectedRecipe:)` must stay private: never enable its public-sharing toggle
+or bypass the existing duplicate/photo/store gates. A feed curator is not inferred as recipe author.
+
+Recipe archive migration and the folder inbox remain recipe-management features. Maintain the
+`KitchenArchive.swift` and `KitchenMigration.swift` copies identically with Stocked iOS; they are
+original, deterministic readers of documented formats, not copied Mealie/Tandoor/Paprika code.
+Never enable AI fallback, archive execution, unsafe paths, image recompression, or automatic
+publication in file ingestion. Preview multiple files within one global 250-recipe / 32-MiB
+retained-data budget. Public records still require approved sharing, source attribution and a
+validated image. Image-backed personal records may stay household-only under the existing store
+contract; missing images remain review blockers on Mac.
+
+`MacRecipeFolderInbox` owns only local bookmark/metadata/hash state. `MacKitchenStore.recipes`
+remains the sole approved library. The app-owned watcher must never follow symlinks, scan
+subfolders, import/approve/upload records, or claim to run after the app quits. Require stable
+observations, bounded hashing, review-time fingerprint validation, and cancellation checks before
+updating the queue. Keep pause/remove durable and leave selected-folder files untouched.
+
+Shared ownership: UnifiedWorker owns recipe household/public wire contracts; Stocked iOS and
+StockedMac produce and consume additive credit/portable-source metadata. Deploy the Worker’s
+old-client omission/privacy preservation before these clients. Missing approval stays private;
+top-level private source URLs and legacy Source: notes markers must not reappear. Original-source
+fields serve display/export only. Legacy recipes without an envelope retain their previous rules.
+Validate shared archive/migration fixtures, native Mac folder/interchange/privacy checks, Worker
+compatibility/privacy tests and both app targets before publication. Malformed files remain outside
+the library; old backups/household rows still decode and metadata repair is idempotent.
+
 Keep recipe deletion confirmation in both context-menu and keyboard routes; keyboard deletion
 requires explicit selection. Catalogue imports must check cancellation after decoding, preserve
 case-sensitive URL identities and report rejected records. Worker requests remain HTTPS-only,
@@ -27,6 +58,16 @@ Every window, page, sheet, popover, and alert must use the StockedMac theme acro
 App-level toolbars, sidebars, and tab selectors have one shared implementation and one geometry source. Feature pages must not locally override brand placement, chrome height, safe-area spacing, icon slots, labels, or selected-tab geometry.
 
 ## Cross-project ownership and synchronization
+
+Portable recipe file exchange is independently implemented against Cooklang/Schema.org; bounded
+local parsing and reviewed source/image validation enter MacKitchenStore only after explicit catalogue
+sharing confirmation. Preserve original portableSource privately across household merges, export
+author/license/imageAttribution, and never copy raw originals/notes into public harvest. Private iOS
+file imports keep their original URL inside portableSource and no public top-level sourceURL until
+sharing is approved; respect that on every Mac publication/backfill path. New fields are optional and
+legacy clients remain readable. No new pantry/planner/cooking UI or paid service belongs in this batch.
+Run native interchange/model/Cooklang checks and StockedMac build; no dependency license is added
+for original code. Format/source credits remain visible in Import Center and THIRD_PARTY_NOTICES.md.
 
 
 - `stocked`: consumes the same image-complete recipe records and household library; its grocery list may consume normalized brand, product, store, and aisle records.
@@ -61,6 +102,8 @@ StockedMac owns incremental recipe batching for household pushes; UnifiedWorker 
 `MacKitchenStore.recipes` is the complete approved Mac recipe database and displayed count whether
 or not a household is joined; Harvester, Server inbox, local edits, and household sync all converge
 there. Keep large merges indexed by recipe id and periodic signatures allocation-bounded.
+Harvester reload and general store saves must never hydrate, classify, compare, or network-fetch the
+complete approved library. Historical repairs are separately revisioned, off-main, and batch paced.
 The public catalogue is also an independent producer: `MacPublicRecipeSync` must run without
 a household and page through the Worker-owned record enumeration until explicit completion.
 Automatic passes are bounded and cursor-checkpointed after each accepted page so the durable local

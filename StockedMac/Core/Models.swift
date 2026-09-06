@@ -225,7 +225,11 @@ nonisolated struct UserRecipe: Identifiable, Codable, Sendable, Equatable {
     /// on-disk and household payload decode-compatible.
     var sourceURL:    String?   = nil
     var sourceName:   String?   = nil
+    var author: String? = nil
+    var license: String? = nil
+    var imageAttribution: String? = nil
     var categories:   [String]? = nil
+    var portableSource: PortableRecipeSource? = nil
     var isFavorited:  Bool     = false
     var dateCreated:  Date     = Date()
     var cookCount:    Int      = 0          // how many times this recipe has been cooked
@@ -235,6 +239,8 @@ nonisolated struct UserRecipe: Identifiable, Codable, Sendable, Equatable {
     var dishRole:     DishRole = .unspecified  // classification for prep discovery; legacy recipes decode as .unspecified
 
     var ingredientNames: [String] { ingredients.map(\.name) }
+    /// Display/export only; never use private attribution as a publication signal.
+    var attributedSourceURL: String? { sourceURL ?? portableSource?.originalSourceURL }
     var estimatedCalories: Int? {
         let total = ingredients.compactMap { $0.nutrition?.calories }.reduce(0, +)
         return total == 0 ? nil : total / max(1, servings)

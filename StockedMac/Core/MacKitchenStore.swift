@@ -179,10 +179,21 @@ final class MacKitchenStore {
         }
         if let data = read(.recipes),
            let value = try? decoder.decode([UserRecipe].self, from: data) {
-            recipes = value.map { recipe in
-                var recipe = recipe
-                if let cuisine = RecipeCuisineClassifier.infer(for: recipe) {
-                    recipe.cuisine = cuisine
+            recipes = value.map { original in
+                var recipe = MacPortableRecipePolicy.repaired(original)
+                if recipe.sourceURL != original.sourceURL || recipe.notes != original.notes || recipe.portableSource != original.portableSource {
+                    compactedRemoteRecipeImages = true
+                }
+                let cleanTitle = RecipeTitlePolicy.cleaned(recipe.title)
+                if cleanTitle != recipe.title {
+                    recipe.title = cleanTitle
+                    compactedRemoteRecipeImages = true
+                }
+                if let imageURL = recipe.imageURL,
+                   !MacRecipeImagePolicy.isLikelyRecipeImageURL(imageURL, sourceURL: recipe.sourceURL) {
+                    recipe.imageURL = nil
+                    recipe.imageData = nil
+                    recipe.imageValidatedAt = nil
                     compactedRemoteRecipeImages = true
                 }
                 guard recipe.imageURL?.nilIfBlank != nil, recipe.imageData != nil else { return recipe }
@@ -229,7 +240,6 @@ final class MacKitchenStore {
     /// editing a value through a binding.
     func save() {
         guard !isRestoring else { return }
-        assignMissingRecipeCuisines()
         dirty.formUnion(Collection.allCases)
         scheduleFlush()
     }
@@ -478,14 +488,18 @@ final class MacKitchenStore {
         var bySource = Dictionary(merged.indices.map { (MacPublicRecipePage.identity(merged[$0]), $0) }, uniquingKeysWith: { a, _ in a })
         var changed = false
         for var remote in incoming {
-            if let cuisine = RecipeCuisineClassifier.infer(for: remote) { remote.cuisine = cuisine }
+            // Public rows normally arrive classified by the Worker. Do not infer here:
+            // a progressive page merge is a latency-sensitive cache operation and the
+            // paced historical backfill handles the exceptional blank value later.
             let key = MacPublicRecipePage.identity(remote)
             if let index = byID[remote.id] ?? bySource[key] {
                 let local = merged[index]
+                if let source = local.portableSource, source.catalogueSharingApproved != true { continue }
                 guard remote.updatedAt > local.updatedAt else { continue }
                 var next = remote
                 next.id = local.id
                 next.notes = local.notes
+                next.portableSource = local.portableSource
                 next.isFavorited = local.isFavorited
                 next.cookCount = local.cookCount
                 next.lastCooked = local.lastCooked
@@ -507,6 +521,7 @@ final class MacKitchenStore {
     }
 
     func addRecipe(_ recipe: UserRecipe) {
+        let recipe = MacPortableRecipePolicy.repaired(recipe)
         guard MacRecipeImagePolicy.hasRequiredImage(recipe) else { return }
         var copy = recipe
         if let cuisine = RecipeCuisineClassifier.infer(for: copy) { copy.cuisine = cuisine }
@@ -521,6 +536,7 @@ final class MacKitchenStore {
         guard let index = recipes.firstIndex(where: { $0.id == id }) else { return }
         var updated = recipes[index]
         change(&updated)
+        updated = MacPortableRecipePolicy.repaired(updated, preserving: recipes[index])
         if let cuisine = RecipeCuisineClassifier.infer(for: updated) { updated.cuisine = cuisine }
         guard MacRecipeImagePolicy.hasRequiredImage(updated) else { return }
         updated.title = RecipeTitlePolicy.cleaned(updated.title)
@@ -542,6 +558,46 @@ final class MacKitchenStore {
         }
         if assigned > 0 { scheduleSave(.recipes) }
         return assigned
+    }
+
+    /// Migrates historical recipes without monopolizing the main actor. New and edited
+    /// recipes are classified synchronously at ingress; this service is only for old rows.
+    /// Each small evidence batch is classified at utility priority, committed together,
+    /// then deliberately paused so scrolling and typing retain priority. The migration
+    /// is intentionally an hours-long trickle: old rows are not launch-critical.
+    func backfillMissingRecipeCuisines(batchSize: Int = 24) async {
+        let revisionKey = "recipeCuisineBackgroundRepairRevision.v1"
+        guard UserDefaults.standard.integer(forKey: revisionKey) < 1 else { return }
+        let size = max(1, min(batchSize, 100))
+        var cursor = 0
+        while cursor < recipes.count, !Task.isCancelled {
+            let end = min(cursor + size, recipes.count)
+            let candidates = recipes[cursor..<end].enumerated().compactMap { offset, recipe -> (Int, UUID, RecipeCuisineClassifier.Evidence)? in
+                guard recipe.cuisine.nilIfBlank == nil else { return nil }
+                return (cursor + offset, recipe.id, RecipeCuisineClassifier.evidence(for: recipe))
+            }
+            let assignments = await Task.detached(priority: .utility) {
+                candidates.compactMap { index, id, evidence in
+                    RecipeCuisineClassifier.infer(from: evidence).map { (index, id, $0) }
+                }
+            }.value
+            if !assignments.isEmpty {
+                var changed = false
+                for (index, id, cuisine) in assignments {
+                    guard recipes.indices.contains(index), recipes[index].id == id,
+                          recipes[index].cuisine.nilIfBlank == nil else { continue }
+                    recipes[index].cuisine = cuisine
+                    changed = true
+                }
+                if changed { scheduleSave(.recipes) }
+            }
+            cursor = end
+            if cursor < recipes.count {
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            }
+        }
+        guard !Task.isCancelled else { return }
+        UserDefaults.standard.set(1, forKey: revisionKey)
     }
 
     func deleteRecipe(ids: Set<UUID>) {
@@ -755,6 +811,7 @@ final class MacKitchenStore {
     /// clashing row was written more recently — the same rule household sync uses, so an
     /// import can't quietly undo a change made on the phone five minutes ago.
     func importData(_ data: Data, replace: Bool) throws {
+        let originalPortableRecipes = Dictionary(recipes.filter { $0.portableSource != nil }.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let incoming: MacKitchenSnapshot
@@ -790,6 +847,7 @@ final class MacKitchenStore {
             // backup taken before onboarding would wipe a completed profile.
             if incoming.profile.completedSetup { profile = incoming.profile }
         }
+        recipes = recipes.map { MacPortableRecipePolicy.repaired($0, preserving: originalPortableRecipes[$0.id]) }
         isRestoring = false
         save()
     }

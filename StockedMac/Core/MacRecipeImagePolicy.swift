@@ -4,7 +4,18 @@ import ImageIO
 /// One image invariant for every recipe entry path. A URL is only a candidate; a recipe
 /// has an image after the bytes have downloaded and ImageIO can decode a real photo.
 nonisolated enum MacRecipeImagePolicy {
+    /// Reject marketing cards, app/site branding, and page URLs accidentally emitted as
+    /// artwork. CDN and Worker `/harvest/img/` assets remain valid recipe photography.
+    static func isLikelyRecipeImageURL(_ raw: String, sourceURL: String? = nil) -> Bool {
+        guard let url = URL(string: raw), url.scheme?.lowercased() == "https", url.host != nil else { return false }
+        if let sourceURL, URL(string: sourceURL)?.standardized == url.standardized { return false }
+        let token = (url.lastPathComponent + " " + url.path).lowercased()
+        let branding = ["logo", "favicon", "app-icon", "appicon", "site-icon", "default-og", "og-default", "placeholder", "stocked-social", "stocked-logo"]
+        return !branding.contains { token.contains($0) }
+    }
+
     static func isPublicImport(_ recipe: UserRecipe) -> Bool {
+        guard MacPortableRecipePolicy.allowsCatalogueSharing(recipe) else { return false }
         guard let raw = recipe.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines),
               let url = URL(string: raw), url.scheme?.lowercased() == "https",
               url.host != nil else { return false }
@@ -16,7 +27,8 @@ nonisolated enum MacRecipeImagePolicy {
     /// hundreds of megabytes in memory. Local-only recipes still retain their bytes.
     static func hasRequiredImage(_ recipe: UserRecipe) -> Bool {
         if isUsable(recipe.imageData) { return true }
-        guard let url = URL(string: recipe.imageURL ?? "") else { return false }
+        guard let raw = recipe.imageURL, isLikelyRecipeImageURL(raw, sourceURL: recipe.sourceURL),
+              let url = URL(string: raw) else { return false }
         return recipe.imageValidatedAt != nil
             && url.scheme?.lowercased() == "https"
             && url.host != nil
@@ -33,7 +45,7 @@ nonisolated enum MacRecipeImagePolicy {
     }
 
     static func download(_ rawURL: String, referer: String? = nil) async throws -> Data {
-        guard let url = URL(string: rawURL), url.scheme?.lowercased() == "https", url.host != nil else {
+        guard isLikelyRecipeImageURL(rawURL, sourceURL: referer), let url = URL(string: rawURL) else {
             throw CompanionError.invalidURL(rawURL)
         }
         var request = URLRequest(url: url)

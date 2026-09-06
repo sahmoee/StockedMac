@@ -257,6 +257,16 @@ enum HarvestCloudSync {
             "cookTime": recipe.cookTime,
         ]
         if let sourceURL { dict["sourceURL"] = sourceURL }
+        if let author = recipe.author?.nilIfBlank { dict["author"] = String(author.prefix(2_000)) }
+        if let license = recipe.license?.nilIfBlank { dict["license"] = String(license.prefix(2_000)) }
+        if let credit = recipe.imageAttribution?.nilIfBlank { dict["imageAttribution"] = String(credit.prefix(2_000)) }
+        // Structured file credits are public provenance. Never include the complete
+        // notes or original portable file: those may contain private household data.
+        for line in recipe.notes.components(separatedBy: .newlines) {
+            for (prefix, field) in [("Author: ", "author"), ("Recipe license: ", "license"), ("Photo credit: ", "imageAttribution")] {
+                if line.hasPrefix(prefix), dict[field] == nil { dict[field] = String(line.dropFirst(prefix.count).prefix(2_000)) }
+            }
+        }
         if let imageURL = recipe.imageURL?.nilIfBlank {
             dict["imageURL"] = imageURL
         } else if recipe.imageData != nil {

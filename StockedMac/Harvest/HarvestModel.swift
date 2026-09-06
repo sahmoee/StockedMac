@@ -506,33 +506,11 @@ final class HarvestModel {
     func reload() async {
         do {
             let removedDraftIDs = try await recipeStore.purgeImageLessImports()
-            var removedSharedIDs = Set<UUID>()
-            if let kitchen {
-                // Resolve only recipes that have neither validated local bytes nor a
-                // stable HTTPS image. Remote-backed recipes intentionally do not retain a
-                // duplicate base64 copy in memory.
-                let before = kitchen.recipes
-                let hydrated = await MacRecipeImagePolicy.hydrate(before)
-                let hydratedByID = Dictionary(hydrated.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-                for index in kitchen.recipes.indices {
-                    guard let resolved = hydratedByID[kitchen.recipes[index].id],
-                          !MacRecipeImagePolicy.isUsable(kitchen.recipes[index].imageData) else { continue }
-                    kitchen.recipes[index].imageValidatedAt = resolved.imageValidatedAt
-                    // A successful decode validates the URL; the renderer can load it
-                    // on demand without keeping another base64 copy in the store.
-                    kitchen.recipes[index].imageData = nil
-                }
-                if hydrated.count != before.count || hydrated.contains(where: { recipe in
-                    guard let old = before.first(where: { $0.id == recipe.id }) else { return false }
-                    return !MacRecipeImagePolicy.isUsable(old.imageData) && MacRecipeImagePolicy.isUsable(recipe.imageData)
-                }) {
-                    kitchen.save()
-                }
-                let invalid = Set(kitchen.recipes.filter(Self.isImportedWithoutUsableImage).map(\.id))
-                removedSharedIDs = invalid
-                kitchen.deleteRecipe(ids: invalid)
-            }
-            let removedIDs = removedDraftIDs.union(removedSharedIDs)
+            // Never hydrate or compare the complete approved library here. This method is
+            // called frequently, and the old path caused thousands of network requests
+            // plus an O(n²) ID search for large caches. Images validate at ingress and
+            // render through the disk cache; historical repair is separately bounded.
+            let removedIDs = removedDraftIDs
             if !removedIDs.isEmpty {
                 do {
                     try await HarvestCloudSync.delete(recipeIDs: removedIDs)
@@ -2496,6 +2474,7 @@ final class HarvestModel {
         guard let kitchen else { return 0 }
         var repaired = 0
         for snapshot in kitchen.recipes {
+            if let source = snapshot.portableSource, source.catalogueSharingApproved != true { continue }
             let metadata = Self.sourceMetadata(from: snapshot.notes)
             let sourceURL = snapshot.sourceURL?.nilIfBlank ?? metadata.url
             let normalizedURL = sourceURL.flatMap { try? URLSafety.validatedRemoteURL($0) }

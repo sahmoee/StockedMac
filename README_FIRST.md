@@ -1,5 +1,44 @@
 # Read me first
 
+File → Import Center → Explore Cooklang community recipes now uses the actual free Cooklang
+Federation search/detail API. Searches are explicit, bounded, cancellable and cookie-free; a custom
+public HTTPS Federation endpoint may be remembered only after validation. Recipe text enters the
+existing private portable review, duplicate and photo gates. This connection never publishes to the
+catalogue; recipe authors and collection curators remain distinct. The original Foundation client
+and themed panel are mirrored from stocked; see `../stocked/COOKLANG_CONNECTIONS.md` for protocol,
+limits and native checks. No Federation server code, paid service or new dependency is bundled.
+
+The free migration batch adds File → Import Center → Portable recipes for multiple files and
+Mealie, Tandoor, Paprika and Recipya exports, using the same independently written bounded
+`KitchenArchive.swift` / `KitchenMigration.swift` cores as Stocked iOS. Preview is capped at 250
+recipes, 50 selected files and 32 MiB of retained recipe text/photos. Original JPEG/PNG bytes,
+publisher/author/license/photo credits, source nutrition text and notes are retained when present.
+Exact-original export is offered only when the original text exists; normalized archive records
+keep their source hash and filename without pretending an empty source is an original file.
+
+File imports default to household-only. Public sharing requires explicit confirmation, a secure
+original source URL and a valid photo. The Mac's existing image requirement remains; missing
+photos stay blocked for review. Local-only photos larger than 180 KB remain on this Mac because
+the existing household transport omits them; add a secure photo URL for full-photo portability.
+Private provenance stays inside `portableSource`; legacy URL/notes repair cannot republish it.
+
+The Recipe drop folder stores a read-only security-scoped bookmark and checks while Stocked is
+running, every 30 seconds or with Scan now. It observes only direct regular files, never symlinks
+or subfolders, requires two stable observations, hashes at most 12 files / 32 MiB per pass and
+caps the metadata scan at 500 directory entries. It queues at most 100 files and remembers 2,000
+handled hashes. Review rechecks the fingerprint; updated files cannot silently replace a queued
+version. Pause, resume, remove-folder and dismiss leave original files untouched. Nothing is
+parsed, saved to the recipe library, uploaded or published automatically by the watch service.
+There is no watcher service when Stocked is quit. Native checks: `scripts/test-recipe-folder.swift`,
+`scripts/test-recipe-interchange.swift`, and `scripts/test-portable-models.swift`.
+
+Free portable files: File → Import Center → Preview portable recipe files reads reviewed Cooklang
+and Schema.org JSON/JSON-LD without AI or a new dependency. Source/image gates, duplicate skipping,
+explicit catalogue-sharing confirmation and unchanged-addition undo use the existing library.
+Original portableSource stays private; optional author/license/imageAttribution survives publishing
+and downloads. JSON-LD library and individual current/original Cooklang exports are available there.
+See stocked/FREE_KITCHEN_DELIVERY.md and the Worker free-kitchen contract for rollout and limits.
+
 September 5 reliability/workspace batch: `docs/STOCKED_MAC_40_2026_09_05.md` lists 40 changes.
 Worker utility calls use bounded cookie-free HTTPS transport, refuse redirects and preserve rate
 limits/cancellation. Catalogue pages validate usable content and display progress/rejections.
@@ -89,6 +128,9 @@ Large Server inboxes are materialized into an in-memory pending queue at most tw
 drained ten batches per minute. Never restore per-minute enumeration, receipt lookup, and sorting
 of the complete directory. The external cache bridge runs every 30 minutes without rsync transport
 compression; JSON is already compact and Tailscale/LAN compression needlessly consumes a CPU core.
+Harvester reload never hydrates or compares the complete approved kitchen library. Images validate
+at ingress and load through the disk cache; historical cuisine work runs off-main in 24-row batches
+with two-second pauses and a durable completion revision. General saves never rescan every recipe.
 
 Stocked Server discovery runs every 15 minutes and its separately locked importer drains work every five minutes. Discovery uses a persisted no-repeat shuffle bag, per-source deadlines, source cooldowns, a whole-run budget, media-URL filtering, and durable-queue backpressure. The architecture-neutral parser is launch-probed before queue work and past architecture failures are requeued automatically. It may randomize fair work order, but must never bypass robots, authentication, throttling, the required-image gate, canonical source attribution, or complete-recipe validation. Imported and historical titles are standardized only when their casing is clearly broken; intentional publisher casing remains intact.
 

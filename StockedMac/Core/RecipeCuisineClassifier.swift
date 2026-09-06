@@ -84,13 +84,17 @@ nonisolated enum RecipeCuisineClassifier {
 
     static func infer(for recipe: UserRecipe) -> String? {
         guard recipe.cuisine.nilIfBlank == nil else { return nil }
-        return infer(from: Evidence(
+        return infer(from: evidence(for: recipe))
+    }
+
+    static func evidence(for recipe: UserRecipe) -> Evidence {
+        Evidence(
             title: recipe.title,
             summary: recipe.description,
             metadata: recipe.tags + (recipe.categories ?? []),
             source: [recipe.sourceName ?? "", recipe.sourceURL ?? ""],
             ingredients: recipe.ingredients.map(\.name)
-        ))
+        )
     }
 
     static func infer(for recipe: RecipeDraft) -> String? {

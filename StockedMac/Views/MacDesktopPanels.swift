@@ -103,9 +103,12 @@ struct MacImportCenter: View {
     @Environment(\.dismiss) private var dismiss
     @State private var urls = ""
     @State private var mergeBackup = true
+    @State private var showPortableRecipes = false
+    @State private var showCooklangConnection = false
     @State private var message = "Drop recipe links or a Stocked JSON/CSV file anywhere in this window."
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Label("Import Center", systemImage: "square.and.arrow.down")
@@ -130,6 +133,10 @@ struct MacImportCenter: View {
             }
 
             MacCard(title: "Files", systemImage: "doc") {
+                Button("Preview portable recipe files…") { showPortableRecipes = true }
+                Button("Explore Cooklang community recipes…") { showCooklangConnection = true }
+                Text("Preview multiple recipe files and Mealie, Tandoor, Paprika or Recipya exports. Keep them in your household or explicitly approve public sharing. No AI account is needed.")
+                    .font(.caption).foregroundStyle(.secondary)
                 HStack(spacing: 12) {
                     Button("Open Stocked backup…") { openBackup() }
                     Toggle("Merge with this Mac", isOn: $mergeBackup)
@@ -141,13 +148,18 @@ struct MacImportCenter: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            MacRecipeFolderInboxView()
+
             Label(message, systemImage: "info.circle")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .padding(20)
+        }
         .frame(minWidth: 620, idealWidth: 720, minHeight: 500)
+        .sheet(isPresented: $showPortableRecipes) { MacRecipeInterchangeView() }
+        .sheet(isPresented: $showCooklangConnection) { MacCooklangConnectionView() }
         .dropDestination(for: URL.self) { urls, _ in
             handleDropped(urls); return true
         }
