@@ -21,6 +21,7 @@
 
 import Foundation
 import Observation
+import CryptoKit
 import os
 
 // MARK: - Merge policy
@@ -83,14 +84,20 @@ final class MacHouseholdSync {
     nonisolated enum Status: Equatable, Sendable {
         case idle
         case syncing
+        case repairing(Int)
         case synced(Date)
         case failed(String)
 
-        var isBusy: Bool { self == .syncing }
+        var isBusy: Bool {
+            if case .syncing = self { return true }
+            if case .repairing = self { return true }
+            return false
+        }
         var message: String {
             switch self {
             case .idle:            return "Not synced yet"
             case .syncing:         return "Syncing…"
+            case .repairing:       return "Repairing household storage…"
             case .synced(let at):  return "Last synced \(Self.formatter.string(from: at))"
             case .failed(let why): return why
             }
@@ -134,10 +141,9 @@ final class MacHouseholdSync {
     /// push would fail for every item in it, not just that recipe.
     nonisolated static let maxSyncedImageBytes = 180_000
 
-    /// Maximum total size of the recipe array in a push body. Keeping the push under
-    /// ~800 KB means it fits comfortably within typical Worker body limits and never
-    /// times out on a slow connection, even with a large recipe library.
-    nonisolated static let maxPushBodyBytes = 800_000
+    /// Maximum recipe bytes per request. Large libraries are split into complete,
+    /// sequential batches; this is a batch target, never a reason to drop old recipes.
+    nonisolated static let maxPushBodyBytes = 700_000
 
     @ObservationIgnored private var autoSyncTask: Task<Void, Never>?
 
@@ -166,6 +172,8 @@ final class MacHouseholdSync {
         static let syncGro = "mac_sync_grocery_v1"
         static let syncRec = "mac_sync_recipes_v1"
         static let syncPln = "mac_sync_plan_v1"
+        static let recipeVersions = "mac_household_recipe_versions_v2"
+        static let localStateVersion = "mac_household_local_state_v1"
     }
 
     private func loadIdentity() {
@@ -211,8 +219,11 @@ final class MacHouseholdSync {
 
     // MARK: - Transport
 
-    /// One POST helper for every household route. Kept byte-compatible with the iOS
-    /// version, including the 12-second timeout and the 429 / kvQuota handling.
+    /// One POST helper for every household route. Household writes are idempotent (rows
+    /// merge by id/revision), so transient transport failures can be retried safely.
+    /// Large recipe pushes need more headroom than presence and incremental pulls: the
+    /// Worker may merge hundreds of recipes and return the complete household on the
+    /// final batch.
     private func post(_ path: String, _ body: [String: Any]) async -> [String: Any]? {
         guard let url = URL(string: MacBuildConfig.receiptWorkerURL + path) else { return nil }
         guard JSONSerialization.isValidJSONObject(body) else {
@@ -225,9 +236,12 @@ final class MacHouseholdSync {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         MacBuildConfig.authorizeWorkerRequest(&request)
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        request.timeoutInterval = 12
+        let isHouseholdPush = path == "/household/push"
+        request.timeoutInterval = isHouseholdPush ? 30 : 12
 
-        do {
+        let repairDelays: [Duration] = [.milliseconds(500), .seconds(1), .seconds(2)]
+        for attempt in 0...repairDelays.count {
+          do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else { return nil }
 
@@ -242,7 +256,16 @@ final class MacHouseholdSync {
 
             guard (200..<300).contains(http.statusCode) else {
                 let detail = object?["error"] as? String
-                if (object?["code"] as? String) == "kvQuota" || http.statusCode == 503 {
+                let code = object?["code"] as? String
+                if code == "householdCrash" || (http.statusCode == 503 && code != "kvQuota") {
+                    if attempt < repairDelays.count {
+                        status = .repairing(attempt + 1)
+                        try? await Task.sleep(for: repairDelays[attempt])
+                        guard !Task.isCancelled else { return nil }
+                        continue
+                    }
+                    status = .failed(detail ?? "Household storage repair couldn't finish. Sync will retry automatically.")
+                } else if code == "kvQuota" {
                     status = .failed(detail ?? "Household storage is temporarily unavailable.")
                 } else {
                     status = .failed(detail ?? "The server returned an error (\(http.statusCode)).")
@@ -250,10 +273,38 @@ final class MacHouseholdSync {
                 return nil
             }
             return object
-        } catch {
+          } catch is CancellationError {
+            return nil
+          } catch let error as URLError
+              where Self.isRecoverableTransportError(error) && attempt < repairDelays.count {
+            status = .repairing(attempt + 1)
+            log.warning(
+                "household \(path, privacy: .public) transport retry \(attempt + 1, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            try? await Task.sleep(for: repairDelays[attempt])
+            guard !Task.isCancelled else { return nil }
+            continue
+          } catch {
             log.error("household \(path, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             status = .failed("Couldn't reach Stocked. Check your connection.")
             return nil
+          }
+        }
+        return nil
+    }
+
+    private nonisolated static func isRecoverableTransportError(_ error: URLError) -> Bool {
+        switch error.code {
+        case .timedOut,
+             .cannotFindHost,
+             .cannotConnectToHost,
+             .dnsLookupFailed,
+             .networkConnectionLost,
+             .notConnectedToInternet,
+             .resourceUnavailable:
+            return true
+        default:
+            return false
         }
     }
 
@@ -404,6 +455,17 @@ final class MacHouseholdSync {
         }
         status = .syncing
 
+        // Most 30-second ticks have no local work. Poll the Worker with `since` in that
+        // case instead of uploading and downloading the entire household again.
+        let startingSignature = localStateSignature(store)
+        let hasDeletes = !pendingInventoryDeletes.isEmpty || !pendingGroceryDeletes.isEmpty
+            || !pendingRecipeDeletes.isEmpty || !pendingMealDeletes.isEmpty
+        if !hasDeletes, defaults.string(forKey: Key.localStateVersion) == startingSignature {
+            await pull(into: store)
+            defaults.set(localStateSignature(store), forKey: Key.localStateVersion)
+            return
+        }
+
         var body: [String: Any] = ["code": code, "actorId": memberID]
         if !householdName.isEmpty { body["householdName"] = householdName }
 
@@ -415,16 +477,40 @@ final class MacHouseholdSync {
             body["grocery"]    = store.grocery.map(groceryDict)
             body["groDeleted"] = Array(pendingGroceryDeletes)
         }
-        if syncRecipes {
-            body["userRecipes"]       = recipesForPayload(store)
-            body["userRecipeDeleted"] = Array(pendingRecipeDeletes)
-        }
+        let recipeBatches = syncRecipes ? recipePayloadBatches(store) : []
+        if syncRecipes { body["userRecipeDeleted"] = Array(pendingRecipeDeletes) }
         if syncPlan {
             body["plannedMeals"] = store.plannedMeals.compactMap(plannedMealDict)
             body["mealDeleted"]  = Array(pendingMealDeletes)
         }
 
-        guard let response = await post("/household/push", body) else { return }
+        // Attach the first recipe batch to the normal household write, then send the
+        // remainder as small acknowledgement-only writes. The final write returns the
+        // merged household once, avoiding N copies of a large response in memory.
+        var response: [String: Any]?
+        if let first = recipeBatches.first {
+            body["userRecipes"] = first
+        }
+        let remaining = recipeBatches.dropFirst()
+        body["responseMode"] = remaining.isEmpty ? "full" : "ack"
+        guard let initial = await post("/household/push", body) else { return }
+        response = initial
+
+        for (offset, batch) in remaining.enumerated() {
+            // Gentle backpressure prevents an initial large migration from bursting every
+            // request into the Worker at once while still finishing without user action.
+            try? await Task.sleep(for: .milliseconds(150))
+            let isLast = offset == remaining.count - 1
+            let batchBody: [String: Any] = [
+                "code": code,
+                "actorId": memberID,
+                "userRecipes": batch,
+                "responseMode": isLast ? "full" : "ack",
+            ]
+            guard let next = await post("/household/push", batchBody) else { return }
+            response = next
+        }
+        guard let response else { return }
 
         // The push succeeded, so the tombstones have been recorded server-side and can go.
         pendingInventoryDeletes.removeAll()
@@ -433,6 +519,8 @@ final class MacHouseholdSync {
         pendingMealDeletes.removeAll()
 
         await apply(response["household"] as? [String: Any] ?? response, into: store)
+        persistRecipeVersions(store.recipes)
+        defaults.set(localStateSignature(store), forKey: Key.localStateVersion)
         lastPulledAt = Date().timeIntervalSince1970 * 1000
         persistIdentity()
         status = .synced(Date())
@@ -505,11 +593,16 @@ final class MacHouseholdSync {
     }
 
     /// Recipes and planned meals ride as the encoded struct with the sync fields overlaid,
-    /// so a field added to the model syncs without a change here. Oversized images are
-    /// dropped rather than failing the whole push.
+    /// so a field added to the model syncs without a change here. Remote-backed images
+    /// travel by URL rather than being duplicated as base64; local-only images retain a
+    /// bounded copy so they can still cross devices.
     private func userRecipeDict(_ recipe: UserRecipe) -> [String: Any]? {
         var trimmed = recipe
-        if let data = trimmed.imageData, data.count > Self.maxSyncedImageBytes { trimmed.imageData = nil }
+        if trimmed.imageURL?.nilIfBlank != nil {
+            trimmed.imageData = nil
+        } else if let data = trimmed.imageData, data.count > Self.maxSyncedImageBytes {
+            trimmed.imageData = nil
+        }
         guard let data = try? JSONEncoder().encode(trimmed),
               var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else { return nil }
@@ -518,40 +611,83 @@ final class MacHouseholdSync {
         return object
     }
 
-    /// Builds the recipes array for a push, staying within `maxPushBodyBytes`.
-    ///
-    /// Strategy, cheapest first:
-    /// 1. Full payload — done if it fits.
-    /// 2. Strip all embedded imageData; the phone falls back to imageURL on demand.
-    /// 3. Sort newest-first and drop from the tail until the payload fits. Pull always
-    ///    fetches the whole library; only this incremental push is capped.
-    private func recipesForPayload(_ store: MacKitchenStore) -> [[String: Any]] {
-        // Only sync recipes that have an image — imageless recipes render poorly
-        // on iOS and unnecessarily inflate the payload.
-        let withImages = store.recipes.filter { MacRecipeImagePolicy.isUsable($0.imageData) }
-        var dicts = withImages.compactMap(userRecipeDict)
-        guard !dicts.isEmpty else { return dicts }
+    private func recipeVersion(_ recipe: UserRecipe) -> String {
+        "\(recipe.updatedAt)|\(recipe.lastWriterID)|\(recipe.imageURL ?? "")|\(recipe.imageData?.count ?? 0)"
+    }
 
-        if let data = try? JSONSerialization.data(withJSONObject: dicts),
-           data.count <= Self.maxPushBodyBytes { return dicts }
+    private func storedRecipeVersions() -> [String: String] {
+        guard let data = defaults.data(forKey: Key.recipeVersions),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+        return decoded
+    }
 
-        // Step 2: strip embedded images so phone falls back to imageURL.
-        dicts = withImages.map { r -> UserRecipe in
-            var copy = r; copy.imageData = nil; return copy
-        }.compactMap(userRecipeDict)
+    private func persistRecipeVersions(_ recipes: [UserRecipe]) {
+        let versions = Dictionary(uniqueKeysWithValues: recipes.map { ($0.id.uuidString, recipeVersion($0)) })
+        if let data = try? JSONEncoder().encode(versions) { defaults.set(data, forKey: Key.recipeVersions) }
+    }
 
-        if let data = try? JSONSerialization.data(withJSONObject: dicts),
-           data.count <= Self.maxPushBodyBytes { return dicts }
-
-        // Step 3: sort newest-first, trim from tail until under budget.
-        dicts.sort { ($0["updatedAt"] as? Double ?? 0) > ($1["updatedAt"] as? Double ?? 0) }
-        while dicts.count > 1,
-              let data = try? JSONSerialization.data(withJSONObject: dicts),
-              data.count > Self.maxPushBodyBytes {
-            dicts.removeLast()
+    /// Stable, compact fingerprint of everything this Mac can push. It is intentionally
+    /// based on sync revisions rather than full encoded objects, keeping the hot auto-sync
+    /// path O(records) with tiny temporary allocations instead of O(payload bytes).
+    private func localStateSignature(_ store: MacKitchenStore) -> String {
+        var rows: [String] = [
+            "i:\(syncInventory)", "g:\(syncGrocery)",
+            "r:\(syncRecipes)", "p:\(syncPlan)", "n:\(householdName)",
+        ]
+        if syncInventory {
+            rows += store.inventory.map { "i|\($0.id)|\($0.updatedAt)|\($0.lastWriterID)" }
         }
-        log.warning("recipe sync payload trimmed to \(dicts.count) recipes to fit push budget")
-        return dicts
+        if syncGrocery {
+            rows += store.grocery.map { "g|\($0.id)|\($0.updatedAt)|\($0.lastWriterID)" }
+        }
+        if syncRecipes {
+            rows += store.recipes.map { "r|\($0.id)|\(recipeVersion($0))" }
+        }
+        if syncPlan {
+            rows += store.plannedMeals.map { "p|\($0.id)|\($0.updatedAt)|\($0.lastWriterID)" }
+        }
+        // Feed the digest a row at a time. Building one giant joined String briefly
+        // duplicates the complete recipe index every 30 seconds on large libraries.
+        var hasher = SHA256()
+        for row in rows.sorted() {
+            hasher.update(data: Data(row.utf8))
+            hasher.update(data: Data([0x0a]))
+        }
+        let digest = hasher.finalize()
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Encodes only recipes that changed since the last successful push, then packs every
+    /// one into byte-bounded batches. No tail trimming: an initial 900-recipe sync reaches
+    /// the Worker completely, while the 30-second auto-sync normally sends zero recipes.
+    private func recipePayloadBatches(_ store: MacKitchenStore) -> [[[String: Any]]] {
+        let prior = storedRecipeVersions()
+        let changed = store.recipes
+            .filter(MacRecipeImagePolicy.hasRequiredImage)
+            .filter { prior[$0.id.uuidString] != recipeVersion($0) }
+            .sorted { $0.updatedAt < $1.updatedAt }
+        guard !changed.isEmpty else { return [] }
+
+        var batches: [[[String: Any]]] = []
+        var current: [[String: Any]] = []
+        var currentBytes = 2
+        for recipe in changed {
+            autoreleasepool {
+                guard let dict = userRecipeDict(recipe),
+                      let encoded = try? JSONSerialization.data(withJSONObject: dict) else { return }
+                let itemBytes = encoded.count + (current.isEmpty ? 0 : 1)
+                if !current.isEmpty && currentBytes + itemBytes > Self.maxPushBodyBytes {
+                    batches.append(current)
+                    current = []
+                    currentBytes = 2
+                }
+                current.append(dict)
+                currentBytes += itemBytes
+            }
+        }
+        if !current.isEmpty { batches.append(current) }
+        log.info("recipe sync prepared \(changed.count) changed recipes in \(batches.count) complete batch(es)")
+        return batches
     }
 
     private func plannedMealDict(_ meal: PlannedMeal) -> [String: Any]? {
@@ -616,8 +752,9 @@ final class MacHouseholdSync {
             let deleted = Set((payload["invDeleted"] as? [String]) ?? [])
                 .union(pendingInventoryDeletes)
             var merged = store.inventory
+            var positions = Dictionary(merged.indices.map { (merged[$0].id, $0) }, uniquingKeysWith: { first, _ in first })
             for item in remote {
-                if let index = merged.firstIndex(where: { $0.id == item.id }) {
+                if let index = positions[item.id] {
                     let local = merged[index]
                     if HouseholdMergePolicy.remoteWins(remoteUpdatedAt: item.updatedAt,
                                                        remoteWriterID: item.lastWriterID,
@@ -636,6 +773,7 @@ final class MacHouseholdSync {
                         merged[index] = updated
                     }
                 } else {
+                    positions[item.id] = merged.count
                     merged.append(item)
                 }
             }
@@ -647,8 +785,9 @@ final class MacHouseholdSync {
             let deleted = Set((payload["groDeleted"] as? [String]) ?? [])
                 .union(pendingGroceryDeletes)
             var merged = store.grocery
+            var positions = Dictionary(merged.indices.map { (merged[$0].id, $0) }, uniquingKeysWith: { first, _ in first })
             for item in remote {
-                if let index = merged.firstIndex(where: { $0.id == item.id }) {
+                if let index = positions[item.id] {
                     let local = merged[index]
                     if HouseholdMergePolicy.remoteWins(remoteUpdatedAt: item.updatedAt,
                                                        remoteWriterID: item.lastWriterID,
@@ -657,6 +796,7 @@ final class MacHouseholdSync {
                         merged[index] = item
                     }
                 } else {
+                    positions[item.id] = merged.count
                     merged.append(item)
                 }
             }
@@ -673,17 +813,19 @@ final class MacHouseholdSync {
             let deleted = Set((payload["userRecipeDeleted"] as? [String]) ?? [])
                 .union(pendingRecipeDeletes)
             var merged = store.recipes
+            var positions = Dictionary(merged.indices.map { (merged[$0].id, $0) }, uniquingKeysWith: { first, _ in first })
             for recipe in remote {
-                if let index = merged.firstIndex(where: { $0.id == recipe.id }) {
+                if let index = positions[recipe.id] {
                     let local = merged[index]
                     if HouseholdMergePolicy.remoteWins(remoteUpdatedAt: recipe.updatedAt,
                                                        remoteWriterID: recipe.lastWriterID,
                                                        localUpdatedAt: local.updatedAt,
                                                        localWriterID: local.lastWriterID) {
-                        merged[index] = recipe
+                        merged[index] = MacPortableRecipePolicy.repaired(recipe, preserving: local)
                     }
                 } else {
-                    merged.append(recipe)
+                    positions[recipe.id] = merged.count
+                    merged.append(MacPortableRecipePolicy.repaired(recipe))
                 }
             }
             store.recipes = merged.filter { !deleted.contains($0.id.uuidString) }
@@ -694,8 +836,9 @@ final class MacHouseholdSync {
             let deleted = Set((payload["mealDeleted"] as? [String]) ?? [])
                 .union(pendingMealDeletes)
             var merged = store.plannedMeals
+            var positions = Dictionary(merged.indices.map { (merged[$0].id, $0) }, uniquingKeysWith: { first, _ in first })
             for meal in remote {
-                if let index = merged.firstIndex(where: { $0.id == meal.id }) {
+                if let index = positions[meal.id] {
                     let local = merged[index]
                     if HouseholdMergePolicy.remoteWins(remoteUpdatedAt: meal.updatedAt,
                                                        remoteWriterID: meal.lastWriterID,
@@ -704,6 +847,7 @@ final class MacHouseholdSync {
                         merged[index] = meal
                     }
                 } else {
+                    positions[meal.id] = merged.count
                     merged.append(meal)
                 }
             }

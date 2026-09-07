@@ -60,6 +60,15 @@ already), and run.
 - `scripts/update-source-catalog.mjs` — synchronizes the editable, bundled, and compiled fallback catalogs
 - `worker-build/worker.py` — offline parser used to build the bundled local helper
 - `scripts/harvest-recipes.py` — optional gzip-aware batch sitemap harvester
+- `scripts/catalog-quality.py` — offline Kroger/RapidAPI/Open Food Facts catalog normalizer,
+  grocery-only filter, UPC/name deduplicator, largest-image selector, aisle enricher, and
+  machine-readable audit report. It uses only the Python standard library and no secrets.
+
+Example:
+
+```sh
+python3 scripts/catalog-quality.py export.json normalized-catalog.json --require-product-images
+```
 
 ## License
 

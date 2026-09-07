@@ -22,7 +22,7 @@ Secrets.local.xcconfig
 AuthKey_*.p8
 GoogleService-Info.plist
 
-# BuildBuddy undo backups (tool state, not source)
+# Local undo backups (tool state, not source)
 .buildbuddy-backups/
 
 # Local Python environments and PyInstaller intermediates are rebuildable.

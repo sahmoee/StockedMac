@@ -108,11 +108,14 @@ nonisolated enum MacRecipeTextParser {
 final class HarvestModel {
     /// Increment whenever an import/model fix must be applied to historical recipes.
     /// The versioned pass repairs local records and seeds their sources for bounded reparse.
-    static let currentRecipeRepairRevision = 5
+    // v6 requeues every historical source so older recipes receive the same current
+    // nutrition/category/source/image extraction used by all future imports.
+    static let currentRecipeRepairRevision = 8
 
     // MARK: - Observable state
 
     var recipes: [RecipeDraft] = []
+    @ObservationIgnored private var coveragePlan = RecipeCoveragePlan.bootstrap
     var sources: [SourceProfile] = []
     var logs: [CrawlLogEntry] = []
     var settings: AppSettings = .defaults
@@ -156,6 +159,21 @@ final class HarvestModel {
     /// Build 101: the category catalog — one entry per source, each holding the categories
     /// discovered on it (organized, with a cached-recipe count). Browseable and cached.
     var sourceCategories: [String: SourceCategoryCatalog] = [:]
+    /// Pre-sorted category rows. Keeping this materialized prevents every sidebar badge,
+    /// search field, and tab transition from flattening and sorting ~1,000 records again.
+    private(set) var categoryIndex: [SourceCategory] = []
+    /// Background cross-site cuisine index used by discovery/import matching. Rebuilt
+    /// only when cached discovery/category data changes; app rendering never rereads
+    /// every JSON report.
+    private(set) var cuisineRecipeCache: [String: [String]] = [:]
+    private(set) var serverCacheHealth: ServerCacheHealth?
+    private(set) var serverRecipeBridgeStatus = ServerRecipeBridgeStatus()
+    @ObservationIgnored private var cuisineCacheRebuildTask: Task<Void, Never>?
+    @ObservationIgnored private var serverInboxTask: Task<Void, Never>?
+    @ObservationIgnored private var serverPendingFiles: [URL] = []
+    @ObservationIgnored private var serverPendingPaths = Set<String>()
+    @ObservationIgnored private var serverAcknowledgedCount = 0
+    @ObservationIgnored private var lastServerInboxScan = Date.distantPast
     /// Sources still to visit in the current auto-rotate run.
     var autoRotateRemaining = 0
     /// Explicitly selected sources still waiting their turn (multi-select browsing).
@@ -359,38 +377,140 @@ final class HarvestModel {
                 }
             }
             await pruneCaches(quiet: true)
+            startServerInboxConsumer()
             log(.info, "Stocked Companion is ready.")
         }
+    }
+
+    /// Consumes immutable Server Mac discovery batches without trusting them as recipes.
+    /// A receipt is written only after valid URLs reach the durable app queue, making the
+    /// bridge safe across relaunches, duplicate transfers, and peer disconnects.
+    private func startServerInboxConsumer() {
+        serverInboxTask?.cancel()
+        serverInboxTask = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.loadServerCacheHealth()
+                self?.consumeServerInbox()
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
+    }
+
+    private func loadServerCacheHealth() {
+        guard let data = try? Data(contentsOf: paths.serverHealthFile),
+              let health = try? JSONCoding.decoder().decode(ServerCacheHealth.self, from: data),
+              (1...3).contains(health.schemaVersion) else { return }
+        serverCacheHealth = health
+    }
+
+    /// Refreshes both sides of the visible bridge immediately. The same safe consumer
+    /// used by the timer is used here, so Refresh cannot bypass queue, image, duplicate,
+    /// attribution, approval, or household publication rules.
+    func refreshServerRecipeBridge() {
+        loadServerCacheHealth()
+        consumeServerInbox()
+    }
+
+    private func updateServerRecipeBridgeStatus(pendingBatchCount: Int? = nil) {
+        serverRecipeBridgeStatus = ServerRecipeBridgeStatus(
+            pendingBatchCount: pendingBatchCount ?? serverPendingFiles.count,
+            acknowledgedBatchCount: serverAcknowledgedCount,
+            lastCheckedAt: Date()
+        )
+    }
+
+    private func consumeServerInbox() {
+        // Do not enumerate, receipt-check, and sort tens of thousands of files every
+        // minute. Materialize a pending queue at most twice an hour and drain ten rows
+        // per tick; new files join the existing queue on the next bounded rescan.
+        if serverPendingFiles.isEmpty || Date().timeIntervalSince(lastServerInboxScan) >= 30 * 60 {
+            let receipts = ((try? FileManager.default.contentsOfDirectory(
+                at: paths.serverInboxReceipts, includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )) ?? []).filter { $0.pathExtension.lowercased() == "receipt" }
+            let acknowledgedNames = Set(receipts.map { $0.deletingPathExtension().lastPathComponent })
+            serverAcknowledgedCount = acknowledgedNames.count
+            let discovered = ((try? FileManager.default.contentsOfDirectory(
+                at: paths.serverInbox, includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )) ?? []).filter {
+                $0.pathExtension.lowercased() == "json"
+                    && !acknowledgedNames.contains($0.deletingPathExtension().lastPathComponent)
+                    && !serverPendingPaths.contains($0.path)
+            }
+            serverPendingFiles.append(contentsOf: discovered)
+            serverPendingFiles.sort { $0.lastPathComponent < $1.lastPathComponent }
+            serverPendingPaths.formUnion(discovered.map(\.path))
+            lastServerInboxScan = Date()
+        }
+        guard !serverPendingFiles.isEmpty else {
+            updateServerRecipeBridgeStatus(pendingBatchCount: 0)
+            return
+        }
+
+        let decoder = JSONCoding.decoder()
+        let files = Array(serverPendingFiles.prefix(10))
+        serverPendingFiles.removeFirst(files.count)
+        for file in files { serverPendingPaths.remove(file.path) }
+        var retryFiles: [URL] = []
+        for file in files {
+            guard let data = try? Data(contentsOf: file),
+                  let batch = try? decoder.decode(ServerDiscoveryBatch.self, from: data),
+                  batch.schemaVersion == 1,
+                  !batch.batchID.isEmpty else {
+                log(.warning, "Ignored an invalid Server Mac discovery batch: \(file.lastPathComponent)")
+                continue
+            }
+            let receipt = paths.serverInboxReceipts.appendingPathComponent(batch.batchID).appendingPathExtension("receipt")
+            if FileManager.default.fileExists(atPath: receipt.path) {
+                continue
+            }
+            let before = queuedURLCount
+            if let source = sources.first(where: { $0.id == batch.sourceID }),
+               let indexes = batch.categoryIndexes, !indexes.isEmpty {
+                recordCategories(indexes.map {
+                    MinedCategory(url: $0.pageURL, name: $0.name, group: $0.group, recipeURLs: $0.recipeURLs)
+                }, for: source)
+            }
+            appendImportURLs(batch.urls)
+            let accepted = max(0, queuedURLCount - before)
+            let represented = Set(queuedURLs)
+                .union(activeImportPending)
+                .union(attemptedURLsThisSession)
+            let unresolved = batch.urls.compactMap { try? URLSafety.validatedRemoteURL($0) }
+                .map { URLSafety.normalized($0).absoluteString }
+                .filter { !represented.contains($0) }
+            guard unresolved.isEmpty else {
+                log(.info, "Server Mac batch \(batch.batchID) queued \(accepted); \(unresolved.count) remain safely pending behind the queue limit.")
+                retryFiles.append(file)
+                continue
+            }
+            do {
+                try Data("\(Date().ISO8601Format()) accepted=\(accepted) source=\(batch.sourceID)\n".utf8)
+                    .write(to: receipt, options: .atomic)
+                serverAcknowledgedCount += 1
+                log(.info, "Server Mac queued \(accepted) new recipe URL\(accepted == 1 ? "" : "s") from \(batch.sourceName).")
+            } catch {
+                retryFiles.append(file)
+                log(.warning, "Could not acknowledge Server Mac batch \(batch.batchID): \(error.localizedDescription)")
+            }
+        }
+        serverPendingFiles.append(contentsOf: retryFiles)
+        serverPendingPaths.formUnion(retryFiles.map(\.path))
+        if settings.autopilot, queuedURLCount > 0, !isImporting, !isDiscovering, !isBulkVerifying {
+            importURLs()
+        }
+        updateServerRecipeBridgeStatus()
     }
 
     func reload() async {
         do {
             let removedDraftIDs = try await recipeStore.purgeImageLessImports()
-            var removedSharedIDs = Set<UUID>()
-            if let kitchen {
-                // Household payloads from older clients may contain only an image URL.
-                // Resolve those candidates before enforcing the byte-level invariant so
-                // a valid full-quality photo is retained and a dead/hotlink-blocked URL
-                // is removed. This runs on every reload but already-valid bytes skip I/O.
-                let before = kitchen.recipes
-                let hydrated = await MacRecipeImagePolicy.hydrate(before)
-                let hydratedByID = Dictionary(hydrated.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-                for index in kitchen.recipes.indices {
-                    guard let resolved = hydratedByID[kitchen.recipes[index].id],
-                          !MacRecipeImagePolicy.isUsable(kitchen.recipes[index].imageData) else { continue }
-                    kitchen.recipes[index].imageData = resolved.imageData
-                }
-                if hydrated.count != before.count || hydrated.contains(where: { recipe in
-                    guard let old = before.first(where: { $0.id == recipe.id }) else { return false }
-                    return !MacRecipeImagePolicy.isUsable(old.imageData) && MacRecipeImagePolicy.isUsable(recipe.imageData)
-                }) {
-                    kitchen.save()
-                }
-                let invalid = Set(kitchen.recipes.filter(Self.isImportedWithoutUsableImage).map(\.id))
-                removedSharedIDs = invalid
-                kitchen.deleteRecipe(ids: invalid)
-            }
-            let removedIDs = removedDraftIDs.union(removedSharedIDs)
+            // Never hydrate or compare the complete approved library here. This method is
+            // called frequently, and the old path caused thousands of network requests
+            // plus an O(n²) ID search for large caches. Images validate at ingress and
+            // render through the disk cache; historical repair is separately bounded.
+            let removedIDs = removedDraftIDs
             if !removedIDs.isEmpty {
                 do {
                     try await HarvestCloudSync.delete(recipeIDs: removedIDs)
@@ -400,6 +520,7 @@ final class HarvestModel {
             }
             recipes = try await recipeStore.all()
             sources = try await sourceRegistry.all()
+            rebuildCuisineRecipeCache()
             duplicateGroups = (try? await recipeStore.duplicateGroups()) ?? []
             if let id = selectedRecipeID, !recipes.contains(where: { $0.id == id }) {
                 selectedRecipeID = recipes.first?.id
@@ -420,7 +541,7 @@ final class HarvestModel {
     }
 
     private static func isImportedWithoutUsableImage(_ recipe: UserRecipe) -> Bool {
-        !MacRecipeImagePolicy.isUsable(recipe.imageData)
+        !MacRecipeImagePolicy.hasRequiredImage(recipe)
     }
 
     // MARK: - Dashboard
@@ -465,12 +586,12 @@ final class HarvestModel {
         }
         // Build 99: Import DRAINS the queue now — taken URLs leave the text, and an
         // import-batch size takes only the first N, leaving the rest for next press.
-        let all = parsedImportURLs()
+        let all = coveragePlan.prioritized(parsedImportURLs()) { [$0] }
         guard !all.isEmpty else {
             errorMessage = "Enter at least one http or https recipe URL."
             return
         }
-        let batchSize = settings.importBatchSize
+        let batchSize = min(2_000, max(1, settings.importBatchSize))
         let batch = (batchSize > 0 && all.count > batchSize) ? Array(all.prefix(batchSize)) : all
         let rest = Array(all.dropFirst(batch.count))
         importText = rest.joined(separator: "\n")
@@ -486,11 +607,11 @@ final class HarvestModel {
     /// Import text box.
     func importDirect(_ rawURLs: [String], parserModeOverride: ParserMode? = nil) {
         var seen = Set<String>()
-        let urls = rawURLs
+        let urls = coveragePlan.prioritized(rawURLs) { [$0] }
             .compactMap { try? URLSafety.validatedRemoteURL($0) }
             .map { URLSafety.normalized($0).absoluteString }
             .filter { seen.insert($0).inserted }
-        let batchSize = max(1, settings.importBatchSize)
+        let batchSize = min(2_000, max(1, settings.importBatchSize))
         let batch = Array(urls.prefix(batchSize))
         let remainder = Array(urls.dropFirst(batch.count))
         if !remainder.isEmpty { _ = prependImportURLs(remainder) }
@@ -1039,6 +1160,18 @@ final class HarvestModel {
             return
         }
 
+        // A Server Mac handoff can contain more URLs than one bounded import run. Keep
+        // draining the durable queue in finite passes while Autopilot is enabled; without
+        // this continuation the first pass stopped and left the rest waiting indefinitely.
+        if settings.autopilot, queuedURLCount > 0, !autopilotStopRequested {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                guard let self, !self.isImporting, !self.isDiscovering, !self.isBulkVerifying else { return }
+                self.importURLs()
+            }
+            return
+        }
+
         notifyIfBackgrounded()
     }
 
@@ -1192,7 +1325,11 @@ final class HarvestModel {
                 let shouldAutoImport = !addToQueueOnly
                     && (self.settings.autoImportVerified || self.settings.autopilot)
                 if shouldAutoImport, !report.confirmed.isEmpty {
-                    self.importDirect(report.confirmed.map(\.url))
+                    var candidates = report.confirmed.map(\.url)
+                    if self.settings.randomizeMultiSourceImports, candidates.count > 1 {
+                        candidates.shuffle()
+                    }
+                    self.importDirect(candidates)
                 } else if shouldAutoImport,
                           report.confirmed.isEmpty,
                           !report.unverified.isEmpty {
@@ -1456,14 +1593,164 @@ final class HarvestModel {
 
     /// Every discovered category across sources, most-ready first — for the browser.
     var allCategories: [SourceCategory] {
-        sourceCategories.values.flatMap(\.categories).sorted { lhs, rhs in
-            if lhs.recipeCount != rhs.recipeCount { return lhs.recipeCount > rhs.recipeCount }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
+        categoryIndex
     }
 
     /// Categories with recipes cached and ready to import right now.
     var readyCategoryCount: Int { allCategories.filter(\.isReady).count }
+
+    /// Canonical cuisine categories are always present, even before a site-specific
+    /// category page has been discovered. Their contents are derived from every saved
+    /// source report and mined category, so a cuisine automatically gains recipes as
+    /// any source is browsed without creating a second cache or duplicating URLs.
+    var cuisineCategories: [RecipeBrowseCategory] {
+        RecipeBrowseTaxonomy.categories(in: "Cuisines & cultures")
+    }
+
+    func cachedRecipes(forCuisine category: RecipeBrowseCategory) -> [String] {
+        cuisineRecipeCache[category.id] ?? []
+    }
+
+    private func rebuildCuisineRecipeCache() {
+        cuisineCacheRebuildTask?.cancel()
+        let categories = categoryIndex
+        let sourceSnapshot = sources
+        let sessionSnapshot = sessionHistory
+        let miningDirectory = paths.miningResultCache
+        let reportDirectory = paths.sourceDiscoveryCache
+        let library = kitchen?.recipes ?? []
+        let coverageURL = paths.root.appendingPathComponent("recipe-coverage-priority.json")
+        cuisineCacheRebuildTask = Task { [weak self] in
+            // Coalesce bursts caused by an import saving a report and several categories.
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            let worker = Task.detached(priority: .utility) {
+                let rebuilt = Self.buildCuisineRecipeCache(
+                    categories: categories,
+                    sources: sourceSnapshot,
+                    sessions: sessionSnapshot,
+                    miningDirectory: miningDirectory,
+                    reportDirectory: reportDirectory
+                )
+                let evidence = library.filter { $0.sourceURL?.isEmpty == false }.map {
+                    [$0.title, $0.cuisine, $0.sourceURL ?? ""] + $0.tags + $0.ingredients.map(\.name)
+                }
+                let plan = RecipeCoveragePlan.build(evidence: evidence)
+                if !Task.isCancelled, let data = try? JSONEncoder().encode(plan) {
+                    try? data.write(to: coverageURL, options: .atomic)
+                }
+                return (rebuilt, plan)
+            }
+            let (rebuilt, plan) = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            guard !Task.isCancelled else { return }
+            self?.cuisineRecipeCache = rebuilt
+            self?.coveragePlan = plan
+        }
+    }
+
+    private nonisolated static func buildCuisineRecipeCache(
+        categories: [SourceCategory],
+        sources: [SourceProfile],
+        sessions: [DiscoveryReport],
+        miningDirectory: URL,
+        reportDirectory: URL
+    ) -> [String: [String]] {
+        var indexed: [String: [String]] = [:]
+        var seen: [String: Set<String>] = [:]
+        func append(_ url: String, to cuisine: RecipeBrowseCategory) {
+            let key = discoveryURLKey(url)
+            if seen[cuisine.id, default: []].insert(key).inserted {
+                indexed[cuisine.id, default: []].append(url)
+            }
+        }
+        func minedLinks(for pageURL: String) -> [String] {
+            let key = discoveryURLKey(pageURL)
+            let file = miningDirectory
+                .appendingPathComponent(String(Hashing.sha256(key).prefix(32)))
+                .appendingPathExtension("json")
+            guard let data = try? Data(contentsOf: file),
+                  let record = try? JSONCoding.decoder().decode(MinedPageCacheRecord.self, from: data)
+            else { return [] }
+            return record.recipeURLs
+        }
+
+        for category in categories {
+            let matches = RecipeBrowseTaxonomy.matchingCategories(
+                in: "Cuisines & cultures",
+                values: [category.url, category.name, category.group ?? ""]
+            )
+            guard !matches.isEmpty else { continue }
+            for url in minedLinks(for: category.url) {
+                for cuisine in matches { append(url, to: cuisine) }
+            }
+        }
+
+        let fallbackReports = Dictionary(sessions.map { ($0.sourceID, $0) }, uniquingKeysWith: { first, _ in first })
+        for source in sources {
+            let file = reportDirectory
+                .appendingPathComponent(String(Hashing.sha256(source.id).prefix(24)))
+                .appendingPathExtension("json")
+            let report: DiscoveryReport? = {
+                guard let data = try? Data(contentsOf: file) else { return fallbackReports[source.id] }
+                return (try? JSONCoding.decoder().decode(DiscoveryReport.self, from: data)) ?? fallbackReports[source.id]
+            }()
+            guard let report else { continue }
+            for link in report.confirmed {
+                let matches = RecipeBrowseTaxonomy.matchingCategories(
+                    in: "Cuisines & cultures",
+                    values: [link.url, link.title ?? "", source.tags.joined(separator: " ")]
+                )
+                for cuisine in matches { append(link.url, to: cuisine) }
+            }
+        }
+        return indexed
+    }
+
+    /// Finds one cuisine across several relevant websites and imports the matches using
+    /// the normal image-required, deduplicated, resumable pipeline. Sources explicitly
+    /// tagged for the cuisine lead, followed by diverse healthy discovery sources.
+    func findAndImportCuisine(_ category: RecipeBrowseCategory) {
+        guard !isAutopilotRunning else {
+            statusMessage = "Finish or stop the current run before starting another category."
+            return
+        }
+        settings.selectedBrowseCategoryIDs = [category.id]
+        scheduleSettingsSave()
+
+        let eligible = sources.filter { $0.enabled && $0.discoveryMode.supportsDiscovery }
+        let ranked = eligible.sorted { lhs, rhs in
+            let left = RecipeBrowseTaxonomy.matches(
+                DiscoveredLink(url: lhs.baseURL, title: lhs.name, imageURL: nil), selectedIDs: Set([category.id]),
+                supplementalText: ([lhs.name] + lhs.tags).joined(separator: " ")
+            )
+            let right = RecipeBrowseTaxonomy.matches(
+                DiscoveredLink(url: rhs.baseURL, title: rhs.name, imageURL: nil), selectedIDs: Set([category.id]),
+                supplementalText: ([rhs.name] + rhs.tags).joined(separator: " ")
+            )
+            if left != right { return left && !right }
+            if lhs.health != rhs.health { return lhs.health == .healthy }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+        let limit = max(3, min(12, settings.autoRotateSourceCount))
+        let chosen = Array(ranked.prefix(limit).map(\.id))
+        guard !chosen.isEmpty else {
+            discoveryFailure = "No enabled recipe sources are available for \(category.name)."
+            return
+        }
+        statusMessage = "Finding \(category.name) recipes across \(chosen.count) websites…"
+        log(.info, "Cuisine import: \(category.name) across \(chosen.count) sources.")
+        startAutopilot(sourceIDs: chosen)
+    }
+
+    func importCachedCuisine(_ category: RecipeBrowseCategory) {
+        let urls = cachedRecipes(forCuisine: category)
+        guard !urls.isEmpty else {
+            findAndImportCuisine(category)
+            return
+        }
+        statusMessage = "Importing \(urls.count) cached \(category.name) recipes from multiple websites…"
+        importDirect(urls)
+    }
 
     /// Folds a run's mined categories into the source's catalog: caches each category's
     /// recipes (so drill-in import is instant), derives its ready count, organizes and
@@ -1499,7 +1786,9 @@ final class HarvestModel {
             updatedAt: Date(), categories: organized
         )
         sourceCategories[source.id] = catalog
+        rebuildCategoryIndex()
         persistCategoryCatalog(catalog)
+        rebuildCuisineRecipeCache()
         let ready = organized.filter(\.isReady).count
         log(.success, "\(source.name): \(organized.count) categories organized, \(ready) ready to import.",
             url: source.baseURL)
@@ -1523,6 +1812,7 @@ final class HarvestModel {
             }
         }
         sourceCategories = loaded
+        rebuildCategoryIndex()
     }
 
     private func markCategoryImported(_ category: SourceCategory) {
@@ -1530,7 +1820,15 @@ final class HarvestModel {
               let idx = catalog.categories.firstIndex(where: { $0.id == category.id }) else { return }
         catalog.categories[idx].lastImportedAt = Date()
         sourceCategories[category.sourceID] = catalog
+        rebuildCategoryIndex()
         persistCategoryCatalog(catalog)
+    }
+
+    private func rebuildCategoryIndex() {
+        categoryIndex = sourceCategories.values.flatMap(\.categories).sorted { lhs, rhs in
+            if lhs.recipeCount != rhs.recipeCount { return lhs.recipeCount > rhs.recipeCount }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
     }
 
     /// Import a category's recipes. Cached ones import instantly with no refetch; an
@@ -1613,6 +1911,7 @@ final class HarvestModel {
         // A stable copy so the last run can be restored on the next launch.
         try? data.write(to: paths.lastDiscoveryReport, options: .atomic)
         loadSessionHistory()
+        rebuildCuisineRecipeCache()
     }
 
     private func loadLastReport() -> DiscoveryReport? {
@@ -1814,6 +2113,7 @@ final class HarvestModel {
         guard let kitchen, !drafts.isEmpty else { return }
         let added = MacHarvestBridge.add(drafts, to: kitchen)
         guard added > 0 else { return }
+        rebuildCuisineRecipeCache()
         log(.success, "Added \(added) recipe\(added == 1 ? "" : "s") to Stocked; the household will pick \(added == 1 ? "it" : "them") up on the next sync.")
     }
 
@@ -2174,6 +2474,7 @@ final class HarvestModel {
         guard let kitchen else { return 0 }
         var repaired = 0
         for snapshot in kitchen.recipes {
+            if let source = snapshot.portableSource, source.catalogueSharingApproved != true { continue }
             let metadata = Self.sourceMetadata(from: snapshot.notes)
             let sourceURL = snapshot.sourceURL?.nilIfBlank ?? metadata.url
             let normalizedURL = sourceURL.flatMap { try? URLSafety.validatedRemoteURL($0) }
@@ -2616,7 +2917,7 @@ final class HarvestModel {
             statusMessage = "An import is running — verify again once it finishes."
             return
         }
-        let all = parsedImportURLs()
+        let all = coveragePlan.prioritized(parsedImportURLs()) { [$0] }
         guard !all.isEmpty else {
             statusMessage = "The queue is empty."
             return
@@ -2822,13 +3123,32 @@ final class HarvestModel {
 
     /// Publishes the Recipes-sidebar collection, including recipes that predate the
     /// Harvester approval flow. Safe on every launch because the Worker upserts by UUID.
-    func syncKitchenToCloud(_ recipes: [UserRecipe]) {
+    func syncKitchenToCloud(_ recipes: [UserRecipe], force: Bool = true) {
+        let publicImports = recipes.filter { $0.lastWriterID != "shared-catalogue" && MacRecipeImagePolicy.isPublicImport($0) }
+        // Failed image validation is not evidence that an imported recipe is personal.
+        let personalIDs = Set(recipes.filter {
+            $0.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+        }.map(\.id))
         guard !isCloudSyncing, !recipes.isEmpty, MacWorkerClient.isConfigured else { return }
+        let signature = (publicImports
+            .map { "\($0.id.uuidString):\($0.updatedAt):\($0.imageData?.count ?? 0)" }
+            + personalIDs.map { "private:\($0.uuidString)" })
+            .sorted()
+            .joined(separator: "|")
+        let signatureKey = "harvest.kitchenCloudSignature.v1"
+        if !force, UserDefaults.standard.string(forKey: signatureKey) == signature {
+            cloudSyncStatus = "Kitchen recipes are already synced."
+            return
+        }
         isCloudSyncing = true
-        cloudSyncStatus = "Syncing all \(recipes.count) kitchen recipes…"
+        cloudSyncStatus = "Syncing all \(publicImports.count) imported recipes…"
         Task { [weak self] in
             do {
-                let result = try await HarvestCloudSync.pushKitchenRecipes(recipes)
+                // Repair earlier releases that published the complete kitchen blindly.
+                // Source-less/manual UUIDs are removed from the public index idempotently.
+                if !personalIDs.isEmpty { try await HarvestCloudSync.delete(recipeIDs: personalIDs) }
+                let result = try await HarvestCloudSync.pushKitchenRecipes(publicImports)
+                UserDefaults.standard.set(signature, forKey: signatureKey)
                 self?.cloudSyncStatus = "Synced all \(result.recipes) kitchen recipes to iPhone and iPad."
                 self?.log(.success, "Shared catalog backfill: \(result.recipes) recipes uploaded.")
             } catch {
@@ -2973,9 +3293,20 @@ final class HarvestModel {
             discoveryFailure = "No enabled source supports browsing."
             return
         }
-        let chosen: [String] = sourceIDs.isEmpty
-            ? Array(eligible.map(\.id).prefix(max(1, settings.autoRotateSourceCount)))
+        var chosen: [String] = sourceIDs.isEmpty
+            ? eligible.map(\.id)
             : eligible.map(\.id).filter { sourceIDs.contains($0) }
+        if settings.randomizeMultiSourceImports, chosen.count > 1 {
+            chosen.shuffle()
+        }
+        if sourceIDs.isEmpty {
+            let byID = Dictionary(eligible.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            chosen = coveragePlan.prioritized(chosen) { id in
+                guard let source = byID[id] else { return [] }
+                return [source.name, source.baseURL] + source.tags
+            }
+            chosen = Array(chosen.prefix(max(1, settings.autoRotateSourceCount)))
+        }
         guard !chosen.isEmpty else {
             discoveryFailure = "None of the selected sources can browse."
             return

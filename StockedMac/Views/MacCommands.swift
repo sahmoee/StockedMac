@@ -21,6 +21,7 @@ struct MacCommands: Commands {
     let sync: MacHouseholdSync
     let navigation: MacNavigation
     let harvest: HarvestModel
+    let desktop: MacDesktopExperience
 
     var body: some Commands {
 
@@ -29,6 +30,13 @@ struct MacCommands: Commands {
             Button(newLabel) { navigation.isAddingItem = true }
                 .keyboardShortcut("n", modifiers: .command)
                 .disabled(!supportsAdding)
+
+            Divider()
+
+            Button("Import Center…") { desktop.isImportCenterPresented = true }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+            Button("Import Stocked Backup…") { runImport() }
+            Button("Export Stocked Backup…") { runExport() }
 
             Divider()
 
@@ -47,6 +55,33 @@ struct MacCommands: Commands {
                 Button(section.rawValue) { navigation.section = section }
                     .keyboardShortcut(section.shortcut, modifiers: .command)
             }
+        }
+
+        CommandMenu("Navigate") {
+            Button("Command Palette…") { desktop.isCommandPalettePresented = true }
+                .keyboardShortcut("k", modifiers: .command)
+        }
+
+        CommandMenu("View") {
+            Picker("Recipe view", selection: Binding(
+                get: { desktop.recipeMode },
+                set: { desktop.recipeMode = $0 }
+            )) {
+                ForEach(MacRecipeWorkspaceMode.allCases) { mode in
+                    Label(mode.rawValue, systemImage: mode.systemImage).tag(mode)
+                }
+            }
+            Picker("Density", selection: Binding(
+                get: { desktop.density },
+                set: { desktop.density = $0 }
+            )) {
+                ForEach(MacContentDensity.allCases) { density in Text(density.rawValue).tag(density) }
+            }
+            Divider()
+            Button(desktop.isInspectorPresented ? "Hide Inspector" : "Show Inspector") {
+                desktop.isInspectorPresented.toggle()
+            }
+            .keyboardShortcut("i", modifiers: [.command, .option])
         }
 
         CommandMenu("Recipes") {
@@ -124,10 +159,7 @@ struct MacCommands: Commands {
     private var supportsAdding: Bool {
         // Kept in step with MacRootView's toolbar + button: the sections that read rather
         // than hold things have nothing for ⌘N to make.
-        switch navigation.section {
-        case .home, .household, .insights, .tools, .cook: return false
-        default: return true
-        }
+        navigation.section == .recipes
     }
 
     private var newLabel: String {

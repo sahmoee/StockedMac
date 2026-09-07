@@ -13,6 +13,7 @@ import AppKit
 struct MacSettingsView: View {
     @Environment(MacKitchenStore.self) private var store
     @Environment(MacHouseholdSync.self) private var sync
+    @Environment(MacDesktopExperience.self) private var desktop
 
     @State private var confirmErase = false
     @State private var confirmSample = false
@@ -27,13 +28,40 @@ struct MacSettingsView: View {
             about
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 560, height: 520)
+        .frame(minWidth: 560, idealWidth: 680, minHeight: 520, idealHeight: 620)
     }
 
     // MARK: - General
 
     private var general: some View {
         Form {
+            Section {
+                Picker("Recipe view", selection: Binding(
+                    get: { desktop.recipeMode },
+                    set: { desktop.recipeMode = $0 }
+                )) {
+                    ForEach(MacRecipeWorkspaceMode.allCases) { mode in
+                        Label(mode.rawValue, systemImage: mode.systemImage).tag(mode)
+                    }
+                }
+                Picker("Content density", selection: Binding(
+                    get: { desktop.density },
+                    set: { desktop.density = $0 }
+                )) {
+                    ForEach(MacContentDensity.allCases) { density in Text(density.rawValue).tag(density) }
+                }
+                Toggle("Show recipe inspector", isOn: Binding(
+                    get: { desktop.isInspectorPresented },
+                    set: { desktop.isInspectorPresented = $0 }
+                ))
+            } header: {
+                Text("Desktop workspace")
+            } footer: {
+                Text("These choices change presentation only. Text continues to follow the Mac's accessibility settings and recipe data stays unchanged.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section {
                 LabeledContent("Household") {
                     if sync.isJoined {
@@ -55,6 +83,14 @@ struct MacSettingsView: View {
                 LabeledContent("Status") {
                     Text(sync.status.message)
                         .foregroundStyle(.secondary)
+                }
+                LabeledContent("Last household watermark") {
+                    if sync.lastPulledAt > 0 {
+                        Text(Date(timeIntervalSince1970: sync.lastPulledAt / 1_000), style: .relative)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Not pulled yet").foregroundStyle(.secondary)
+                    }
                 }
             } header: {
                 Text("Sharing")

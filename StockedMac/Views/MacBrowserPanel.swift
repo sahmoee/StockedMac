@@ -416,6 +416,16 @@ private struct BrowserWebView: NSViewRepresentable {
         }
     }
 
+    static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
+        // A dismissed browser must not keep publisher scripts, subframes, or KVO
+        // callbacks alive. WebKit's sandbox diagnostics otherwise continue long
+        // after the sheet has disappeared and make real importer errors hard to see.
+        view.stopLoading()
+        view.navigationDelegate = nil
+        coordinator.disconnect()
+        view.loadHTMLString("", baseURL: nil)
+    }
+
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
         var lastRequested: URL?
@@ -443,6 +453,12 @@ private struct BrowserWebView: NSViewRepresentable {
                 }
             ]
             observations = keys
+        }
+
+        func disconnect() {
+            observations.forEach { $0.invalidate() }
+            observations.removeAll()
+            session.webView = nil
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
