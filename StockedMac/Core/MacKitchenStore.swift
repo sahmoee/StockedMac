@@ -265,9 +265,53 @@ final class MacKitchenStore {
             // second after typing still has the data.
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled, let self else { return }
+            await self.flushInBackground()
             self.flushTask = nil
-            self.flush()
+            // Mutations can arrive while the snapshot is being encoded. Their dirty
+            // flags remain pending and receive their own coalesced write.
+            if !self.dirty.isEmpty { self.scheduleFlush() }
         }
+    }
+
+    /// Scheduled persistence must never encode the complete recipe library on AppKit's
+    /// event thread. Capture immutable values on the actor, then encode and atomically
+    /// replace files on a utility task.
+    private func flushInBackground() async {
+        guard !dirty.isEmpty else { return }
+        let pending = dirty
+        dirty.removeAll()
+        let snapshot = MacKitchenSnapshot(
+            inventory: inventory, grocery: grocery, recipes: recipes,
+            savedRecipes: savedRecipes, plannedMeals: plannedMeals,
+            pastMeals: pastMeals, profile: profile
+        )
+        let destination = directory
+        let failure = await Task.detached(priority: .utility) {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            do {
+                try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+                for collection in pending {
+                    let data: Data
+                    switch collection {
+                    case .inventory: data = try encoder.encode(snapshot.inventory)
+                    case .grocery: data = try encoder.encode(snapshot.grocery)
+                    case .recipes: data = try encoder.encode(snapshot.recipes)
+                    case .savedRecipes: data = try encoder.encode(snapshot.savedRecipes)
+                    case .plan: data = try encoder.encode(snapshot.plannedMeals)
+                    case .history: data = try encoder.encode(snapshot.pastMeals)
+                    case .profile: data = try encoder.encode(snapshot.profile)
+                    }
+                    try data.write(to: destination.appendingPathComponent(collection.filename), options: [.atomic])
+                }
+                return nil as String?
+            } catch {
+                return error.localizedDescription
+            }
+        }.value
+        lastSaveError = failure
+        if failure == nil { lastSavedAt = Date() }
+        else if let failure { Self.log.error("background save failed: \(failure, privacy: .public)") }
     }
 
     private func flush() {

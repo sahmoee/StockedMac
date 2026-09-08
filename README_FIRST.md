@@ -125,6 +125,15 @@ the same idempotent assignment. Existing cuisines are never overwritten.
 
 Category rows stay materialized, and the cross-site cuisine cache rebuilds off the main actor with coalescing. Never restore per-render catalog sorting, per-cuisine repeated normalization, or synchronous reads of every cached report/category file; those paths block sidebar tab selection on large libraries.
 
+The Recipes sidebar must also cache normalized title keys and calculate each key once per sort pass;
+never run title-cleaning regular expressions from inside the sort comparator. Server inbox discovery
+must enumerate large directories off the main actor, and launch-only maintenance waits until the
+window has become interactive.
+Keep the visible Recipes rows materialized and rebuild them once per recipe/filter revision; SwiftUI
+body evaluation must never refilter and resort the complete library. Scheduled collection saves encode
+and atomically write immutable snapshots off the main actor, with mutations during a write queued for
+a follow-up flush. `saveNow()` remains the synchronous termination/export durability boundary.
+
 Stocked Server is an independent discovery and preverification tier. It discovers into a durable server-owned queue, invokes the same bundled structured-recipe parser headlessly, requires usable image bytes plus complete ingredients and instructions, and deduplicates by canonical URL without requiring StockedMac to be open. Transient failures retry with bounded exponential backoff; terminal or incomplete records enter the server review outbox. Preverified URLs are still untrusted candidates: StockedMac remains the only final parser, approval, Worker-publication, and household/iOS-sync boundary.
 
 The Browse screen must keep Stocked Server observable at launch: show service freshness/current source, discovery candidates, server queue/retry/verified/review counts, and local review. The 30-minute bridge transfers immutable preverified candidates into `ServerInbox`; the one-minute app consumer re-runs the ordinary local gates and drains the durable queue in finite passes. Manual refresh invokes that same safe consumer.

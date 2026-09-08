@@ -30,6 +30,7 @@ struct MacRecipesView: View {
     @State private var previewURL: URL?
     @State private var pendingDeletion: UserRecipe?
     @State private var previewError: String?
+    @State private var materializedRows: [UserRecipe] = []
     @FocusState private var searchFocused: Bool
 
     private enum Sort: String, CaseIterable, Identifiable {
@@ -61,7 +62,23 @@ struct MacRecipesView: View {
         }
     }
 
-    private var rows: [UserRecipe] {
+    private var rows: [UserRecipe] { materializedRows }
+
+    private var recipeRevision: [RecipeRevisionToken] {
+        store.recipes.map { RecipeRevisionToken(id: $0.id, updatedAt: $0.updatedAt) }
+    }
+
+    private var filterRevision: String {
+        [navigation.searchText, sort.rawValue, favoritesOnly.description, selectedCuisine,
+         selectedTag, selectedDifficulty, selectedRole].joined(separator: "\u{1F}")
+    }
+
+    private struct RecipeRevisionToken: Equatable {
+        let id: UUID
+        let updatedAt: Double
+    }
+
+    private func rebuildRows() {
         var items = store.recipes
 
         let tokens = searchTokens(navigation.searchText)
@@ -81,30 +98,39 @@ struct MacRecipesView: View {
         if !selectedRole.isEmpty {
             items = items.filter { $0.dishRole.rawValue == selectedRole }
         }
+        // Decorate once before sorting. Calculating a cleaned title from inside the sort
+        // comparator multiplied regex work by O(n log n) every time SwiftUI evaluated body.
+        let titleKeys = Dictionary(uniqueKeysWithValues: items.map {
+            ($0.id, RecipeTitlePolicy.sortKey($0.title))
+        })
+        func orderedByTitle(_ lhs: UserRecipe, _ rhs: UserRecipe) -> Bool {
+            let a = titleKeys[lhs.id] ?? lhs.title
+            let b = titleKeys[rhs.id] ?? rhs.title
+            let order = a.localizedCaseInsensitiveCompare(b)
+            return order == .orderedSame ? lhs.id.uuidString < rhs.id.uuidString : order == .orderedAscending
+        }
         switch sort {
-        case .name:   items.sort(by: titleOrder)
-        case .recent: items.sort { $0.dateCreated == $1.dateCreated ? titleOrder($0, $1) : $0.dateCreated > $1.dateCreated }
-        case .oldest: items.sort { $0.dateCreated == $1.dateCreated ? titleOrder($0, $1) : $0.dateCreated < $1.dateCreated }
-        case .updated: items.sort { $0.updatedAt == $1.updatedAt ? titleOrder($0, $1) : $0.updatedAt > $1.updatedAt }
+        case .name:   items.sort(by: orderedByTitle)
+        case .recent: items.sort { $0.dateCreated == $1.dateCreated ? orderedByTitle($0, $1) : $0.dateCreated > $1.dateCreated }
+        case .oldest: items.sort { $0.dateCreated == $1.dateCreated ? orderedByTitle($0, $1) : $0.dateCreated < $1.dateCreated }
+        case .updated: items.sort { $0.updatedAt == $1.updatedAt ? orderedByTitle($0, $1) : $0.updatedAt > $1.updatedAt }
         case .source:
             items.sort {
                 let a = $0.sourceName ?? "", b = $1.sourceName ?? ""
-                return a == b ? titleOrder($0, $1) : a.localizedCaseInsensitiveCompare(b) == .orderedAscending
+                return a == b ? orderedByTitle($0, $1) : a.localizedCaseInsensitiveCompare(b) == .orderedAscending
             }
         case .ingredients:
-            items.sort { $0.ingredients.count == $1.ingredients.count ? titleOrder($0, $1) : $0.ingredients.count < $1.ingredients.count }
+            items.sort { $0.ingredients.count == $1.ingredients.count ? orderedByTitle($0, $1) : $0.ingredients.count < $1.ingredients.count }
         case .favorites:
             items.sort {
                 if $0.isFavorited != $1.isFavorited { return $0.isFavorited }
-                return titleOrder($0, $1)
+                return orderedByTitle($0, $1)
             }
         }
-        return items
-    }
-
-    private func titleOrder(_ a: UserRecipe, _ b: UserRecipe) -> Bool {
-        let order = RecipeTitlePolicy.sortKey(a.title).localizedCaseInsensitiveCompare(RecipeTitlePolicy.sortKey(b.title))
-        return order == .orderedSame ? a.id.uuidString < b.id.uuidString : order == .orderedAscending
+        materializedRows = items
+        let ids = Set(items.map(\.id))
+        if let selection, ids.contains(selection) { return }
+        selection = items.first?.id
     }
 
     private var current: UserRecipe? {
@@ -188,13 +214,11 @@ struct MacRecipesView: View {
             }
             .macThemedSurface()
         }
+        .task { rebuildRows() }
+        .onChange(of: recipeRevision) { rebuildRows() }
+        .onChange(of: filterRevision) { rebuildRows() }
         .onChange(of: store.recipes.filter { $0.lastWriterID != "shared-catalogue" }.map { "\($0.id):\($0.updatedAt)" }) {
             harvest.syncKitchenToCloud(store.recipes)
-        }
-        .onChange(of: rows.map(\.id)) {
-            let ids = Set(rows.map(\.id))
-            if let selection, ids.contains(selection) { return }
-            selection = rows.first?.id
         }
     }
 

@@ -3,6 +3,14 @@ import Foundation
 /// Removes crawler/database identifiers without damaging quantities that belong to a
 /// recipe name ("7 Layer Dip", "15-Minute Pasta", "Steak for 2", or a four-digit year).
 nonisolated enum RecipeTitlePolicy {
+    /// Recipe lists ask for the same ordering key many times during SwiftUI layout.
+    /// Cache the normalized title so a 1,500-row list does not run regular expressions
+    /// inside every sort comparison on every view update.
+    private nonisolated(unsafe) static let sortKeyCache: NSCache<NSString, NSString> = {
+        let cache = NSCache<NSString, NSString>()
+        cache.countLimit = 10_000
+        return cache
+    }()
     private static let minorWords: Set<String> = [
         "a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "of", "on", "or", "the", "to", "via", "with"
     ]
@@ -26,9 +34,13 @@ nonisolated enum RecipeTitlePolicy {
     /// Alphabetic ordering must not promote quoted/parenthesized titles ahead of A.
     /// Keep meaningful punctuation in the displayed title and ignore it only for order.
     static func sortKey(_ raw: String) -> String {
+        let cacheKey = raw as NSString
+        if let cached = sortKeyCache.object(forKey: cacheKey) { return cached as String }
         let cleaned = cleaned(raw).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         let start = cleaned.firstIndex { $0.isLetter || $0.isNumber } ?? cleaned.startIndex
-        return String(cleaned[start...])
+        let result = String(cleaned[start...])
+        sortKeyCache.setObject(result as NSString, forKey: cacheKey)
+        return result
     }
 
     private static func standardizedCase(_ value: String) -> String {

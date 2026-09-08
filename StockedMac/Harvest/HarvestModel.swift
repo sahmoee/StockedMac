@@ -354,7 +354,6 @@ final class HarvestModel {
             reloadMiningCacheCount()
             loadCategoryCatalog()
             await reload()
-            await runRetroactiveRecipeRepairsIfNeeded()
             // Bring back the last browse and apply today's category selection to the
             // unfiltered saved report. Changing filters never destroys cached links.
             if let restored = loadLastReport() {
@@ -376,9 +375,16 @@ final class HarvestModel {
                     await reload()
                 }
             }
-            await pruneCaches(quiet: true)
             startServerInboxConsumer()
             log(.info, "Stocked Companion is ready.")
+            // Historical repair and cache pruning are maintenance, not launch work. Let
+            // AppKit finish restoration and accept input before either job touches disk.
+            Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(45)) } catch { return }
+                guard let self else { return }
+                await self.runRetroactiveRecipeRepairsIfNeeded()
+                await self.pruneCaches(quiet: true)
+            }
         }
     }
 
@@ -388,9 +394,12 @@ final class HarvestModel {
     private func startServerInboxConsumer() {
         serverInboxTask?.cancel()
         serverInboxTask = Task { [weak self] in
+            // A very large server inbox is valid. Its first inventory must never compete
+            // with window restoration or the local recipe-library load.
+            do { try await Task.sleep(for: .seconds(20)) } catch { return }
             while !Task.isCancelled {
                 self?.loadServerCacheHealth()
-                self?.consumeServerInbox()
+                await self?.consumeServerInbox()
                 try? await Task.sleep(for: .seconds(60))
             }
         }
@@ -408,7 +417,7 @@ final class HarvestModel {
     /// attribution, approval, or household publication rules.
     func refreshServerRecipeBridge() {
         loadServerCacheHealth()
-        consumeServerInbox()
+        Task { await consumeServerInbox() }
     }
 
     private func updateServerRecipeBridgeStatus(pendingBatchCount: Int? = nil) {
@@ -419,27 +428,33 @@ final class HarvestModel {
         )
     }
 
-    private func consumeServerInbox() {
+    private func consumeServerInbox() async {
         // Do not enumerate, receipt-check, and sort tens of thousands of files every
         // minute. Materialize a pending queue at most twice an hour and drain ten rows
         // per tick; new files join the existing queue on the next bounded rescan.
         if serverPendingFiles.isEmpty || Date().timeIntervalSince(lastServerInboxScan) >= 30 * 60 {
-            let receipts = ((try? FileManager.default.contentsOfDirectory(
-                at: paths.serverInboxReceipts, includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            )) ?? []).filter { $0.pathExtension.lowercased() == "receipt" }
-            let acknowledgedNames = Set(receipts.map { $0.deletingPathExtension().lastPathComponent })
-            serverAcknowledgedCount = acknowledgedNames.count
-            let discovered = ((try? FileManager.default.contentsOfDirectory(
-                at: paths.serverInbox, includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            )) ?? []).filter {
-                $0.pathExtension.lowercased() == "json"
-                    && !acknowledgedNames.contains($0.deletingPathExtension().lastPathComponent)
-                    && !serverPendingPaths.contains($0.path)
-            }
+            let inbox = paths.serverInbox
+            let receiptDirectory = paths.serverInboxReceipts
+            let alreadyPending = serverPendingPaths
+            let scan = await Task.detached(priority: .utility) {
+                let receipts = ((try? FileManager.default.contentsOfDirectory(
+                    at: receiptDirectory, includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                )) ?? []).filter { $0.pathExtension.lowercased() == "receipt" }
+                let acknowledged = Set(receipts.map { $0.deletingPathExtension().lastPathComponent })
+                let discovered = ((try? FileManager.default.contentsOfDirectory(
+                    at: inbox, includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                )) ?? []).filter {
+                    $0.pathExtension.lowercased() == "json"
+                        && !acknowledged.contains($0.deletingPathExtension().lastPathComponent)
+                        && !alreadyPending.contains($0.path)
+                }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+                return (acknowledged.count, discovered)
+            }.value
+            serverAcknowledgedCount = scan.0
+            let discovered = scan.1
             serverPendingFiles.append(contentsOf: discovered)
-            serverPendingFiles.sort { $0.lastPathComponent < $1.lastPathComponent }
             serverPendingPaths.formUnion(discovered.map(\.path))
             lastServerInboxScan = Date()
         }
