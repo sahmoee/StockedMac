@@ -67,6 +67,15 @@ The standalone `scripts/test-public-catalogue.swift` harness validates productio
 stable identities, image URL resolution, private-row exclusion, empty-page continuation,
 legacy warnings, and repeated-cursor failure using fake transport/store boundaries.
 
+Food Network's observed `food.fnr.sndimg.com/content/dam/images/food/editorial/homepage/fn-feature.*`
+fallback is excluded from recipe cards and publication, including resized/encoded URL variants and
+cached image bytes. Real dish photos, including Food Network `fullset` assets, remain eligible.
+The Mac retains source records/notes and the rejected URL for repair; it does not delete household
+recipes. Stocked iOS and UnifiedWorker enforce the same narrow rule without a schema change.
+When releasing, deploy the verified Worker first, then both clients. Native iOS/Mac image-policy
+fixtures and all 12 Worker harvest tests passed; the StockedMac universal generic build passed on
+September 9. This validation did not deploy services or install either app.
+
 Household merge indexes tolerate legacy duplicate UUIDs without trapping. Public cleanup must
 distinguish source-less recipes from imports awaiting image repair; a failed image gate alone
 does not authorize deletion from the shared catalogue.

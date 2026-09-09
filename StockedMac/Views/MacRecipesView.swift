@@ -79,7 +79,9 @@ struct MacRecipesView: View {
     }
 
     private func rebuildRows() {
-        var items = store.recipes
+        var items = store.recipes.filter {
+            !MacRecipeImagePolicy.isKnownPublisherPlaceholder($0.imageURL ?? "")
+        }
 
         let tokens = searchTokens(navigation.searchText)
         if !tokens.isEmpty { items = items.filter { matchesSearch($0, tokens: tokens) } }

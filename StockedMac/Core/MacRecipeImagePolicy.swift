@@ -4,10 +4,21 @@ import ImageIO
 /// One image invariant for every recipe entry path. A URL is only a candidate; a recipe
 /// has an image after the bytes have downloaded and ImageIO can decode a real photo.
 nonisolated enum MacRecipeImagePolicy {
+    /// Food Network's homepage fallback is a publisher branding card, not a dish photo.
+    /// Match the observed asset path across its size/format renditions, never the source name.
+    static func isKnownPublisherPlaceholder(_ raw: String) -> Bool {
+        guard let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let host = url.host?.lowercased(),
+              host == "food.fnr.sndimg.com" || host == "foodnetwork.com" || host.hasSuffix(".foodnetwork.com") else { return false }
+        let path = (url.path.removingPercentEncoding ?? url.path).lowercased()
+        return path.hasPrefix("/content/dam/images/food/editorial/homepage/fn-feature.")
+    }
+
     /// Reject marketing cards, app/site branding, and page URLs accidentally emitted as
     /// artwork. CDN and Worker `/harvest/img/` assets remain valid recipe photography.
     static func isLikelyRecipeImageURL(_ raw: String, sourceURL: String? = nil) -> Bool {
-        guard let url = URL(string: raw), url.scheme?.lowercased() == "https", url.host != nil else { return false }
+        guard !isKnownPublisherPlaceholder(raw),
+              let url = URL(string: raw), url.scheme?.lowercased() == "https", url.host != nil else { return false }
         if let sourceURL, URL(string: sourceURL)?.standardized == url.standardized { return false }
         let token = (url.lastPathComponent + " " + url.path).lowercased()
         let branding = ["logo", "favicon", "app-icon", "appicon", "site-icon", "default-og", "og-default", "placeholder", "stocked-social", "stocked-logo"]
@@ -26,6 +37,7 @@ nonisolated enum MacRecipeImagePolicy {
     /// source, keeping the same bytes base64-encoded inside recipes.json only duplicates
     /// hundreds of megabytes in memory. Local-only recipes still retain their bytes.
     static func hasRequiredImage(_ recipe: UserRecipe) -> Bool {
+        guard !isKnownPublisherPlaceholder(recipe.imageURL ?? "") else { return false }
         if isUsable(recipe.imageData) { return true }
         guard let raw = recipe.imageURL, isLikelyRecipeImageURL(raw, sourceURL: recipe.sourceURL),
               let url = URL(string: raw) else { return false }

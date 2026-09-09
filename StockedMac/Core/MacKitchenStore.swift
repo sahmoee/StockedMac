@@ -189,6 +189,9 @@ final class MacKitchenStore {
                     recipe.title = cleanTitle
                     compactedRemoteRecipeImages = true
                 }
+                // Retain the source record and its diagnostic URL for repair; presentation and
+                // public sharing exclude this known branding asset, including cached bytes.
+                if MacRecipeImagePolicy.isKnownPublisherPlaceholder(recipe.imageURL ?? "") { return recipe }
                 if let imageURL = recipe.imageURL,
                    !MacRecipeImagePolicy.isLikelyRecipeImageURL(imageURL, sourceURL: recipe.sourceURL) {
                     recipe.imageURL = nil
