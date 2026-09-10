@@ -144,6 +144,30 @@ nonisolated struct MacPublicRecipePage: Sendable {
         return url.string ?? raw
     }
 
+    private static func stableUUID(for rawID: String) -> UUID {
+        func hash(_ input: String) -> UInt64 {
+            input.utf8.reduce(UInt64(0xcbf29ce484222325)) { partial, byte in
+                (partial ^ UInt64(byte)) &* 0x100000001b3
+            }
+        }
+        let first = hash(rawID)
+        let second = hash("harvest-salt::" + rawID)
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(16)
+        for value in [first, second] {
+            for index in 0..<8 {
+                let shift = UInt64(8 * (7 - index))
+                bytes.append(UInt8((value >> shift) & 0xff))
+            }
+        }
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
+    }
+
     static func decode(_ data: Data, baseURL: String) throws -> Self {
         guard data.count <= 16 * 1024 * 1024 else {
             throw MacServiceError.malformedResponse("Catalogue page is too large")
@@ -164,33 +188,29 @@ nonisolated struct MacPublicRecipePage: Sendable {
             formatter.formatOptions = [.withInternetDateTime]
             return formatter.date(from: text)
         }
-        let recipes = rows.compactMap { row -> UserRecipe? in
+        var recipes: [UserRecipe] = []
+        recipes.reserveCapacity(rows.count)
+        for row in rows {
             guard let rawID = row["id"] as? String, !rawID.isEmpty,
                   let rawTitle = row["title"] as? String,
                   let source = row["sourceURL"] as? String,
                   let sourceURL = URL(string: source), sourceURL.scheme?.lowercased() == "https", sourceURL.host != nil,
                   sourceURL.user == nil, sourceURL.password == nil,
-                  let rawSteps = row["instructions"] as? [String] else { return nil }
+                  let rawSteps = row["instructions"] as? [String] else { continue }
             let title = RecipeTitlePolicy.cleaned(rawTitle)
             let steps = rawSteps.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-            guard !title.isEmpty, title.count <= 500, !steps.isEmpty else { return nil }
+            guard !title.isEmpty, title.count <= 500, !steps.isEmpty else { continue }
             let rawImage = (row["imageURL"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? row["image"] as? String ?? ""
             guard !rawImage.isEmpty,
                   let image = URL(string: rawImage, relativeTo: URL(string: baseURL))?.absoluteURL,
                   image.scheme?.lowercased() == "https", image.host != nil,
                   image.user == nil, image.password == nil,
-                  MacRecipeImagePolicy.isLikelyRecipeImageURL(image.absoluteString, sourceURL: source) else { return nil }
+                  MacRecipeImagePolicy.isLikelyRecipeImageURL(image.absoluteString, sourceURL: source) else { continue }
             var recipe = UserRecipe(title: title)
             if let uuid = UUID(uuidString: rawID) { recipe.id = uuid }
             else {
                 // Match iOS HarvestWireRecipe's stable UUID for historical non-UUID ids.
-                func hash(_ input: String) -> UInt64 {
-                    input.utf8.reduce(UInt64(0xcbf29ce484222325)) { ($0 ^ UInt64($1)) &* 0x100000001b3 }
-                }
-                let bytes = [hash(rawID), hash("harvest-salt::" + rawID)].flatMap { value in
-                    (0..<8).map { UInt8((value >> (8 * UInt64(7 - $0))) & 0xff) }
-                }
-                recipe.id = UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+                recipe.id = stableUUID(for: rawID)
             }
             recipe.description = row["description"] as? String ?? ""
             recipe.instructions = steps
@@ -200,7 +220,7 @@ nonisolated struct MacPublicRecipePage: Sendable {
                 guard !name.isEmpty else { return nil }
                 return RecipeIngredient(name: name, amount: ($0["amount"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
             }
-            guard !recipe.ingredients.isEmpty else { return nil }
+            guard !recipe.ingredients.isEmpty else { continue }
             recipe.imageURL = image.absoluteString
             recipe.sourceURL = source
             recipe.sourceName = row["attribution"] as? String ?? sourceURL.host
@@ -220,7 +240,7 @@ nonisolated struct MacPublicRecipePage: Sendable {
             recipe.dateCreated = date(row["importedAt"]) ?? date(row["storedAt"]) ?? .distantPast
             recipe.updatedAt = row["updatedAt"] as? Double ?? (date(row["storedAt"]) ?? recipe.dateCreated).timeIntervalSince1970 * 1000
             recipe.lastWriterID = "shared-catalogue"
-            return recipe
+            recipes.append(recipe)
         }
         return Self(recipes: recipes, complete: object["complete"] as? Bool, nextCursor: object["nextCursor"] as? String,
                     rejectedCount: rows.count - recipes.count)

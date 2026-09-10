@@ -46,12 +46,13 @@ available for direct links.
 ```bash
 git clone https://github.com/sahmoee/StockedMac.git
 cd StockedMac
-cp Secrets.example.xcconfig Secrets.xcconfig   # fill in your values
+cp Secrets.example.xcconfig Secrets.xcconfig   # optional; needed for live household sync
 open StockedMac.xcodeproj
 ```
 
 Open the project, select the **StockedMac** scheme (mark it Shared in Xcode if it isn't
-already), and run.
+already), and run. Credential-free builds use `BuildDefaults.xcconfig`; a local
+`Secrets.xcconfig` overrides those defaults without being required on Jarvis or CI.
 
 ## Project structure
 

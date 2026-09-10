@@ -133,18 +133,35 @@ nonisolated enum RecipeBrowseTaxonomy {
     /// "/recipes/weeknight-dinners/" → "Weeknight Dinners".
     static func categoryName(fromURL urlString: String) -> String {
         let decoded = urlString.removingPercentEncoding ?? urlString
-        let path = URL(string: decoded)?.path ?? decoded
-        let segment = path
-            .split(separator: "/")
-            .map(String.init)
-            .last { seg in !seg.allSatisfy(\.isNumber) && seg.count > 1 }
-            ?? (URL(string: decoded)?.host ?? "Category")
-        let words = segment
+        let parsedURL = URL(string: decoded)
+        let path = parsedURL?.path ?? decoded
+
+        var segment = parsedURL?.host ?? "Category"
+        let pathParts = path.split(separator: "/")
+        for rawPart in pathParts.reversed() {
+            let part = String(rawPart)
+            let isNumeric = part.allSatisfy { character in character.isNumber }
+            if part.count > 1 && !isNumeric {
+                segment = part
+                break
+            }
+        }
+
+        let rawWords = segment
             .replacingOccurrences(of: "_", with: "-")
             .split(separator: "-")
-            .map(String.init)
-            .filter { !$0.isEmpty && !$0.allSatisfy(\.isNumber) }
-        let titled = words.map { $0.prefix(1).uppercased() + $0.dropFirst() }
+        var words: [String] = []
+        words.reserveCapacity(rawWords.count)
+        for rawWord in rawWords {
+            let word = String(rawWord)
+            let isNumeric = word.allSatisfy { character in character.isNumber }
+            if !word.isEmpty && !isNumeric {
+                words.append(word)
+            }
+        }
+        let titled = words.map { word in
+            word.prefix(1).uppercased() + word.dropFirst()
+        }
         let name = titled.joined(separator: " ")
         return name.isEmpty ? "Category" : name
     }

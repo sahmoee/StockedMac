@@ -97,7 +97,10 @@ Brand/store discovery is grocery-scoped, additive, and fault-isolated. Preserve 
 
 Kroger discovery uses the authenticated UnifiedWorker retail gateway; Kroger and RapidAPI credentials remain server-side. Preserve official store IDs, UPCs, current price/availability, exact aisle/shelf data, provenance, and the largest original product image. RapidAPI data is fallback-only. For bulk repair or import cleanup, run `scripts/catalog-quality.py`; keep it deterministic, standard-library-only, and safe to rerun.
 
-`Secrets.xcconfig` is local and ignored. Production sync uses `https://api.sowensstudios.com`. Preserve partial scan results, resumable queues, limits, deduplication, and retroactive repair. Verify the `StockedMac` scheme.
+`BuildDefaults.xcconfig` supplies safe credential-free build settings and optionally includes the
+local, ignored `Secrets.xcconfig`. Production sync uses `https://api.sowensstudios.com` when a local
+Worker key is present; builds remain valid without one. Preserve partial scan results, resumable
+queues, limits, deduplication, and retroactive repair. Verify the `StockedMac` scheme.
 
 `macThemedSurface()` owns the adaptive warm canvas for every scene and presentation; `MacCard` uses the matching semantic card and border colors. Apply these shared primitives to new windows, sheets, popovers, and detached panels instead of native window backgrounds or fixed light/dark colors.
 
