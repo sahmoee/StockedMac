@@ -93,7 +93,9 @@ enum HarvestCloudSync {
         guard let base = URL(string: MacBuildConfig.receiptWorkerURL) else {
             throw MacServiceError.notConfigured("The Stocked Worker URL")
         }
-        let recipes = recipes.filter { MacRecipeImagePolicy.isUsable($0.imageData) }
+        // The public catalogue contains imports with original publisher provenance.
+        // Manually-created/source-less recipes remain local or household-only.
+        let recipes = recipes.filter(MacRecipeImagePolicy.isPublicImport)
         var pushedRecipes = 0
         var pushedImages = 0
 
@@ -111,8 +113,15 @@ enum HarvestCloudSync {
         }
 
         for recipe in recipes {
-            guard let data = recipe.imageData, !data.isEmpty else { continue }
-            let jpeg = data.count <= maxImageBytes ? data : downsampledJPEG(data, toAtMost: maxImageBytes)
+            // Imported recipes retain their original full-quality URL. Re-encoding and
+            // uploading hundreds of those images on launch was both redundant and the
+            // largest source of StockedMac's memory spike. Only personal/local-only
+            // images need a Worker-hosted copy.
+            guard recipe.imageURL?.nilIfBlank == nil,
+                  let data = recipe.imageData, !data.isEmpty else { continue }
+            let jpeg = autoreleasepool {
+                data.count <= maxImageBytes ? data : downsampledJPEG(data, toAtMost: maxImageBytes)
+            }
             guard let jpeg else { continue }
             do {
                 try await post([
@@ -248,8 +257,21 @@ enum HarvestCloudSync {
             "cookTime": recipe.cookTime,
         ]
         if let sourceURL { dict["sourceURL"] = sourceURL }
-        if let imageURL = recipe.imageURL?.nilIfBlank { dict["imageURL"] = imageURL }
-        if recipe.imageData != nil { dict["image"] = "/harvest/img/\(recipe.id.uuidString).jpg" }
+        if let author = recipe.author?.nilIfBlank { dict["author"] = String(author.prefix(2_000)) }
+        if let license = recipe.license?.nilIfBlank { dict["license"] = String(license.prefix(2_000)) }
+        if let credit = recipe.imageAttribution?.nilIfBlank { dict["imageAttribution"] = String(credit.prefix(2_000)) }
+        // Structured file credits are public provenance. Never include the complete
+        // notes or original portable file: those may contain private household data.
+        for line in recipe.notes.components(separatedBy: .newlines) {
+            for (prefix, field) in [("Author: ", "author"), ("Recipe license: ", "license"), ("Photo credit: ", "imageAttribution")] {
+                if line.hasPrefix(prefix), dict[field] == nil { dict[field] = String(line.dropFirst(prefix.count).prefix(2_000)) }
+            }
+        }
+        if let imageURL = recipe.imageURL?.nilIfBlank {
+            dict["imageURL"] = imageURL
+        } else if recipe.imageData != nil {
+            dict["image"] = "/harvest/img/\(recipe.id.uuidString).jpg"
+        }
         return dict
     }
 

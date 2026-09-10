@@ -87,6 +87,9 @@ actor RecipeStore {
             throw CompanionError.persistence("Recipe not imported because it has no usable image.")
         }
         recipe.categories = enrichedCategories(for: recipe)
+        if let cuisine = RecipeCuisineClassifier.infer(for: recipe) {
+            recipe.cuisines = [cuisine]
+        }
         recipe.refreshFingerprint()
 
         let index = recipes.firstIndex { $0.id == recipe.id }
@@ -168,6 +171,9 @@ actor RecipeStore {
             recipe.keywords = recipe.keywords.cleanedUnique()
             recipe.warnings = recipe.warnings.cleanedUnique()
             recipe.categories = enrichedCategories(for: recipe)
+            if let cuisine = RecipeCuisineClassifier.infer(for: recipe) {
+                recipe.cuisines = [cuisine]
+            }
             recipe.refreshFingerprint()
             let after = try? JSONCoding.encoder().encode(recipe)
             if before != after {

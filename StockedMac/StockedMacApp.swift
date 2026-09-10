@@ -30,7 +30,17 @@ struct StockedMacApp: App {
     /// the menu bar commands, the sidebar badge and the Harvester screen share one model.
     @State private var harvest = HarvestModel()
     @State private var catalog = CatalogModel()
+    @State private var desktop = MacDesktopExperience()
+    @State private var recipeInbox = MacRecipeFolderInbox()
     @State private var didStart = false
+
+    init() {
+        // Recipe rows live in MacKitchenStore's atomic Application Support cache. Keep
+        // cacheable catalogue responses and remote artwork on disk too, so visible cards
+        // survive relaunch while the bounded background updater revalidates them.
+        URLCache.shared = URLCache(memoryCapacity: 32 * 1024 * 1024,
+                                   diskCapacity: 256 * 1024 * 1024)
+    }
 
     var body: some Scene {
 
@@ -48,11 +58,18 @@ struct StockedMacApp: App {
                 .environment(auth)
                 .environment(harvest)
                 .environment(catalog)
+                .environment(desktop)
+                .environment(recipeInbox)
+                .macThemedSurface()
                 .frame(minWidth: MacTheme.minWindowWidth,
                        minHeight: MacTheme.minWindowHeight)
                 // A gentle fade rather than a hard swap, so signing in doesn't feel like
                 // the window was replaced underneath you.
                 .animation(.easeInOut(duration: 0.22), value: auth.isSignedIn)
+                .onReceive(NotificationCenter.default.publisher(for: .macInventoryNeedsCatalogEnrichment)) { note in
+                    guard let id = note.object as? UUID else { return }
+                    Task { await catalog.enrichInventoryItem(id: id, store: store) }
+                }
                 .task {
                     // `.task` on the root view can run again if the window is recreated,
                     // so this is guarded — loading twice would be harmless but pulling
@@ -62,6 +79,8 @@ struct StockedMacApp: App {
                     store.sync = sync
                     store.writerID = sync.memberID
                     store.load()
+                    recipeInbox.start()
+                    MacPublicRecipeSync.shared.start(store: store)
                     // StockedMac is recipe-only. Keep household transport compatible
                     // with iOS while excluding every non-recipe collection.
                     sync.syncInventory = false
@@ -75,6 +94,7 @@ struct StockedMacApp: App {
                     // harvested recipe appear on the phone by itself.
                     harvest.kitchen = store
                     harvest.start()
+                    catalog.startServerInboxConsumer()
                     // The session is only needed by the AI routes, and getting it wrong
                     // must never block the kitchen from opening — so it is fired off
                     // rather than awaited in line with the pull.
@@ -103,22 +123,69 @@ struct StockedMacApp: App {
                     // builds only published newly approved Harvester drafts, and the Worker
                     // also capped its index at 500, so an 882-recipe kitchen could never be
                     // fully available to iPhone/iPad. Upserts are idempotent by recipe UUID.
-                    harvest.syncKitchenToCloud(store.recipes)
+                    // Let the window become interactive before starting maintenance.
+                    // These jobs used to stack during launch and briefly pushed the app
+                    // above a gigabyte while full catalog snapshots were also encoding.
+                    Task {
+                        // Keep maintenance well clear of window restoration, Harvester
+                        // startup, and the first progressive public-catalogue pass.
+                        try? await Task.sleep(for: .seconds(45))
+                        await store.backfillMissingRecipeCuisines()
+                        harvest.syncKitchenToCloud(store.recipes, force: false)
+                        if catalog.isBulkImportEnabled {
+                            // The continuous importer already enriches as it walks sources;
+                            // do only a small rotating retroactive pass alongside it.
+                            await catalog.enrichAllExisting(batchSize: 3)
+                        } else {
+                            await catalog.enrichAllExisting(batchSize: 8)
+                        }
+                        await catalog.enrichInventoryBatch(store: store, limit: 5)
+                        catalog.resumeBulkImportIfEnabled()
+                    }
                 }
         }
         .defaultSize(width: 1140, height: 760)
         // The sidebar plus a detail pane needs a floor; below it the layout stops being
         // useful rather than merely tight.
         .windowResizability(.contentMinSize)
-        .commands { MacCommands(store: store, sync: sync, navigation: navigation, harvest: harvest) }
+        .commands { MacCommands(store: store, sync: sync, navigation: navigation, harvest: harvest, desktop: desktop) }
+
+        WindowGroup("Recipe", id: "recipe", for: UUID.self) { $recipeID in
+            if let recipeID {
+                MacDetachedRecipeView(recipeID: recipeID)
+                    .environment(store)
+                    .environment(sync)
+                    .environment(navigation)
+                    .environment(harvest)
+                    .environment(desktop)
+                    .macThemedSurface()
+                    .frame(minWidth: 560, minHeight: 460)
+            } else {
+                MacEmpty(title: "Recipe unavailable", message: "Choose a recipe from the main window.", systemImage: "book")
+                    .macThemedSurface()
+            }
+        }
+        .defaultSize(width: 820, height: 720)
 
         Settings {
             MacSettingsView()
                 .environment(store)
                 .environment(sync)
                 .environment(auth)
-                .frame(width: 560, height: 520)
+                .environment(desktop)
+                .macThemedSurface()
+                .frame(minWidth: 560, idealWidth: 680, minHeight: 520, idealHeight: 620)
         }
+
+        MenuBarExtra("Stocked", systemImage: "refrigerator.fill") {
+            MacMenuBarView()
+                .environment(store)
+                .environment(sync)
+                .environment(harvest)
+                .macThemedSurface()
+                .frame(width: 330)
+        }
+        .menuBarExtraStyle(.window)
 
     }
 }
@@ -128,53 +195,46 @@ struct StockedMacApp: App {
 struct MacMenuBarView: View {
     @Environment(MacKitchenStore.self) private var store
     @Environment(MacHouseholdSync.self) private var sync
+    @Environment(HarvestModel.self) private var harvest
 
-    private var soon: [LocalInventoryItem] { Array(store.expiringSoon.prefix(6)) }
-    private var low:  [LocalInventoryItem] { Array(store.lowStock.prefix(4)) }
+    private var recent: [UserRecipe] {
+        Array(store.recipes.sorted { $0.updatedAt > $1.updatedAt }.prefix(5))
+    }
+    private var needsReview: Int {
+        harvest.recipes.filter { $0.reviewState == .needsReview }.count
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            let metrics = store.metrics
-
             HStack {
                 Text("Stocked").font(.headline)
                 Spacer()
-                Text("\(metrics.stockPercent)% stocked")
+                Text("\(store.recipes.count) recipes")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            if store.inventory.isEmpty {
-                Text("Nothing in the kitchen yet.")
+            HStack(spacing: 8) {
+                MacPill(text: "\(harvest.queuedURLCount) queued", tint: .secondary, systemImage: "link")
+                MacPill(text: "\(needsReview) review", tint: needsReview > 0 ? .orange : .secondary,
+                        systemImage: "checklist")
+            }
+
+            if recent.isEmpty {
+                Text("No recipes on this Mac yet.")
                     .font(.callout).foregroundStyle(.secondary)
             } else {
-                if !soon.isEmpty {
-                    MacSectionHeader(title: "Use soon")
-                    ForEach(soon) { item in
-                        HStack {
-                            Circle()
-                                .fill(MacTheme.expiryColor(daysLeft: item.daysUntilExpiry))
-                                .frame(width: 6, height: 6)
-                            Text(item.name).font(.callout).lineLimit(1)
-                            Spacer(minLength: 8)
-                            Text(expiryLabel(item)).font(.caption).foregroundStyle(.secondary)
+                MacSectionHeader(title: "Recently updated")
+                ForEach(recent) { recipe in
+                    HStack(spacing: 8) {
+                        Image(systemName: recipe.isFavorited ? "star.fill" : "book.closed")
+                            .foregroundStyle(recipe.isFavorited ? MacTheme.gold : .secondary)
+                            .frame(width: 14)
+                        Text(recipe.title).font(.callout).lineLimit(1)
+                        Spacer(minLength: 8)
+                        if !recipe.cuisine.isEmpty {
+                            Text(recipe.cuisine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
-                }
-                if !low.isEmpty {
-                    MacSectionHeader(title: "Running low")
-                    ForEach(low) { item in
-                        HStack {
-                            Text(item.name).font(.callout).lineLimit(1)
-                            Spacer(minLength: 8)
-                            Text("\(Int(item.effectiveLevel * 100))%")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                if soon.isEmpty && low.isEmpty {
-                    Text("Nothing needs attention. \(metrics.stockStatusSentence).")
-                        .font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -203,11 +263,4 @@ struct MacMenuBarView: View {
         .padding(14)
     }
 
-    private func expiryLabel(_ item: LocalInventoryItem) -> String {
-        guard let days = item.daysUntilExpiry else { return "" }
-        if days < 0  { return "expired" }
-        if days == 0 { return "today" }
-        if days == 1 { return "tomorrow" }
-        return "\(days) days"
-    }
 }

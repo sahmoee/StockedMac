@@ -17,11 +17,140 @@ enum MacTheme {
         dark ? Color(red: 0.95, green: 0.75, blue: 0.30) : gold
     }
 
+    /// Warm Stocked surfaces shared by every window and presentation.  These are
+    /// deliberately semantic functions so changing appearance never leaves a
+    /// hard-coded light card inside a dark window (or vice versa).
+    static func canvas(dark: Bool) -> Color {
+        dark
+            ? Color(red: 0.085, green: 0.078, blue: 0.067)
+            : Color(red: 0.91, green: 0.82, blue: 0.67)
+    }
+
+    static func sidebar(dark: Bool) -> Color {
+        dark
+            ? Color(red: 0.105, green: 0.096, blue: 0.082)
+            : Color(red: 0.88, green: 0.78, blue: 0.62)
+    }
+
+    static func card(dark: Bool) -> Color {
+        dark
+            ? Color(red: 0.145, green: 0.132, blue: 0.113)
+            : Color(red: 0.975, green: 0.955, blue: 0.91)
+    }
+
+    static func cardBorder(dark: Bool) -> Color {
+        dark ? Color.white.opacity(0.14) : Color.black.opacity(0.13)
+    }
+
     static func expiryColor(daysLeft: Int?) -> Color {
         guard let daysLeft else { return .secondary }
         if daysLeft < 0 { return urgent }
         if daysLeft <= 2 { return .orange }
         return green
+    }
+}
+
+/// Complete StockedMac presentation boundary. Apply it to scene roots and to
+/// standalone sheet/popover roots; controls still use native macOS behavior,
+/// while every exposed canvas uses the same warm adaptive palette.
+private struct MacThemedSurfaceModifier: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        let dark = scheme == .dark
+        ZStack {
+            MacTheme.canvas(dark: dark).ignoresSafeArea()
+            content
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MacTheme.canvas(dark: dark))
+        .presentationBackground(MacTheme.canvas(dark: dark))
+        .tint(MacTheme.accent(dark: dark))
+    }
+}
+
+extension View {
+    func macThemedSurface() -> some View {
+        modifier(MacThemedSurfaceModifier())
+    }
+}
+
+/// A two-pane desktop layout that keeps the familiar draggable divider without
+/// relying on `NSSplitView`. SwiftUI's AppKit bridge can briefly install mutually
+/// exclusive safe-area constraints when a nested split is restored near its maximum
+/// width; this layout has the same interaction with deterministic geometry.
+struct MacAdjustableSplit<Leading: View, Trailing: View>: View {
+    private let minimumLeadingWidth: CGFloat
+    private let maximumLeadingWidth: CGFloat
+    private let minimumTrailingWidth: CGFloat
+    private let leading: Leading
+    private let trailing: Trailing
+
+    @State private var settledLeadingWidth: CGFloat
+    @GestureState private var dragTranslation: CGFloat = 0
+
+    init(
+        initialLeadingWidth: CGFloat,
+        minimumLeadingWidth: CGFloat,
+        maximumLeadingWidth: CGFloat,
+        minimumTrailingWidth: CGFloat,
+        @ViewBuilder leading: () -> Leading,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        _settledLeadingWidth = State(initialValue: initialLeadingWidth)
+        self.minimumLeadingWidth = minimumLeadingWidth
+        self.maximumLeadingWidth = maximumLeadingWidth
+        self.minimumTrailingWidth = minimumTrailingWidth
+        self.leading = leading()
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let upperBound = max(
+                minimumLeadingWidth,
+                min(maximumLeadingWidth, geometry.size.width - minimumTrailingWidth - 9)
+            )
+            let proposedWidth = settledLeadingWidth + dragTranslation
+            let visibleWidth = min(max(proposedWidth, minimumLeadingWidth), upperBound)
+
+            HStack(spacing: 0) {
+                leading
+                    .frame(width: visibleWidth)
+                    .clipped()
+
+                ZStack {
+                    Color.clear
+                    Divider()
+                }
+                .frame(width: 9)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .updating($dragTranslation) { value, state, _ in
+                            state = value.translation.width
+                        }
+                        .onEnded { value in
+                            settledLeadingWidth = min(
+                                max(settledLeadingWidth + value.translation.width, minimumLeadingWidth),
+                                upperBound
+                            )
+                        }
+                )
+                .accessibilityElement()
+                .accessibilityLabel("Resize sidebar")
+                .accessibilityAdjustableAction { direction in
+                    let change: CGFloat = direction == .increment ? 24 : -24
+                    settledLeadingWidth = min(
+                        max(settledLeadingWidth + change, minimumLeadingWidth),
+                        upperBound
+                    )
+                }
+
+                trailing
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
     }
 }
 
@@ -64,6 +193,7 @@ struct MacEmpty: View {
 }
 
 struct MacCard<Content: View>: View {
+    @Environment(\.colorScheme) private var scheme
     var title: String? = nil
     var systemImage: String? = nil
     var footnote: String? = nil
@@ -94,7 +224,8 @@ struct MacCard<Content: View>: View {
             content
         }
         .padding(MacTheme.pad)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.separator.opacity(0.35)))
+        .background(MacTheme.card(dark: scheme == .dark), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12)
+            .stroke(MacTheme.cardBorder(dark: scheme == .dark)))
     }
 }

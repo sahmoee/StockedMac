@@ -4986,5 +4986,3552 @@
     ],
     "notes": "Vintage and heirloom recipes. Feed entries link out to the recipe's real site; every link is verified at import and attributed to the site that hosts it.",
     "health": "unknown"
+  },
+  {
+    "id": "myheartbeets-com",
+    "name": "My Heart Beets",
+    "domains": [
+      "myheartbeets.com"
+    ],
+    "baseURL": "https://myheartbeets.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://myheartbeets.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Indian",
+      "Gluten-free",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "ministryofcurry-com",
+    "name": "Ministry of Curry",
+    "domains": [
+      "ministryofcurry.com"
+    ],
+    "baseURL": "https://ministryofcurry.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://ministryofcurry.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Indian",
+      "Instant Pot",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "pipingpotcurry-com",
+    "name": "Piping Pot Curry",
+    "domains": [
+      "pipingpotcurry.com"
+    ],
+    "baseURL": "https://pipingpotcurry.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://pipingpotcurry.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Indian",
+      "Instant Pot",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "cookwithmanali-com",
+    "name": "Cook With Manali",
+    "domains": [
+      "cookwithmanali.com",
+      "www.cookwithmanali.com"
+    ],
+    "baseURL": "https://www.cookwithmanali.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.cookwithmanali.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Indian",
+      "Vegetarian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "cubesnjuliennes-com",
+    "name": "Cubes N Juliennes",
+    "domains": [
+      "cubesnjuliennes.com",
+      "www.cubesnjuliennes.com"
+    ],
+    "baseURL": "https://www.cubesnjuliennes.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.cubesnjuliennes.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Indian",
+      "Everyday",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "whiskaffair-com",
+    "name": "WhiskAffair",
+    "domains": [
+      "whiskaffair.com",
+      "www.whiskaffair.com"
+    ],
+    "baseURL": "https://www.whiskaffair.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.whiskaffair.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Indian",
+      "Global",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "teaforturmeric-com",
+    "name": "Tea for Turmeric",
+    "domains": [
+      "teaforturmeric.com",
+      "www.teaforturmeric.com"
+    ],
+    "baseURL": "https://www.teaforturmeric.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.teaforturmeric.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Pakistani",
+      "South Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "pakistaneats-com",
+    "name": "Pakistan Eats",
+    "domains": [
+      "pakistaneats.com",
+      "www.pakistaneats.com"
+    ],
+    "baseURL": "https://www.pakistaneats.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.pakistaneats.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Pakistani",
+      "South Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "fatimacooks-net",
+    "name": "Fatima Cooks",
+    "domains": [
+      "fatimacooks.net"
+    ],
+    "baseURL": "https://fatimacooks.net",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://fatimacooks.net/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Pakistani",
+      "South Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "recipe52-com",
+    "name": "Recipe52",
+    "domains": [
+      "recipe52.com"
+    ],
+    "baseURL": "https://recipe52.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://recipe52.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Pakistani",
+      "South Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "chilitochoc-com",
+    "name": "Chili to Choc",
+    "domains": [
+      "chilitochoc.com",
+      "www.chilitochoc.com"
+    ],
+    "baseURL": "https://www.chilitochoc.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.chilitochoc.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Pakistani",
+      "Global",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "hungrypaprikas-com",
+    "name": "Hungry Paprikas",
+    "domains": [
+      "hungrypaprikas.com",
+      "www.hungrypaprikas.com"
+    ],
+    "baseURL": "https://www.hungrypaprikas.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.hungrypaprikas.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Middle Eastern",
+      "Arab",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "amiraspantry-com",
+    "name": "Amira's Pantry",
+    "domains": [
+      "amiraspantry.com"
+    ],
+    "baseURL": "https://amiraspantry.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://amiraspantry.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Middle Eastern",
+      "Egyptian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "falasteenifoodie-com",
+    "name": "FalasteeniFoodie",
+    "domains": [
+      "falasteenifoodie.com"
+    ],
+    "baseURL": "https://falasteenifoodie.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://falasteenifoodie.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Palestinian",
+      "Middle Eastern",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "silkroadrecipes-com",
+    "name": "Silk Road Recipes",
+    "domains": [
+      "silkroadrecipes.com"
+    ],
+    "baseURL": "https://silkroadrecipes.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://silkroadrecipes.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Asian",
+      "Middle Eastern",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "maureenabood-com",
+    "name": "Maureen Abood",
+    "domains": [
+      "maureenabood.com"
+    ],
+    "baseURL": "https://maureenabood.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://maureenabood.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Lebanese",
+      "Middle Eastern",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "thematbakh-com",
+    "name": "The Matbakh",
+    "domains": [
+      "thematbakh.com"
+    ],
+    "baseURL": "https://thematbakh.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://thematbakh.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Middle Eastern",
+      "Mediterranean",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "cardamomandtea-com",
+    "name": "Cardamom and Tea",
+    "domains": [
+      "cardamomandtea.com"
+    ],
+    "baseURL": "https://cardamomandtea.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://cardamomandtea.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Middle Eastern",
+      "Assyrian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "unicornsinthekitchen-com",
+    "name": "Unicorns in the Kitchen",
+    "domains": [
+      "unicornsinthekitchen.com",
+      "www.unicornsinthekitchen.com"
+    ],
+    "baseURL": "https://www.unicornsinthekitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.unicornsinthekitchen.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Persian",
+      "Mediterranean",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "persianmama-com",
+    "name": "Persian Mama",
+    "domains": [
+      "persianmama.com"
+    ],
+    "baseURL": "https://persianmama.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://persianmama.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Persian",
+      "Iranian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "turkishfoodtravel-com",
+    "name": "Turkish Food Travel",
+    "domains": [
+      "turkishfoodtravel.com",
+      "www.turkishfoodtravel.com"
+    ],
+    "baseURL": "https://www.turkishfoodtravel.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.turkishfoodtravel.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Turkish",
+      "Mediterranean",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "giverecipe-com",
+    "name": "Give Recipe",
+    "domains": [
+      "giverecipe.com",
+      "www.giverecipe.com"
+    ],
+    "baseURL": "https://www.giverecipe.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.giverecipe.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Turkish",
+      "Mediterranean",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "ozlemsturkishtable-com",
+    "name": "Ozlem's Turkish Table",
+    "domains": [
+      "ozlemsturkishtable.com"
+    ],
+    "baseURL": "https://ozlemsturkishtable.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://ozlemsturkishtable.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Turkish",
+      "Mediterranean",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "redhousespice-com",
+    "name": "Red House Spice",
+    "domains": [
+      "redhousespice.com"
+    ],
+    "baseURL": "https://redhousespice.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://redhousespice.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Chinese",
+      "Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "chinasichuanfood-com",
+    "name": "China Sichuan Food",
+    "domains": [
+      "chinasichuanfood.com",
+      "www.chinasichuanfood.com"
+    ],
+    "baseURL": "https://www.chinasichuanfood.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.chinasichuanfood.com/wp-sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Chinese",
+      "Sichuan",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "madewithlau-com",
+    "name": "Made With Lau",
+    "domains": [
+      "madewithlau.com",
+      "www.madewithlau.com"
+    ],
+    "baseURL": "https://www.madewithlau.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.madewithlau.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Chinese",
+      "Cantonese",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "wokandkin-com",
+    "name": "Wok and Kin",
+    "domains": [
+      "wokandkin.com",
+      "www.wokandkin.com"
+    ],
+    "baseURL": "https://www.wokandkin.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.wokandkin.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Vietnamese",
+      "Chinese",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "tasteasianfood-com",
+    "name": "Taste of Asian Food",
+    "domains": [
+      "tasteasianfood.com"
+    ],
+    "baseURL": "https://tasteasianfood.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://tasteasianfood.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Asian",
+      "Chinese",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "en-christinesrecipes-com",
+    "name": "Christine's Recipes",
+    "domains": [
+      "en.christinesrecipes.com"
+    ],
+    "baseURL": "https://en.christinesrecipes.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://en.christinesrecipes.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Chinese",
+      "Hong Kong",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "chopstickchronicles-com",
+    "name": "Chopstick Chronicles",
+    "domains": [
+      "chopstickchronicles.com",
+      "www.chopstickchronicles.com"
+    ],
+    "baseURL": "https://www.chopstickchronicles.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.chopstickchronicles.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Japanese",
+      "Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "sudachirecipes-com",
+    "name": "Sudachi",
+    "domains": [
+      "sudachirecipes.com"
+    ],
+    "baseURL": "https://sudachirecipes.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://sudachirecipes.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Japanese",
+      "Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "japanesecooking101-com",
+    "name": "Japanese Cooking 101",
+    "domains": [
+      "japanesecooking101.com"
+    ],
+    "baseURL": "https://japanesecooking101.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://japanesecooking101.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Japanese",
+      "Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "okonomikitchen-com",
+    "name": "Okonomi Kitchen",
+    "domains": [
+      "okonomikitchen.com",
+      "www.okonomikitchen.com"
+    ],
+    "baseURL": "https://www.okonomikitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.okonomikitchen.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Japanese",
+      "Vegan",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "koreanbapsang-com",
+    "name": "Korean Bapsang",
+    "domains": [
+      "koreanbapsang.com",
+      "www.koreanbapsang.com"
+    ],
+    "baseURL": "https://www.koreanbapsang.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.koreanbapsang.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Korean",
+      "Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "beyondkimchee-com",
+    "name": "Beyond Kimchee",
+    "domains": [
+      "beyondkimchee.com",
+      "www.beyondkimchee.com"
+    ],
+    "baseURL": "https://www.beyondkimchee.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.beyondkimchee.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Korean",
+      "Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "kimchimari-com",
+    "name": "Kimchimari",
+    "domains": [
+      "kimchimari.com"
+    ],
+    "baseURL": "https://kimchimari.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://kimchimari.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Korean",
+      "Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "vickypham-com",
+    "name": "Vicky Pham",
+    "domains": [
+      "vickypham.com"
+    ],
+    "baseURL": "https://vickypham.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://vickypham.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Vietnamese",
+      "Southeast Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "wokandskillet-com",
+    "name": "Wok and Skillet",
+    "domains": [
+      "wokandskillet.com",
+      "www.wokandskillet.com"
+    ],
+    "baseURL": "https://www.wokandskillet.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.wokandskillet.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Southeast Asian",
+      "Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "kawalingpinoy-com",
+    "name": "Kawaling Pinoy",
+    "domains": [
+      "kawalingpinoy.com",
+      "www.kawalingpinoy.com"
+    ],
+    "baseURL": "https://www.kawalingpinoy.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.kawalingpinoy.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Filipino",
+      "Southeast Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "panlasangpinoy-com",
+    "name": "Panlasang Pinoy",
+    "domains": [
+      "panlasangpinoy.com"
+    ],
+    "baseURL": "https://panlasangpinoy.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://panlasangpinoy.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Filipino",
+      "Southeast Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "foxyfolksy-com",
+    "name": "Foxy Folksy",
+    "domains": [
+      "foxyfolksy.com",
+      "www.foxyfolksy.com"
+    ],
+    "baseURL": "https://www.foxyfolksy.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.foxyfolksy.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Filipino",
+      "Southeast Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "theburningkitchen-com",
+    "name": "The Burning Kitchen",
+    "domains": [
+      "theburningkitchen.com"
+    ],
+    "baseURL": "https://theburningkitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://theburningkitchen.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Singaporean",
+      "Southeast Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "whattocooktoday-com",
+    "name": "What To Cook Today",
+    "domains": [
+      "whattocooktoday.com"
+    ],
+    "baseURL": "https://whattocooktoday.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://whattocooktoday.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Indonesian",
+      "Southeast Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "lowcarbafrica-com",
+    "name": "Low Carb Africa",
+    "domains": [
+      "lowcarbafrica.com"
+    ],
+    "baseURL": "https://lowcarbafrica.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://lowcarbafrica.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African",
+      "Low-carb",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "cheflolaskitchen-com",
+    "name": "Chef Lola's Kitchen",
+    "domains": [
+      "cheflolaskitchen.com"
+    ],
+    "baseURL": "https://cheflolaskitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://cheflolaskitchen.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African",
+      "Nigerian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "yummymedley-com",
+    "name": "Yummy Medley",
+    "domains": [
+      "www.yummymedley.com",
+      "yummymedley.com"
+    ],
+    "baseURL": "https://www.yummymedley.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.yummymedley.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African",
+      "Nigerian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "eatwellabi-com",
+    "name": "Eat Well Abi",
+    "domains": [
+      "eatwellabi.com"
+    ],
+    "baseURL": "https://eatwellabi.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://eatwellabi.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African",
+      "West African",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "myactivekitchen-com",
+    "name": "My Active Kitchen",
+    "domains": [
+      "myactivekitchen.com",
+      "www.myactivekitchen.com"
+    ],
+    "baseURL": "https://www.myactivekitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.myactivekitchen.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African",
+      "Nigerian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "kscuisine-com",
+    "name": "K's Cuisine",
+    "domains": [
+      "kscuisine.com"
+    ],
+    "baseURL": "https://kscuisine.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://kscuisine.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African",
+      "Nigerian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "preciouscore-com",
+    "name": "Precious Core",
+    "domains": [
+      "preciouscore.com",
+      "www.preciouscore.com"
+    ],
+    "baseURL": "https://www.preciouscore.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.preciouscore.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African",
+      "Cameroonian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "thecanadianafrican-com",
+    "name": "The Canadian African",
+    "domains": [
+      "eatwithafia.com",
+      "thecanadianafrican.com"
+    ],
+    "baseURL": "https://eatwithafia.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://eatwithafia.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African",
+      "Ghanaian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "thatgirlcookshealthy-com",
+    "name": "That Girl Cooks Healthy",
+    "domains": [
+      "thatgirlcookshealthy.com"
+    ],
+    "baseURL": "https://thatgirlcookshealthy.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://thatgirlcookshealthy.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Caribbean",
+      "Gluten-free",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "jamaicanfoodsandrecipes-com",
+    "name": "Jamaican Foods and Recipes",
+    "domains": [
+      "jamaicanfoodsandrecipes.com"
+    ],
+    "baseURL": "https://jamaicanfoodsandrecipes.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://jamaicanfoodsandrecipes.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Caribbean",
+      "Jamaican",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "alicaspepperpot-com",
+    "name": "Alica's Pepperpot",
+    "domains": [
+      "alicaspepperpot.com",
+      "www.alicaspepperpot.com"
+    ],
+    "baseURL": "https://www.alicaspepperpot.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.alicaspepperpot.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Caribbean",
+      "Guyanese",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "cookingwithria-com",
+    "name": "Cooking With Ria",
+    "domains": [
+      "cookingwithria.com"
+    ],
+    "baseURL": "https://cookingwithria.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://cookingwithria.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Caribbean",
+      "Trinidadian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "muybuenoblog-com",
+    "name": "Muy Bueno",
+    "domains": [
+      "muybuenoblog.com"
+    ],
+    "baseURL": "https://muybuenoblog.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://muybuenoblog.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Mexican",
+      "Latin American",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "isabeleats-com",
+    "name": "Isabel Eats",
+    "domains": [
+      "isabeleats.com",
+      "www.isabeleats.com"
+    ],
+    "baseURL": "https://www.isabeleats.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.isabeleats.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Mexican",
+      "Tex-Mex",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "pinaenlacocina-com",
+    "name": "La Piña en la Cocina",
+    "domains": [
+      "pinaenlacocina.com"
+    ],
+    "baseURL": "https://pinaenlacocina.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://pinaenlacocina.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Mexican",
+      "Traditional",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "mexicanfoodjournal-com",
+    "name": "Mexican Food Journal",
+    "domains": [
+      "mexicanfoodjournal.com"
+    ],
+    "baseURL": "https://mexicanfoodjournal.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://mexicanfoodjournal.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Mexican",
+      "Traditional",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "mycolombianrecipes-com",
+    "name": "My Colombian Recipes",
+    "domains": [
+      "mycolombianrecipes.com",
+      "www.mycolombianrecipes.com"
+    ],
+    "baseURL": "https://www.mycolombianrecipes.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.mycolombianrecipes.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Colombian",
+      "Latin American",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "laylita-com",
+    "name": "Laylita's Recipes",
+    "domains": [
+      "laylita.com",
+      "www.laylita.com"
+    ],
+    "baseURL": "https://www.laylita.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.laylita.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Ecuadorian",
+      "Latin American",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "dominicancooking-com",
+    "name": "Dominican Cooking",
+    "domains": [
+      "dominicancooking.com",
+      "www.dominicancooking.com"
+    ],
+    "baseURL": "https://www.dominicancooking.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.dominicancooking.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Dominican",
+      "Caribbean",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "thenoshery-com",
+    "name": "The Noshery",
+    "domains": [
+      "thenoshery.com"
+    ],
+    "baseURL": "https://thenoshery.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://thenoshery.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Puerto Rican",
+      "Caribbean",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "braziliankitchenabroad-com",
+    "name": "Brazilian Kitchen Abroad",
+    "domains": [
+      "braziliankitchenabroad.com"
+    ],
+    "baseURL": "https://braziliankitchenabroad.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://braziliankitchenabroad.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Brazilian",
+      "South American",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "oliviascuisine-com",
+    "name": "Olivia's Cuisine",
+    "domains": [
+      "oliviascuisine.com",
+      "www.oliviascuisine.com"
+    ],
+    "baseURL": "https://www.oliviascuisine.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.oliviascuisine.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Brazilian",
+      "Global",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "easyanddelish-com",
+    "name": "Easy and Delish",
+    "domains": [
+      "easyanddelish.com",
+      "www.easyanddelish.com"
+    ],
+    "baseURL": "https://www.easyanddelish.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.easyanddelish.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Brazilian",
+      "Global",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "perudelights-com",
+    "name": "Peru Delights",
+    "domains": [
+      "perudelights.com"
+    ],
+    "baseURL": "https://perudelights.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://perudelights.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Peruvian",
+      "South American",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "keviniscooking-com",
+    "name": "Kevin Is Cooking",
+    "domains": [
+      "keviniscooking.com"
+    ],
+    "baseURL": "https://keviniscooking.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://keviniscooking.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Global",
+      "American",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "kitchensanctuary-com",
+    "name": "Kitchen Sanctuary",
+    "domains": [
+      "kitchensanctuary.com",
+      "www.kitchensanctuary.com"
+    ],
+    "baseURL": "https://www.kitchensanctuary.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.kitchensanctuary.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "British",
+      "Everyday",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "tamingtwins-com",
+    "name": "Taming Twins",
+    "domains": [
+      "tamingtwins.com",
+      "www.tamingtwins.com"
+    ],
+    "baseURL": "https://www.tamingtwins.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.tamingtwins.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "British",
+      "Family",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "easypeasyfoodie-com",
+    "name": "Easy Peasy Foodie",
+    "domains": [
+      "easypeasyfoodie.com",
+      "www.easypeasyfoodie.com"
+    ],
+    "baseURL": "https://www.easypeasyfoodie.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.easypeasyfoodie.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "British",
+      "Quick & easy",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "effortlessfoodie-com",
+    "name": "Effortless Foodie",
+    "domains": [
+      "effortlessfoodie.com",
+      "www.effortlessfoodie.com"
+    ],
+    "baseURL": "https://www.effortlessfoodie.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.effortlessfoodie.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "British",
+      "Family",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "flawlessfood-co-uk",
+    "name": "Flawless Food",
+    "domains": [
+      "flawlessfood.co.uk"
+    ],
+    "baseURL": "https://flawlessfood.co.uk",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://flawlessfood.co.uk/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "British",
+      "Global",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "charlotteslivelykitchen-com",
+    "name": "Charlotte's Lively Kitchen",
+    "domains": [
+      "charlotteslivelykitchen.com"
+    ],
+    "baseURL": "https://charlotteslivelykitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://charlotteslivelykitchen.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "British",
+      "Baking",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "applytofaceblog-com",
+    "name": "Apply to Face Blog",
+    "domains": [
+      "applytofaceblog.com"
+    ],
+    "baseURL": "https://applytofaceblog.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://applytofaceblog.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "British",
+      "Baking",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "thepetitecook-com",
+    "name": "The Petite Cook",
+    "domains": [
+      "thepetitecook.com",
+      "www.thepetitecook.com"
+    ],
+    "baseURL": "https://www.thepetitecook.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.thepetitecook.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Italian",
+      "British",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "insidetherustickitchen-com",
+    "name": "Inside the Rustic Kitchen",
+    "domains": [
+      "insidetherustickitchen.com",
+      "www.insidetherustickitchen.com"
+    ],
+    "baseURL": "https://www.insidetherustickitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.insidetherustickitchen.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Italian",
+      "European",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "marcellinaincucina-com",
+    "name": "Marcellina in Cucina",
+    "domains": [
+      "marcellinaincucina.com",
+      "www.marcellinaincucina.com"
+    ],
+    "baseURL": "https://www.marcellinaincucina.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.marcellinaincucina.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Italian",
+      "Baking",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "italianrecipebook-com",
+    "name": "Italian Recipe Book",
+    "domains": [
+      "italianrecipebook.com",
+      "www.italianrecipebook.com"
+    ],
+    "baseURL": "https://www.italianrecipebook.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.italianrecipebook.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Italian",
+      "Traditional",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "thegreekfoodie-com",
+    "name": "The Greek Foodie",
+    "domains": [
+      "thegreekfoodie.com"
+    ],
+    "baseURL": "https://thegreekfoodie.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://thegreekfoodie.com/wp-sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Greek",
+      "Mediterranean",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "mygreekdish-com",
+    "name": "My Greek Dish",
+    "domains": [
+      "mygreekdish.com",
+      "www.mygreekdish.com"
+    ],
+    "baseURL": "https://www.mygreekdish.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.mygreekdish.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Greek",
+      "Mediterranean",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "realgreekrecipes-com",
+    "name": "Real Greek Recipes",
+    "domains": [
+      "realgreekrecipes.com"
+    ],
+    "baseURL": "https://realgreekrecipes.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://realgreekrecipes.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Greek",
+      "Mediterranean",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "spanishsabores-com",
+    "name": "Spanish Sabores",
+    "domains": [
+      "spanishsabores.com"
+    ],
+    "baseURL": "https://spanishsabores.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://spanishsabores.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Spanish",
+      "European",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "spainonafork-com",
+    "name": "Spain on a Fork",
+    "domains": [
+      "spainonafork.com"
+    ],
+    "baseURL": "https://spainonafork.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://spainonafork.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Spanish",
+      "Mediterranean",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "themediterraneanfork-com",
+    "name": "The Mediterranean Fork",
+    "domains": [
+      "themediterraneanfork.com"
+    ],
+    "baseURL": "https://themediterraneanfork.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://themediterraneanfork.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Mediterranean",
+      "European",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "polonist-com",
+    "name": "Polonist",
+    "domains": [
+      "polonist.com",
+      "www.polonist.com"
+    ],
+    "baseURL": "https://www.polonist.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.polonist.com/sitemaps.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Polish",
+      "European",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "whereismyspoon-co",
+    "name": "Where Is My Spoon",
+    "domains": [
+      "whereismyspoon.co"
+    ],
+    "baseURL": "https://whereismyspoon.co",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://whereismyspoon.co/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "German",
+      "European",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "mygerman-recipes",
+    "name": "My German Recipes",
+    "domains": [
+      "mygerman.recipes"
+    ],
+    "baseURL": "https://mygerman.recipes",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://mygerman.recipes/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "German",
+      "European",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "japan-recipetineats-com",
+    "name": "RecipeTin Japan",
+    "domains": [
+      "japan.recipetineats.com"
+    ],
+    "baseURL": "https://japan.recipetineats.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://japan.recipetineats.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Japanese",
+      "Asian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "marionskitchen-com",
+    "name": "Marion's Kitchen",
+    "domains": [
+      "marionskitchen.com",
+      "www.marionskitchen.com"
+    ],
+    "baseURL": "https://www.marionskitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.marionskitchen.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Asian",
+      "Australian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "wandercooks-com",
+    "name": "Wandercooks",
+    "domains": [
+      "wandercooks.com",
+      "www.wandercooks.com"
+    ],
+    "baseURL": "https://www.wandercooks.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.wandercooks.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Global",
+      "Australian",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "sugarsaltmagic-com",
+    "name": "Sugar Salt Magic",
+    "domains": [
+      "sugarsaltmagic.com",
+      "www.sugarsaltmagic.com"
+    ],
+    "baseURL": "https://www.sugarsaltmagic.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.sugarsaltmagic.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Australian",
+      "Baking",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "sprinklesandsprouts-com",
+    "name": "Sprinkles and Sprouts",
+    "domains": [
+      "sprinklesandsprouts.com",
+      "www.sprinklesandsprouts.com"
+    ],
+    "baseURL": "https://www.sprinklesandsprouts.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.sprinklesandsprouts.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Australian",
+      "Everyday",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "itsnotcomplicatedrecipes-com",
+    "name": "It's Not Complicated Recipes",
+    "domains": [
+      "itsnotcomplicatedrecipes.com"
+    ],
+    "baseURL": "https://itsnotcomplicatedrecipes.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://itsnotcomplicatedrecipes.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Australian",
+      "Everyday",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "sweetcaramelsunday-com",
+    "name": "Sweet Caramel Sunday",
+    "domains": [
+      "sweetcaramelsunday.com"
+    ],
+    "baseURL": "https://sweetcaramelsunday.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://sweetcaramelsunday.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Australian",
+      "Everyday",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "thekiwicountrygirl-com",
+    "name": "The Kiwi Country Girl",
+    "domains": [
+      "thekiwicountrygirl.com",
+      "www.thekiwicountrygirl.com"
+    ],
+    "baseURL": "https://www.thekiwicountrygirl.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.thekiwicountrygirl.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "New Zealand",
+      "Baking",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "chelseawinter-co-nz",
+    "name": "Chelsea Winter",
+    "domains": [
+      "chelseawinter.co.nz"
+    ],
+    "baseURL": "https://chelseawinter.co.nz",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://chelseawinter.co.nz/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "New Zealand",
+      "Everyday",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "vjcooks-com",
+    "name": "VJ Cooks",
+    "domains": [
+      "vjcooks.com"
+    ],
+    "baseURL": "https://vjcooks.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://vjcooks.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "New Zealand",
+      "Family",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "itdoesnttastelikechicken-com",
+    "name": "It Doesn't Taste Like Chicken",
+    "domains": [
+      "itdoesnttastelikechicken.com"
+    ],
+    "baseURL": "https://itdoesnttastelikechicken.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://itdoesnttastelikechicken.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Vegan",
+      "Plant-based",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "lazycatkitchen-com",
+    "name": "Lazy Cat Kitchen",
+    "domains": [
+      "lazycatkitchen.com",
+      "www.lazycatkitchen.com"
+    ],
+    "baseURL": "https://www.lazycatkitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.lazycatkitchen.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Vegan",
+      "Plant-based",
+      "Structured Data"
+    ],
+    "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
+    "health": "unknown"
   }
 ]

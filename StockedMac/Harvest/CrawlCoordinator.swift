@@ -499,9 +499,12 @@ actor CrawlCoordinator {
     /// Finds the publisher-controlled destination carried by AMP Web Story outlinks.
     /// Same-host only: a story must never silently redirect an import to an ad network.
     private nonisolated static func webStoryRecipeURL(in html: String, pageURL: URL) -> URL? {
-        let lower = html.lowercased()
-        guard pageURL.path.lowercased().contains("/web-stories/")
-                || lower.contains("<amp-story") else { return nil }
+        let pathIsStory = pageURL.path.localizedCaseInsensitiveContains("/web-stories/")
+        if !pathIsStory {
+            let scanEnd = html.index(html.startIndex, offsetBy: 65_536, limitedBy: html.endIndex) ?? html.endIndex
+            guard html.range(of: "<amp-story", options: .caseInsensitive,
+                             range: html.startIndex..<scanEnd) != nil else { return nil }
+        }
         let patterns = [
             #"<amp-story-page-outlink[\s\S]{0,1600}?<a[^>]+href\s*=\s*["']([^"']+)["']"#,
             #"<amp-story-page-attachment[^>]+href\s*=\s*["']([^"']+)["']"#,

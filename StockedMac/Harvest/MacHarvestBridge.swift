@@ -105,7 +105,9 @@ enum MacHarvestBridge {
             recipe.servings = max(1, Int(servings.rounded()))
         }
 
-        recipe.cuisine = draft.cuisines.first ?? ""
+        recipe.cuisine = draft.cuisines.first
+            ?? RecipeCuisineClassifier.infer(for: draft)
+            ?? ""
         recipe.tags = tags(for: draft)
         recipe.categories = (draft.categories + draft.cuisines + draft.diets).cleanedUnique()
         recipe.ingredients = ingredients(from: draft.ingredientSections)
