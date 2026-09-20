@@ -70,11 +70,8 @@ struct MacBrowseView: View {
         s.discoveryMode == .feedOnly || s.tags.contains("Community")
     }
 
-    private var americanSources: [SourceProfile] {
-        filteredSources.filter { $0.tags.contains("American") && !isCustom($0) && !isFeed($0) }
-    }
-    private var worldwideSources: [SourceProfile] {
-        filteredSources.filter { !$0.tags.contains("American") && !isCustom($0) && !isFeed($0) }
+    private var catalogSources: [SourceProfile] {
+        filteredSources.filter { !isCustom($0) && !isFeed($0) }
     }
     private var feedSources: [SourceProfile] {
         filteredSources.filter { isFeed($0) && !isCustom($0) }
@@ -505,8 +502,7 @@ struct MacBrowseView: View {
                     SourceMultiPicker(
                         search: $sourceSearch,
                         selected: $selectedSourceIDs,
-                        american: americanSources,
-                        worldwide: worldwideSources,
+                        sources: catalogSources,
                         feeds: feedSources,
                         custom: customSources,
                         recent: harvest.recentSources,
@@ -1337,8 +1333,7 @@ private struct SourceMultiPicker: View {
     @Environment(HarvestModel.self) private var harvest
     @Binding var search: String
     @Binding var selected: Set<String>
-    let american: [SourceProfile]
-    let worldwide: [SourceProfile]
+    let sources: [SourceProfile]
     let feeds: [SourceProfile]
     let custom: [SourceProfile]
     let recent: [SourceProfile]
@@ -1367,7 +1362,44 @@ private struct SourceMultiPicker: View {
 
     private var catalog: [SourceProfile] {
         var seen = Set<String>()
-        return (american + worldwide + feeds + custom).filter { seen.insert($0.id).inserted }
+        return (sources + feeds + custom).filter { seen.insert($0.id).inserted }
+    }
+
+    /// A source may carry several descriptive tags. Assign it to the first matching
+    /// user-facing cuisine/culture so the main list has useful sections without duplicates.
+    private var categorizedGroups: [(String, [SourceProfile])] {
+        let definitions: [(String, [String])] = [
+            ("Black Food Culture", ["Black Food Culture"]),
+            ("Soul Food & African American", ["African American & Soul Food", "Soul Food", "African American"]),
+            ("Southern", ["Southern"]),
+            ("African", ["African", "Nigerian", "West African", "Ghanaian", "Cameroonian"]),
+            ("Caribbean", ["Caribbean", "Jamaican", "Guyanese", "Trinidadian", "Dominican", "Puerto Rican"]),
+            ("Mexican & Latin American", ["Mexican", "Tex-Mex", "Latin American", "Colombian", "Ecuadorian", "Brazilian", "Peruvian", "South American"]),
+            ("Italian", ["Italian"]),
+            ("Asian", ["Asian", "Chinese", "Japanese", "Korean", "Thai", "Vietnamese", "Filipino", "Southeast Asian", "Cantonese", "Sichuan", "Indonesian", "Singaporean"]),
+            ("Indian & South Asian", ["Indian", "South Asian", "Pakistani"]),
+            ("Middle Eastern & Mediterranean", ["Middle Eastern", "Mediterranean", "Lebanese", "Palestinian", "Persian", "Iranian", "Turkish", "Egyptian", "Arab", "Assyrian"]),
+            ("European", ["French", "Spanish", "Greek", "German", "Polish", "British", "European"]),
+            ("Australian & New Zealand", ["Australian", "New Zealand"]),
+            ("Vegan & Plant-Based", ["Vegan", "Plant-based", "Vegetarian"]),
+            ("Baking & Desserts", ["Baking", "Desserts"]),
+            ("Healthy & Special Diets", ["Healthy", "Gluten-free", "Low-carb"]),
+            ("American & Everyday", ["American", "Everyday", "Family", "Quick & easy"]),
+        ]
+        var remaining = sources
+        var result: [(String, [SourceProfile])] = []
+        for (title, tags) in definitions {
+            let matches = remaining.filter { source in
+                tags.contains { tag in source.tags.contains { $0.caseInsensitiveCompare(tag) == .orderedSame } }
+            }
+            if !matches.isEmpty {
+                result.append((title, matches))
+                let matchedIDs = Set(matches.map(\.id))
+                remaining.removeAll { matchedIDs.contains($0.id) }
+            }
+        }
+        if !remaining.isEmpty { result.append(("Other Recipe Sites", remaining)) }
+        return result
     }
 
     private var favorites: [SourceProfile] {
@@ -1426,8 +1458,9 @@ private struct SourceMultiPicker: View {
                 VStack(alignment: .leading, spacing: 2) {
                     if !recent.isEmpty && search.isEmpty { group("Recent", recent) }
                     if !favorites.isEmpty { group("Favorites", favorites) }
-                    group("American — Top 50", american)
-                    group("Worldwide — Top 50", worldwide)
+                    ForEach(Array(categorizedGroups.enumerated()), id: \.offset) { _, section in
+                        group(section.0, section.1)
+                    }
                     if !feeds.isEmpty { group("Communities & feeds", feeds) }
                     if !custom.isEmpty { group("Custom & imported", custom) }
                 }
