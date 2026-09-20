@@ -1,3 +1,7 @@
+> **Shared rules live in the master doc:** read `/Users/key/Documents/CLAUDE_ALL_PROJECTS_HANDOFF.md` first for the
+> shared safety, QA, build-numbering, endpoint, machine, and cross-project delivery contracts.
+> This file holds only StockedMac-specific facts.
+
 # Read me first
 
 Stocked's approved default icon is the byte-identical `Brand/Stocked-AppIcon-Master.png` copied
@@ -164,7 +168,7 @@ Server batches may also carry source-scoped category indexes and grocery catalog
 
 WebKit is a bounded fallback and interactive browser, not a background crawler. Reuse the single hidden renderer, block its image/media/font resources, replace extracted documents with inert content, and fully dismantle visible browser delegates and observers when their view closes. Never add private sandbox entitlements to suppress WebContent diagnostics.
 
-The built-in recipe catalog contains 250 sources, including an audited batch of 100 English-language global publishers. Keep `default-sources.json` and `DefaultSourceCatalog.swift` synchronized. New sources require a reachable HTTPS homepage and XML sitemap, remain robots-aware and serial per host, and must not weaken the normal image, attribution, duplicate, or rate-limit gates.
+The built-in recipe catalog contains 280 sources, including an audited batch of 100 English-language global publishers and three 10-site collections for Black food culture, African American/soul food, and Southern cooking. Keep the root and bundled `default-sources.json` files and `DefaultSourceCatalog.swift` synchronized. New sources require a reachable HTTPS homepage and XML sitemap, remain robots-aware and serial per host, and must not weaken the normal image, attribution, duplicate, or rate-limit gates. Run `python3 scripts/test-cultural-source-catalog.py` after catalog changes.
 
 Household recipe sync is incremental and lossless: changed image-backed recipes are packed into complete byte-bounded pushes, intermediate batches request Worker acknowledgements, and only the final batch downloads and applies the merged household. Never restore tail trimming or full-library encoding every 30 seconds.
 The Recipes library is the Mac's complete approved recipe database whether or not the Mac has

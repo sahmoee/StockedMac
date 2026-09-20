@@ -8533,5 +8533,1078 @@
     ],
     "notes": "English-language global recipe publisher; HTTPS homepage and XML sitemap verified by the Stocked source audit.",
     "health": "unknown"
+  },
+  {
+    "id": "black-peoples-recipes",
+    "name": "Black People's Recipes",
+    "domains": [
+      "blackpeoplesrecipes.com"
+    ],
+    "baseURL": "https://blackpeoplesrecipes.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://blackpeoplesrecipes.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Black Food Culture",
+      "Structured Data"
+    ],
+    "notes": "Black Food Culture recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "jessica-in-the-kitchen",
+    "name": "Jessica in the Kitchen",
+    "domains": [
+      "jessicainthekitchen.com"
+    ],
+    "baseURL": "https://jessicainthekitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://jessicainthekitchen.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Black Food Culture",
+      "Structured Data"
+    ],
+    "notes": "Black Food Culture recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "divas-can-cook",
+    "name": "Divas Can Cook",
+    "domains": [
+      "divascancook.com"
+    ],
+    "baseURL": "https://divascancook.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://divascancook.com/wp-sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Black Food Culture",
+      "Structured Data"
+    ],
+    "notes": "Black Food Culture recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "i-heart-recipes",
+    "name": "I Heart Recipes",
+    "domains": [
+      "iheartrecipes.com"
+    ],
+    "baseURL": "https://iheartrecipes.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://iheartrecipes.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Black Food Culture",
+      "Structured Data"
+    ],
+    "notes": "Black Food Culture recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "my-forking-life",
+    "name": "My Forking Life",
+    "domains": [
+      "myforkinglife.com",
+      "www.myforkinglife.com"
+    ],
+    "baseURL": "https://www.myforkinglife.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.myforkinglife.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Black Food Culture",
+      "Structured Data"
+    ],
+    "notes": "Black Food Culture recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "butter-be-ready",
+    "name": "Butter Be Ready",
+    "domains": [
+      "butterbeready.com",
+      "www.butterbeready.com"
+    ],
+    "baseURL": "https://www.butterbeready.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.butterbeready.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Black Food Culture",
+      "Structured Data"
+    ],
+    "notes": "Black Food Culture recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "britney-breaks-bread",
+    "name": "Britney Breaks Bread",
+    "domains": [
+      "britneybreaksbread.com"
+    ],
+    "baseURL": "https://britneybreaksbread.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://britneybreaksbread.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Black Food Culture",
+      "Structured Data"
+    ],
+    "notes": "Black Food Culture recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "the-seasoned-skillet",
+    "name": "The Seasoned Skillet",
+    "domains": [
+      "seasonedskilletblog.com"
+    ],
+    "baseURL": "https://seasonedskilletblog.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://seasonedskilletblog.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Black Food Culture",
+      "Structured Data"
+    ],
+    "notes": "Black Food Culture recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "sense-and-edibility",
+    "name": "Sense & Edibility",
+    "domains": [
+      "senseandedibility.com"
+    ],
+    "baseURL": "https://senseandedibility.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://senseandedibility.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Black Food Culture",
+      "Structured Data"
+    ],
+    "notes": "Black Food Culture recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "meiko-and-the-dish",
+    "name": "Meiko and the Dish",
+    "domains": [
+      "meikoandthedish.com"
+    ],
+    "baseURL": "https://meikoandthedish.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://meikoandthedish.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Black Food Culture",
+      "Structured Data"
+    ],
+    "notes": "Black Food Culture recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "food-fidelity",
+    "name": "Food Fidelity",
+    "domains": [
+      "foodfidelity.com",
+      "www.foodfidelity.com"
+    ],
+    "baseURL": "https://www.foodfidelity.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.foodfidelity.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African American & Soul Food",
+      "Structured Data",
+      "African American",
+      "Soul Food"
+    ],
+    "notes": "African American & Soul Food recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "on-tys-plate",
+    "name": "On Ty's Plate",
+    "domains": [
+      "ontysplate.com",
+      "www.ontysplate.com"
+    ],
+    "baseURL": "https://www.ontysplate.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.ontysplate.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African American & Soul Food",
+      "Structured Data",
+      "African American",
+      "Soul Food"
+    ],
+    "notes": "African American & Soul Food recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "dude-that-cookz",
+    "name": "Dude That Cookz",
+    "domains": [
+      "dudethatcookz.com"
+    ],
+    "baseURL": "https://dudethatcookz.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://dudethatcookz.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African American & Soul Food",
+      "Structured Data",
+      "African American",
+      "Soul Food"
+    ],
+    "notes": "African American & Soul Food recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "kenneth-temple",
+    "name": "Kenneth Temple",
+    "domains": [
+      "kennethtemple.com"
+    ],
+    "baseURL": "https://kennethtemple.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://kennethtemple.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African American & Soul Food",
+      "Structured Data",
+      "African American",
+      "Soul Food"
+    ],
+    "notes": "African American & Soul Food recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "sweet-tea-and-thyme",
+    "name": "Sweet Tea + Thyme",
+    "domains": [
+      "sweetteaandthyme.com",
+      "www.sweetteaandthyme.com"
+    ],
+    "baseURL": "https://www.sweetteaandthyme.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.sweetteaandthyme.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African American & Soul Food",
+      "Structured Data",
+      "African American",
+      "Soul Food"
+    ],
+    "notes": "African American & Soul Food recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "dash-of-jazz",
+    "name": "Dash of Jazz",
+    "domains": [
+      "dashofjazz.com",
+      "www.dashofjazz.com"
+    ],
+    "baseURL": "https://www.dashofjazz.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://dashofjazz.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African American & Soul Food",
+      "Structured Data",
+      "African American",
+      "Soul Food"
+    ],
+    "notes": "African American & Soul Food recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "chenee-today",
+    "name": "Chenée Today",
+    "domains": [
+      "cheneetoday.com"
+    ],
+    "baseURL": "https://cheneetoday.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://cheneetoday.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African American & Soul Food",
+      "Structured Data",
+      "African American",
+      "Soul Food"
+    ],
+    "notes": "African American & Soul Food recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "razzle-dazzle-life",
+    "name": "Razzle Dazzle Life",
+    "domains": [
+      "razzledazzlelife.com",
+      "www.razzledazzlelife.com"
+    ],
+    "baseURL": "https://www.razzledazzlelife.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.razzledazzlelife.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African American & Soul Food",
+      "Structured Data",
+      "African American",
+      "Soul Food"
+    ],
+    "notes": "African American & Soul Food recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "coop-can-cook",
+    "name": "Coop Can Cook",
+    "domains": [
+      "coopcancook.com"
+    ],
+    "baseURL": "https://coopcancook.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://coopcancook.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African American & Soul Food",
+      "Structured Data",
+      "African American",
+      "Soul Food"
+    ],
+    "notes": "African American & Soul Food recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "stay-snatched",
+    "name": "Stay Snatched",
+    "domains": [
+      "staysnatched.com",
+      "www.staysnatched.com"
+    ],
+    "baseURL": "https://www.staysnatched.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.staysnatched.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "African American & Soul Food",
+      "Structured Data",
+      "African American",
+      "Soul Food"
+    ],
+    "notes": "African American & Soul Food recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "spicy-southern-kitchen",
+    "name": "Spicy Southern Kitchen",
+    "domains": [
+      "spicysouthernkitchen.com"
+    ],
+    "baseURL": "https://spicysouthernkitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://spicysouthernkitchen.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Southern",
+      "Structured Data",
+      "American",
+      "Comfort Food"
+    ],
+    "notes": "Southern recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "ranch-style-kitchen",
+    "name": "Ranch Style Kitchen",
+    "domains": [
+      "ranchstylekitchen.com",
+      "www.ranchstylekitchen.com"
+    ],
+    "baseURL": "https://www.ranchstylekitchen.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.ranchstylekitchen.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Southern",
+      "Structured Data",
+      "American",
+      "Comfort Food"
+    ],
+    "notes": "Southern recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "southern-bite",
+    "name": "Southern Bite",
+    "domains": [
+      "southernbite.com"
+    ],
+    "baseURL": "https://southernbite.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://southernbite.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Southern",
+      "Structured Data",
+      "American",
+      "Comfort Food"
+    ],
+    "notes": "Southern recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "deep-south-dish",
+    "name": "Deep South Dish",
+    "domains": [
+      "deepsouthdish.com",
+      "www.deepsouthdish.com"
+    ],
+    "baseURL": "https://www.deepsouthdish.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.deepsouthdish.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Southern",
+      "Structured Data",
+      "American",
+      "Comfort Food"
+    ],
+    "notes": "Southern recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "julias-simply-southern",
+    "name": "Julia's Simply Southern",
+    "domains": [
+      "juliassimplysouthern.com"
+    ],
+    "baseURL": "https://juliassimplysouthern.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://juliassimplysouthern.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Southern",
+      "Structured Data",
+      "American",
+      "Comfort Food"
+    ],
+    "notes": "Southern recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "quiche-my-grits",
+    "name": "Quiche My Grits",
+    "domains": [
+      "quichemygrits.com"
+    ],
+    "baseURL": "https://quichemygrits.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://quichemygrits.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Southern",
+      "Structured Data",
+      "American",
+      "Comfort Food"
+    ],
+    "notes": "Southern recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "biscuits-and-burlap",
+    "name": "Biscuits & Burlap",
+    "domains": [
+      "biscuitsandburlap.com",
+      "www.biscuitsandburlap.com"
+    ],
+    "baseURL": "https://www.biscuitsandburlap.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://biscuitsandburlap.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Southern",
+      "Structured Data",
+      "American",
+      "Comfort Food"
+    ],
+    "notes": "Southern recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "lanas-cooking",
+    "name": "Lana's Cooking",
+    "domains": [
+      "lanascooking.com",
+      "www.lanascooking.com"
+    ],
+    "baseURL": "https://www.lanascooking.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://lanascooking.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Southern",
+      "Structured Data",
+      "American",
+      "Comfort Food"
+    ],
+    "notes": "Southern recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "southern-discourse",
+    "name": "Southern Discourse",
+    "domains": [
+      "southerndiscourse.com"
+    ],
+    "baseURL": "https://southerndiscourse.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://southerndiscourse.com/sitemap_index.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Southern",
+      "Structured Data",
+      "American",
+      "Comfort Food"
+    ],
+    "notes": "Southern recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
+  },
+  {
+    "id": "south-your-mouth",
+    "name": "South Your Mouth",
+    "domains": [
+      "southyourmouth.com",
+      "www.southyourmouth.com"
+    ],
+    "baseURL": "https://www.southyourmouth.com",
+    "enabled": true,
+    "discoveryEnabled": true,
+    "discoveryMode": "sitemapOnly",
+    "parserMode": "nativeFirst",
+    "minimumDelaySeconds": 3,
+    "maximumConcurrency": 1,
+    "dailyRequestLimit": 100,
+    "robotsRequired": true,
+    "imageDownloadEnabled": true,
+    "sitemapURLs": [
+      "https://www.southyourmouth.com/sitemap.xml"
+    ],
+    "recipeURLPatterns": [],
+    "excludedURLPatterns": [
+      "/author/",
+      "/page/",
+      "/shop/",
+      "/video/"
+    ],
+    "tags": [
+      "English",
+      "Southern",
+      "Structured Data",
+      "American",
+      "Comfort Food"
+    ],
+    "notes": "Southern recipe publisher; HTTPS homepage and XML sitemap verified in the September 2026 Stocked source audit.",
+    "health": "unknown"
   }
 ]

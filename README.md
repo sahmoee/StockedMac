@@ -57,7 +57,7 @@ already), and run. Credential-free builds use `BuildDefaults.xcconfig`; a local
 ## Project structure
 
 - `StockedMac/` — app sources (views, sync, kitchen tools)
-- `default-sources.json` — 150 priority-ordered recipe sources (proven imports first)
+- `default-sources.json` — 280 priority-ordered recipe sources (proven imports first)
 - `scripts/update-source-catalog.mjs` — synchronizes the editable, bundled, and compiled fallback catalogs
 - `worker-build/worker.py` — offline parser used to build the bundled local helper
 - `scripts/harvest-recipes.py` — optional gzip-aware batch sitemap harvester
