@@ -10,6 +10,18 @@ import Foundation
         recipe.imageAttribution = "Example photographer"
         let data = try JSONEncoder().encode(recipe)
         let decoded = try JSONDecoder().decode(UserRecipe.self, from: data)
+        precondition(decoded.collectionSavedByUser == nil)
+        var legacyHarvest = decoded
+        legacyHarvest.notes = "Source: Publisher — https://example.org/recipe"
+        precondition(!legacyHarvest.belongsToMyCollection)
+        legacyHarvest.collectionSavedByUser = true
+        precondition(legacyHarvest.belongsToMyCollection)
+        legacyHarvest.collectionSavedByUser = false
+        precondition(!legacyHarvest.belongsToMyCollection)
+        var marked = decoded
+        marked.collectionSavedByUser = true
+        let oldClientCopy = MacPortableRecipePolicy.repaired(decoded, preserving: marked)
+        precondition(oldClientCopy.collectionSavedByUser == true)
         precondition(decoded.portableSource?.originalText == raw)
         precondition(decoded.portableSource?.filename == "fixture.cook")
         precondition(decoded.portableSource?.contentHash.count == 64)

@@ -4,6 +4,18 @@
 
 # Read me first
 
+Auto-approved harvests now publish to the public catalogue without adding to
+household `userRecipes`. Manual Add to Stocked and reviewed imports remain
+explicit collection saves, marked by optional `collectionSavedByUser` in the
+existing household JSON. Old Mac clients can still add auto-harvest rows until
+updated; Stocked iOS keeps those records available for review without deleting
+them. Deploy this Mac change before or with the iOS collection-filter update;
+no Worker migration is required. Validate with native portable-model checks,
+generic Mac build, and household sync acceptance on real devices.
+Public catalogue cache rows are marked unsaved and omitted from Mac household
+recipe payloads and change signatures; ambiguous legacy Source-attributed rows
+are also omitted. This keeps catalogue warming from re-populating My Collection.
+
 Stocked's approved default icon is the byte-identical `Brand/Stocked-AppIcon-Master.png` copied
 from the `stocked` repository, which owns the brand master. The macOS app icon set and public
 website consume that same artwork. Preserve the previous icon in Git for rollback, regenerate

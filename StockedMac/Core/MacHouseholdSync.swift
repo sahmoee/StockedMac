@@ -641,7 +641,7 @@ final class MacHouseholdSync {
             rows += store.grocery.map { "g|\($0.id)|\($0.updatedAt)|\($0.lastWriterID)" }
         }
         if syncRecipes {
-            rows += store.recipes.map { "r|\($0.id)|\(recipeVersion($0))" }
+            rows += store.recipes.filter(\.belongsToMyCollection).map { "r|\($0.id)|\(recipeVersion($0))" }
         }
         if syncPlan {
             rows += store.plannedMeals.map { "p|\($0.id)|\($0.updatedAt)|\($0.lastWriterID)" }
@@ -663,6 +663,7 @@ final class MacHouseholdSync {
     private func recipePayloadBatches(_ store: MacKitchenStore) -> [[[String: Any]]] {
         let prior = storedRecipeVersions()
         let changed = store.recipes
+            .filter(\.belongsToMyCollection)
             .filter(MacRecipeImagePolicy.hasRequiredImage)
             .filter { prior[$0.id.uuidString] != recipeVersion($0) }
             .sorted { $0.updatedAt < $1.updatedAt }

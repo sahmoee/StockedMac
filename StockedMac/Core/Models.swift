@@ -230,6 +230,13 @@ nonisolated struct UserRecipe: Identifiable, Codable, Sendable, Equatable {
     var imageAttribution: String? = nil
     var categories:   [String]? = nil
     var portableSource: PortableRecipeSource? = nil
+    /// Optional so earlier household payloads decode without a migration.
+    var collectionSavedByUser: Bool? = nil
+    var belongsToMyCollection: Bool {
+        if let collectionSavedByUser { return collectionSavedByUser }
+        if isFavorited || cookCount > 0 { return true }
+        return !notes.hasPrefix("Source: ")
+    }
     var isFavorited:  Bool     = false
     var dateCreated:  Date     = Date()
     var cookCount:    Int      = 0          // how many times this recipe has been cooked

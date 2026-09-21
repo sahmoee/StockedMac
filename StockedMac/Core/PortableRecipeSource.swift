@@ -33,6 +33,7 @@ nonisolated enum MacPortableRecipePolicy {
 
     static func repaired(_ incoming: UserRecipe, preserving existing: UserRecipe? = nil) -> UserRecipe {
         var recipe = incoming
+        if recipe.collectionSavedByUser == nil { recipe.collectionSavedByUser = existing?.collectionSavedByUser }
         if recipe.portableSource == nil { recipe.portableSource = existing?.portableSource }
         guard var source = recipe.portableSource, source.catalogueSharingApproved != true else { return recipe }
         if source.originalSourceURL?.isEmpty != false { source.originalSourceURL = recipe.sourceURL }

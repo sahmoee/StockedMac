@@ -976,9 +976,8 @@ final class HarvestModel {
                 message += " • auto-approved"
             }
             log(detail.duplicateTitles.isEmpty ? .success : .warning, message, url: outcome.url)
-            if detail.wasUpdate, detail.recipe.reviewState == .approved {
-                handOver([detail.recipe])
-            }
+            // Approved catalogue updates are published by the bounded batch sync below;
+            // they never become household-saved recipes without Add to Stocked.
         } else if outcome.error == "Canceled" {
             // A cancelled import is the user's decision, not a failure — no red row.
         } else if !outcome.mined.isEmpty {
@@ -1098,8 +1097,8 @@ final class HarvestModel {
     }
 
     private func finishImportRun() async {
-        // Recover images before approval hands drafts into the shared library. Images are
-        // optional, but when recovery succeeds the first synced copy should include it.
+        // Recover images before approval publishes drafts to the shared catalogue.
+        // Images are optional, but recovered artwork belongs in the first published copy.
         if settings.autoFetchMissingImages {
             let recovered = await fetchMissingImagesInternal(quiet: true)
             if recovered > 0 { await reload() }
@@ -1113,7 +1112,6 @@ final class HarvestModel {
                 if !changed.isEmpty {
                     autoApprovedThisRun += changed.count
                     log(.success, "Approved \(changed.count) high-confidence recipe\(changed.count == 1 ? "" : "s") automatically.")
-                    handOver(changed)
                 }
             } catch {
                 present(error)
@@ -2105,31 +2103,12 @@ final class HarvestModel {
                 await reload()
                 log(.info, "Marked \(changed.count) recipe\(changed.count == 1 ? "" : "s") as \(state.label).")
                 if state == .approved {
-                    handOver(changed)
                     syncApprovedToCloud()
                 }
             } catch {
                 present(error)
             }
         }
-    }
-
-    /// Copies approved drafts into the kitchen so they reach the rest of the household.
-    ///
-    /// Approval used to mean nothing outside the Harvester: the recipe sat in the
-    /// Harvester's own library, and only a separate "Add to Stocked" button press moved it
-    /// across. So a crawl could approve forty recipes and the phone would still show none
-    /// of them. Approving is the decision; carrying it over is bookkeeping, and bookkeeping
-    /// should not need a button.
-    ///
-    /// Safe to call more than once — the bridge skips titles the kitchen already holds, so
-    /// re-approving or re-importing cannot duplicate anything.
-    private func handOver(_ drafts: [RecipeDraft]) {
-        guard let kitchen, !drafts.isEmpty else { return }
-        let added = MacHarvestBridge.add(drafts, to: kitchen)
-        guard added > 0 else { return }
-        rebuildCuisineRecipeCache()
-        log(.success, "Added \(added) recipe\(added == 1 ? "" : "s") to Stocked; the household will pick \(added == 1 ? "it" : "them") up on the next sync.")
     }
 
     /// Re-runs the parser on an existing recipe's source URL.

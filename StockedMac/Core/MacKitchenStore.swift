@@ -535,6 +535,8 @@ final class MacKitchenStore {
         var bySource = Dictionary(merged.indices.map { (MacPublicRecipePage.identity(merged[$0]), $0) }, uniquingKeysWith: { a, _ in a })
         var changed = false
         for var remote in incoming {
+            // Public catalogue cache rows must never be household save records.
+            remote.collectionSavedByUser = false
             // Public rows normally arrive classified by the Worker. Do not infer here:
             // a progressive page merge is a latency-sensitive cache operation and the
             // paced historical backfill handles the exceptional blank value later.
@@ -548,6 +550,7 @@ final class MacKitchenStore {
                 next.notes = local.notes
                 next.portableSource = local.portableSource
                 next.isFavorited = local.isFavorited
+                next.collectionSavedByUser = local.collectionSavedByUser
                 next.cookCount = local.cookCount
                 next.lastCooked = local.lastCooked
                 if next.imageURL == local.imageURL {
@@ -568,7 +571,8 @@ final class MacKitchenStore {
     }
 
     func addRecipe(_ recipe: UserRecipe) {
-        let recipe = MacPortableRecipePolicy.repaired(recipe)
+        var recipe = MacPortableRecipePolicy.repaired(recipe)
+        recipe.collectionSavedByUser = true
         guard MacRecipeImagePolicy.hasRequiredImage(recipe) else { return }
         var copy = recipe
         if let cuisine = RecipeCuisineClassifier.infer(for: copy) { copy.cuisine = cuisine }
