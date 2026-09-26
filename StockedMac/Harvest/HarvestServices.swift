@@ -1927,8 +1927,14 @@ nonisolated struct RecipePageDetector {
     /// phrases; used to decide the WebKit-rendered retry and to say something more
     /// useful than "No JSON-LD found".
     static func looksBlocked(_ html: String) -> Bool {
-        if html.count < 2500 { return true }
-        let lower = html.lowercased()
+        // `String.count` and lowercasing the entire bridged response are linear in the
+        // size of the page. Some publishers return multi-megabyte HTML, so eight
+        // concurrent imports used to pin a CPU core just checking for a bot wall.
+        guard html.index(html.startIndex, offsetBy: 2500, limitedBy: html.endIndex) != nil else {
+            return true
+        }
+        let scanEnd = html.index(html.startIndex, offsetBy: 65_536, limitedBy: html.endIndex) ?? html.endIndex
+        let lower = html[..<scanEnd].lowercased()
         let markers = ["captcha", "access denied", "are you a robot", "unusual traffic",
                        "just a moment", "cf-challenge", "cf-browser-verification",
                        "request blocked", "pardon our interruption", "px-captcha",

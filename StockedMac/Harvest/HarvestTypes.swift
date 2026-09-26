@@ -277,6 +277,10 @@ nonisolated struct AppSettings: Codable, Sendable {
     /// Prefer the durable per-source discovery report instead of contacting a site that
     /// has already been read. A manual Refresh bypasses this without clearing the cache.
     var reuseCachedDiscoveryResults: Bool
+    /// Shuffle the selected source subset and the candidates returned by each source at
+    /// the start of a run. This changes fair work order only; host throttles, cooldowns,
+    /// robots rules, queue durability, and all recipe gates remain authoritative.
+    var randomizeMultiSourceImports: Bool
     // ── Build 100 (Combine) ──────────────────────────────────────────────
     /// Avoid mining. When a run's direct engine (sitemaps/feeds) already yields enough
     /// real recipe links, category/listing pages are NOT opened and expanded — mining
@@ -338,6 +342,7 @@ nonisolated struct AppSettings: Codable, Sendable {
             lastSelectedSourceIDs: [],
             selectedBrowseCategoryIDs: [],
             reuseCachedDiscoveryResults: true,
+            randomizeMultiSourceImports: true,
             preferDirectRecipes: true,
             autopilot: true,
             recipeRepairRevision: 0,
@@ -374,6 +379,7 @@ nonisolated extension AppSettings {
         case bulkVerifyBatchSize, importBatchSize, scanLimit
         case favoriteSourceIDs, lastSelectedSourceIDs
         case selectedBrowseCategoryIDs, reuseCachedDiscoveryResults
+        case randomizeMultiSourceImports
         case preferDirectRecipes, autopilot, recipeRepairRevision, retroactiveRefreshBatchSize
     }
 
@@ -409,12 +415,14 @@ nonisolated extension AppSettings {
         settingsRevision        = (try? c.decodeIfPresent(Int.self, forKey: .settingsRevision)) ?? 0
         queueCap                = (try? c.decodeIfPresent(Int.self, forKey: .queueCap)) ?? d.queueCap
         bulkVerifyBatchSize     = (try? c.decodeIfPresent(Int.self, forKey: .bulkVerifyBatchSize)) ?? d.bulkVerifyBatchSize
-        importBatchSize         = (try? c.decodeIfPresent(Int.self, forKey: .importBatchSize)) ?? d.importBatchSize
-        scanLimit                = (try? c.decodeIfPresent(Int.self, forKey: .scanLimit)) ?? d.scanLimit
+        importBatchSize         = min(2_000, max(1, (try? c.decodeIfPresent(Int.self, forKey: .importBatchSize)) ?? d.importBatchSize))
+        scanLimit               = min(2_000, max(5, (try? c.decodeIfPresent(Int.self, forKey: .scanLimit)) ?? d.scanLimit))
+        queueCap                = max(queueCap, importBatchSize)
         favoriteSourceIDs       = (try? c.decodeIfPresent([String].self, forKey: .favoriteSourceIDs)) ?? d.favoriteSourceIDs
         lastSelectedSourceIDs   = (try? c.decodeIfPresent([String].self, forKey: .lastSelectedSourceIDs)) ?? d.lastSelectedSourceIDs
         selectedBrowseCategoryIDs = (try? c.decodeIfPresent([String].self, forKey: .selectedBrowseCategoryIDs)) ?? []
         reuseCachedDiscoveryResults = (try? c.decodeIfPresent(Bool.self, forKey: .reuseCachedDiscoveryResults)) ?? true
+        randomizeMultiSourceImports = (try? c.decodeIfPresent(Bool.self, forKey: .randomizeMultiSourceImports)) ?? d.randomizeMultiSourceImports
         preferDirectRecipes     = (try? c.decodeIfPresent(Bool.self, forKey: .preferDirectRecipes)) ?? d.preferDirectRecipes
         autopilot               = (try? c.decodeIfPresent(Bool.self, forKey: .autopilot)) ?? d.autopilot
         recipeRepairRevision    = (try? c.decodeIfPresent(Int.self, forKey: .recipeRepairRevision)) ?? 0
@@ -563,6 +571,61 @@ nonisolated struct DiscoveryReport: Codable, Sendable {
     var summary: String {
         "Found \(candidates.count) candidates, verified \(confirmed.count)"
     }
+}
+
+/// Immutable, untrusted discovery output produced by the Server Mac. StockedMac only
+/// accepts its URLs into the ordinary durable queue; parsing, image validation,
+/// deduplication, approval, Worker publication, and iOS sync remain app-owned.
+nonisolated struct ServerDiscoveryBatch: Codable, Sendable {
+    var schemaVersion: Int
+    var batchID: String
+    var createdAt: Date
+    var sourceID: String
+    var sourceName: String
+    var urls: [String]
+    var categoryIndexes: [ServerCategoryIndex]?
+}
+
+nonisolated struct ServerCategoryIndex: Codable, Sendable {
+    var pageURL: String
+    var name: String
+    var group: String?
+    var recipeURLs: [String]
+}
+
+nonisolated struct ServerCacheHealth: Codable, Sendable {
+    var schemaVersion: Int
+    var updatedAt: Date
+    var state: String
+    var currentSource: String?
+    var recipeBatchCount: Int
+    var catalogBatchCount: Int
+    var sitemapCacheCount: Int
+    var candidateCount: Int
+    var catalogRecordCount: Int
+    var lastError: String?
+    var service: String?
+    var independentImporter: Bool?
+    var queuedCount: Int?
+    var retryCount: Int?
+    var verifiedCount: Int?
+    var reviewCount: Int?
+    var verifiedThisRun: Int?
+    var totalCandidateCount: Int?
+    var processedCount: Int?
+    var requeuedRuntimeFailures: Int?
+    var lastSuccessfulImportAt: Date?
+    var discoveryPausedForBacklog: Bool?
+    var ignoredCount: Int?
+}
+
+/// Local, app-owned view of the Server Mac handoff. The server only supplies immutable
+/// candidate batches; these counts make it clear how many batches are waiting for
+/// StockedMac's parser/image/deduplication gates and how many have been acknowledged.
+nonisolated struct ServerRecipeBridgeStatus: Sendable {
+    var pendingBatchCount = 0
+    var acknowledgedBatchCount = 0
+    var lastCheckedAt: Date?
 }
 
 nonisolated struct SourceDiscoveryCacheSummary: Sendable {

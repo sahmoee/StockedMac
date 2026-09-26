@@ -19,6 +19,16 @@
 import Foundation
 import os
 
+/// Authenticated utility requests must never forward a Worker key through a redirect.
+nonisolated final class MacWorkerRedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 nonisolated enum MacWorkerRoute: String, Sendable {
     case receiptText
     case receiptImage
@@ -66,10 +76,125 @@ nonisolated struct MacAITextResponse: Sendable, Equatable {
 
 nonisolated enum MacWorkerClient {
 
+    static func retryAfter(_ raw: String?, now: Date = Date()) -> TimeInterval? {
+        guard let raw else { return nil }
+        if let seconds = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return seconds.isFinite && seconds >= 0 ? seconds : nil
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter.date(from: raw).map { max(0, $0.timeIntervalSince(now)) }
+    }
+
+    private static func boundedData(for original: URLRequest) async throws -> (Data, URLResponse) {
+        guard !Task.isCancelled else { throw MacServiceError.cancelled }
+        guard let url = original.url, url.scheme == "https", url.host != nil,
+              url.user == nil, url.password == nil else {
+            throw MacServiceError.invalidRequest("A secure Worker URL is required.")
+        }
+        let limit = 16 * 1024 * 1024
+        guard (original.httpBody?.count ?? 0) <= limit else {
+            throw MacServiceError.invalidRequest("The request is too large. Use a smaller batch.")
+        }
+        var request = original
+        request.timeoutInterval = request.timeoutInterval.isFinite ? min(120, max(5, request.timeoutInterval)) : 30
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.urlCache = nil
+        configuration.timeoutIntervalForResource = request.timeoutInterval
+        let session = URLSession(configuration: configuration, delegate: MacWorkerRedirectGuard(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        do {
+            let (bytes, response) = try await session.bytes(for: request)
+            guard response.expectedContentLength <= limit else {
+                throw MacServiceError.malformedResponse("The service response is too large.")
+            }
+            var data = Data()
+            for try await byte in bytes {
+                if data.count % 16384 == 0 { try Task.checkCancellation() }
+                guard data.count < limit else { throw MacServiceError.malformedResponse("The service response is too large.") }
+                data.append(byte)
+            }
+            try Task.checkCancellation()
+            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                guard !data.isEmpty else { throw MacServiceError.malformedResponse("The service returned an empty response.") }
+                guard !(http.mimeType?.lowercased().contains("text/html") ?? false) else {
+                    throw MacServiceError.malformedResponse("The service returned a web page instead of data.")
+                }
+            }
+            return (data, response)
+        } catch is CancellationError { throw MacServiceError.cancelled }
+        catch let error as URLError where error.code == .cancelled { throw MacServiceError.cancelled }
+    }
+
     private static let log = Logger(subsystem: "com.sowens.StockedMac", category: "worker")
 
     static var endpoint: URL? { URL(string: MacBuildConfig.receiptWorkerURL) }
     static var isConfigured: Bool { MacBuildConfig.isWorkerConfigured }
+
+    /// Typed utility routes (retail catalogs, configuration, health) use GET and return
+    /// direct JSON rather than an Anthropic envelope. Credentials and error handling stay
+    /// centralized here so feature clients never invent their own auth transport.
+    static func getData(path: String,
+                        query: [String: String] = [:],
+                        timeout: TimeInterval = 20) async throws -> Data {
+        guard let base = endpoint, MacBuildConfig.isWorkerConfigured else {
+            throw MacServiceError.notConfigured("The Stocked Worker key")
+        }
+        let relative = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var components = URLComponents(url: base.appendingPathComponent(relative), resolvingAgainstBaseURL: false)
+        components?.queryItems = query.sorted { $0.key < $1.key }.map(URLQueryItem.init)
+        guard let url = components?.url else { throw MacServiceError.invalidRequest("The Worker URL is invalid.") }
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        MacBuildConfig.authorizeWorkerRequest(&request)
+        request.timeoutInterval = timeout
+        do {
+            let (data, response) = try await boundedData(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw MacServiceError.malformedResponse("The Worker returned no HTTP response.")
+            }
+            if http.statusCode == 429 {
+                throw MacServiceError.rateLimited(
+                    retryAfter: retryAfter(http.value(forHTTPHeaderField: "Retry-After")))
+            }
+            guard 200..<300 ~= http.statusCode else {
+                throw MacServiceError.httpStatus(http.statusCode, nil)
+            }
+            return data
+        } catch let error as MacServiceError { throw error }
+        catch is CancellationError { throw MacServiceError.cancelled }
+        catch { throw MacServiceError.transport(error.localizedDescription) }
+    }
+
+    static func postData(path: String, body: Data, timeout: TimeInterval = 30) async throws -> Data {
+        guard let base = endpoint, MacBuildConfig.isWorkerConfigured else {
+            throw MacServiceError.notConfigured("The Stocked Worker key")
+        }
+        let relative = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let url = base.appendingPathComponent(relative)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        MacBuildConfig.authorizeWorkerRequest(&request)
+        request.timeoutInterval = timeout
+        let (data, response) = try await boundedData(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw MacServiceError.malformedResponse("The Worker returned no HTTP response.")
+        }
+        if http.statusCode == 429 {
+            throw MacServiceError.rateLimited(retryAfter: retryAfter(http.value(forHTTPHeaderField: "Retry-After")))
+        }
+        guard 200..<300 ~= http.statusCode else {
+            throw MacServiceError.httpStatus(http.statusCode, nil)
+        }
+        return data
+    }
 
     /// POST a payload to a route and return the raw response body.
     ///
@@ -104,12 +229,12 @@ nonisolated enum MacWorkerClient {
         request.timeoutInterval = timeout
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await boundedData(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw MacServiceError.malformedResponse("The Worker returned no HTTP response.")
             }
             if http.statusCode == 429 {
-                let retry = http.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
+                let retry = retryAfter(http.value(forHTTPHeaderField: "Retry-After"))
                 throw MacServiceError.rateLimited(retryAfter: retry)
             }
             guard (200..<300).contains(http.statusCode) else {

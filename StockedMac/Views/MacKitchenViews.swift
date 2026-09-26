@@ -473,6 +473,13 @@ struct MacWebView: NSViewRepresentable {
             nsView.load(URLRequest(url: url))
         }
     }
+
+
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Void) {
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.loadHTMLString("", baseURL: nil)
+    }
 }
 
 // MARK: - Row thumbnail (Build 91)
