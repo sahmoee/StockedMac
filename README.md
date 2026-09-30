@@ -1,3 +1,6 @@
+<!-- PROJECT-KNOWLEDGE managed; do not edit this export -->
+> Maintained in ProjectKnowledge: `projects/stockedmac/documents/README.md`. This is a generated portable read-only export. Update the central source with `project-knowledge put`; use `project-knowledge publish` to refresh exports. Relative links and code paths below refer to this original project location.
+
 # Stocked Recipe Manager for Mac
 
 The recipe-only macOS companion to [Stocked for iOS](https://github.com/sahmoee/stocked).

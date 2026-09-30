@@ -1,3 +1,6 @@
+<!-- PROJECT-KNOWLEDGE managed; do not edit this export -->
+> Maintained in ProjectKnowledge: `projects/stockedmac/documents/CHANGELOG.md`. This is a generated portable read-only export. Update the central source with `project-knowledge put`; use `project-knowledge publish` to refresh exports. Relative links and code paths below refer to this original project location.
+
 # Changelog
 
 - Sources can now belong to multiple persistent categories. The source picker supports category filtering, category-aware search, category shortcuts, and an editor for adding, renaming, or removing arbitrary comma/newline-separated source categories; existing built-in source tags populate the system immediately.
@@ -8,6 +11,29 @@
 
 Every push should add an entry here so GitHub carries the build/change history.
 Newest at the top. Keep it plain ASCII (see .gitmessage.txt for the commit rules).
+
+## September 27, 2026 — 20 recipe-manager desktop tools
+
+- Command palette searches recipe titles, cuisines and publishers and reveals the recipe; recently viewed recipes appear first.
+- Recently viewed recipes (15, this Mac only) in the Recipes menu, the palette and the menu-bar panel.
+- Saved filters: name the current search, scope, facets and sort and re-apply them from the list, Recipes menu or palette.
+- Library scope filter: All, My collection, Personal, Imported, Has notes, Needs attention.
+- New sort: Quickest total time (parsed prep + cook minutes; unknown times last).
+- Serving scaler in the recipe detail (display only; saved amounts unchanged).
+- Ingredient units: As written, US customary or Metric (display only, persisted per Mac).
+- Inline private notes editor in the recipe detail through the normal household-synced update path.
+- Share recipe (system share sheet) with the scaled/converted text and source credit.
+- Copy as Markdown, Cooklang or plain text from the detail and context menus.
+- Print Recipe (Cmd-P) and Export Recipe as PDF (Opt-Cmd-P) with image, method, notes and credits.
+- Export the recipes currently shown as a Markdown folder with an index; private notes optional.
+- Duplicate as Personal Variation (Cmd-D): a household-only copy without a public source URL, crediting the original.
+- Bulk Edit shown recipes: add/remove tags, set or clear cuisine, difficulty, role, favourite; confirmed, image-gated.
+- Tag Manager: counts, spelling variants, rename/merge and remove across the library.
+- Library Health: completeness score and per-issue lists (image, cuisine, description, time, steps, ingredients, casing, attribution, servings) with Show/Edit.
+- Find Duplicates: groups by canonical source or same title plus ingredients, recommends the copy with notes/favourite/history, confirmed removal through household tombstones.
+- Keep on Top toggle for detached recipe windows.
+- Menu-bar quick recipe search that opens the recipe window.
+- Import Activity (Opt-Cmd-L): filterable Harvester log plus existing queue tools (clean, undo, copy) and failure diagnostics/retry.
 
 ## Build 113 — One-step intake and original images
 

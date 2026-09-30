@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct MacBrowseView: View {
     @Environment(HarvestModel.self) private var harvest
     @Environment(MacKitchenStore.self) private var store
+    @Environment(MacDesktopExperience.self) private var desktop
 
     private enum Pane: String, CaseIterable, Identifiable {
         case find, review
@@ -109,6 +110,12 @@ struct MacBrowseView: View {
                           systemImage: harvest.isPaused ? "play.fill" : "pause.fill")
                 }
                 .help("Pause or resume downloads")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { desktop.isActivityLogPresented = true } label: {
+                    Label("Activity", systemImage: "list.bullet.rectangle.portrait")
+                }
+                .help("Import activity log, queue tools and failure diagnostics (⌥⌘L)")
             }
         }
         .onAppear {
@@ -1011,6 +1018,8 @@ struct MacBrowseView: View {
                 }
                 HStack(spacing: 8) {
                     Button("Retry all") { harvest.retryFailures() }
+                    Button("Copy diagnostics") { harvest.copyFailureDiagnostics() }
+                        .help("Copies failed links and parser reasons for support")
                     Button("Clear") { harvest.clearFailures() }.foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                 }

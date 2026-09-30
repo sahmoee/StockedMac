@@ -1,0 +1,12 @@
+{
+  "project": "StockedMac.xcodeproj",
+  "approved_xcode_builds": [
+    "27A266a"
+  ],
+  "schemes": [
+    {
+      "name": "StockedMac",
+      "destination": "generic/platform=macOS"
+    }
+  ]
+}

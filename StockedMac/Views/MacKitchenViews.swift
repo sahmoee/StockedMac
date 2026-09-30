@@ -498,6 +498,7 @@ struct HarvestThumbnail: View {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                    .accessibilityLabel("Photo")
             } else {
                 RoundedRectangle(cornerRadius: 5)
                     .fill(Color.secondary.opacity(0.12))

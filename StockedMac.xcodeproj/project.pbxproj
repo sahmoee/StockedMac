@@ -6,10 +6,31 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		3BE2F2AAFF36BCCBB6B5AE24 /* SowensKit in Frameworks */ = {isa = PBXBuildFile; productRef = 09219783C4677725CE74DA44 /* SowensKit */; };
+		408703E34720FD40EA8CB9AF /* SowensKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7763305913D546FEF045395E /* SowensKit */; };
+		8208948A711F5F265B64348A /* SharedPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 494F65421A8CBE3ED7EA1FBB /* SharedPresentationTests.swift */; };
+		9AD6DF15EBE81D06964A6368 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FDF02C4B88E9AD0486AE3885 /* Cocoa.framework */; };
+		C83491F92C3C46CBDB9D31A0 /* SowensTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 7967F31AEA0A6FE7F5870697 /* SowensTestSupport */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		09FF0DC0B541D17C3B9B50B8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7C0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7C0000000000000000000006;
+			remoteInfo = StockedMac;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		060250DEE8C17182F9EDFDE2 /* PresentationTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PresentationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		494F65421A8CBE3ED7EA1FBB /* SharedPresentationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SharedPresentationTests.swift; sourceTree = "<group>"; };
 		7C0000000000000000000004 /* Stocked.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Stocked.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7C0000000000000000000010 /* BuildDefaults.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = BuildDefaults.xcconfig; sourceTree = "<group>"; };
 		7C0000000000000000000011 /* Secrets.example.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.example.xcconfig; sourceTree = "<group>"; };
+		FDF02C4B88E9AD0486AE3885 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -35,16 +56,36 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		70039DB900D9AC6D19E51564 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9AD6DF15EBE81D06964A6368 /* Cocoa.framework in Frameworks */,
+				408703E34720FD40EA8CB9AF /* SowensKit in Frameworks */,
+				C83491F92C3C46CBDB9D31A0 /* SowensTestSupport in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7C0000000000000000000008 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3BE2F2AAFF36BCCBB6B5AE24 /* SowensKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		44BA87BCF53C6645846FD002 /* PresentationTests */ = {
+			isa = PBXGroup;
+			children = (
+				494F65421A8CBE3ED7EA1FBB /* SharedPresentationTests.swift */,
+			);
+			name = PresentationTests;
+			path = PresentationTests;
+			sourceTree = "<group>";
+		};
 		7C0000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
@@ -52,6 +93,8 @@
 				7C0000000000000000000011 /* Secrets.example.xcconfig */,
 				7C0000000000000000000005 /* StockedMac */,
 				7C0000000000000000000003 /* Products */,
+				F3996E40220EE5BD9610476D /* Frameworks */,
+				44BA87BCF53C6645846FD002 /* PresentationTests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -59,8 +102,25 @@
 			isa = PBXGroup;
 			children = (
 				7C0000000000000000000004 /* Stocked.app */,
+				060250DEE8C17182F9EDFDE2 /* PresentationTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		D572C7A24C80BA0ABA8BFE76 /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				FDF02C4B88E9AD0486AE3885 /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
+		F3996E40220EE5BD9610476D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				D572C7A24C80BA0ABA8BFE76 /* OS X */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -83,10 +143,33 @@
 			);
 			name = StockedMac;
 			packageProductDependencies = (
+				09219783C4677725CE74DA44 /* SowensKit */,
 			);
 			productName = StockedMac;
 			productReference = 7C0000000000000000000004 /* Stocked.app */;
 			productType = "com.apple.product-type.application";
+		};
+		DBAE81F6FDC1AF0E6B73E741 /* PresentationTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3A3C0E2EF7029320F8922E25 /* Build configuration list for PBXNativeTarget "PresentationTests" */;
+			buildPhases = (
+				1B5C2BC52CB7D57AE3236DA0 /* Sources */,
+				70039DB900D9AC6D19E51564 /* Frameworks */,
+				71F0F983D10575047FA3D519 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				81833472BCF0F0CB21CB2AC9 /* PBXTargetDependency */,
+			);
+			name = PresentationTests;
+			packageProductDependencies = (
+				7763305913D546FEF045395E /* SowensKit */,
+				7967F31AEA0A6FE7F5870697 /* SowensTestSupport */,
+			);
+			productName = PresentationTests;
+			productReference = 060250DEE8C17182F9EDFDE2 /* PresentationTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -112,17 +195,28 @@
 			);
 			mainGroup = 7C0000000000000000000002;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				FDCBD791890DD3D6FA32D40C /* XCLocalSwiftPackageReference "SowensKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7C0000000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				7C0000000000000000000006 /* StockedMac */,
+				DBAE81F6FDC1AF0E6B73E741 /* PresentationTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		71F0F983D10575047FA3D519 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7C0000000000000000000009 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -133,6 +227,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		1B5C2BC52CB7D57AE3236DA0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8208948A711F5F265B64348A /* SharedPresentationTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7C0000000000000000000007 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -142,7 +244,30 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		81833472BCF0F0CB21CB2AC9 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = StockedMac;
+			target = 7C0000000000000000000006 /* StockedMac */;
+			targetProxy = 09FF0DC0B541D17C3B9B50B8 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		5401A672230A0D67631E6B0A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sowens.StockedMac.PresentationTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Stocked.app/Contents/MacOS/Stocked";
+			};
+			name = Release;
+		};
 		7C000000000000000000000B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -331,9 +456,32 @@
 			};
 			name = Release;
 		};
+		8CE592BB01BCE41ADE2AF5F3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sowens.StockedMac.PresentationTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Stocked.app/Contents/MacOS/Stocked";
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		3A3C0E2EF7029320F8922E25 /* Build configuration list for PBXNativeTarget "PresentationTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5401A672230A0D67631E6B0A /* Release */,
+				8CE592BB01BCE41ADE2AF5F3 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		7C000000000000000000000A /* Build configuration list for PBXProject "StockedMac" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -353,6 +501,31 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		FDCBD791890DD3D6FA32D40C /* XCLocalSwiftPackageReference "SowensKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/SowensKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		09219783C4677725CE74DA44 /* SowensKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FDCBD791890DD3D6FA32D40C /* XCLocalSwiftPackageReference "SowensKit" */;
+			productName = SowensKit;
+		};
+		7763305913D546FEF045395E /* SowensKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FDCBD791890DD3D6FA32D40C /* XCLocalSwiftPackageReference "SowensKit" */;
+			productName = SowensKit;
+		};
+		7967F31AEA0A6FE7F5870697 /* SowensTestSupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FDCBD791890DD3D6FA32D40C /* XCLocalSwiftPackageReference "SowensKit" */;
+			productName = SowensTestSupport;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 7C0000000000000000000001 /* Project object */;
 }

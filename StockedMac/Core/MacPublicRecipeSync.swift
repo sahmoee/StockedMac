@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Observation
 
 /// Reads the same public recipe records used by iOS, without a household gate.
@@ -16,6 +17,12 @@ final class MacPublicRecipeSync {
     private static let cursorKey = "publicRecipeCatalogueCursor.v1"
     private static let completedAtKey = "publicRecipeCatalogueCompletedAt.v1"
     private static let completedCountKey = "publicRecipeCatalogueCompletedCount.v1"
+    /// First-page digest of the last fully completed walk, and of the walk now in progress. When a
+    /// new automatic pass sees the same first page within `unchangedWindow` of completion, the
+    /// whole re-walk (network, decode and merge of every page) is skipped. Manual refresh forces it.
+    private static let firstPageDigestKey = "publicRecipeCatalogueFirstPageDigest.v1"
+    private static let pendingDigestKey = "publicRecipeCataloguePendingDigest.v1"
+    private static let unchangedWindow: TimeInterval = 3 * 60 * 60
 
     init(defaults: UserDefaults = .standard) {
         let timestamp = defaults.double(forKey: Self.completedAtKey)
@@ -44,7 +51,7 @@ final class MacPublicRecipeSync {
         }
     }
 
-    func refresh(store: MacKitchenStore, maxPages: Int = 4) async {
+    func refresh(store: MacKitchenStore, maxPages: Int = 4, force: Bool = false) async {
         guard !isSyncing else { return }
         guard MacWorkerClient.isConfigured else {
             status = "Configure the Worker to load the shared catalogue"
@@ -65,6 +72,17 @@ final class MacPublicRecipeSync {
                 var query = ["pageSize": "100"]
                 if let cursor { query["cursor"] = cursor }
                 let data = try await MacWorkerClient.getData(path: "harvest/recipes", query: query, timeout: 45)
+                if pagesLoaded == 0, cursor == nil {
+                    let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+                    let defaults = UserDefaults.standard
+                    if !force, defaults.string(forKey: Self.firstPageDigestKey) == digest,
+                       let done = lastCompletedAt, done <= Date(),
+                       Date().timeIntervalSince(done) < Self.unchangedWindow, !store.recipes.isEmpty {
+                        status = "\(store.recipes.count) cached recipes · catalogue up to date"
+                        return
+                    }
+                    defaults.set(digest, forKey: Self.pendingDigestKey)
+                }
                 let base = MacBuildConfig.receiptWorkerURL
                 let page = try await Task.detached(priority: .utility) {
                     try MacPublicRecipePage.decode(data, baseURL: base)
@@ -85,6 +103,9 @@ final class MacPublicRecipeSync {
                 if complete {
                     store.mergePublicRecipes(pendingRecipes)
                     UserDefaults.standard.removeObject(forKey: Self.cursorKey)
+                    if let pending = UserDefaults.standard.string(forKey: Self.pendingDigestKey) {
+                        UserDefaults.standard.set(pending, forKey: Self.firstPageDigestKey)
+                    }
                     lastCompleteCount = store.recipes.count
                     let completedAt = Date()
                     lastCompletedAt = completedAt

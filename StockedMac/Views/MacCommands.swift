@@ -31,6 +31,14 @@ struct MacCommands: Commands {
                 .keyboardShortcut("n", modifiers: .command)
                 .disabled(!supportsAdding)
 
+            Button("Duplicate as Personal Variation") {
+                guard let id = desktop.focusedRecipeID else { return }
+                navigation.section = .recipes
+                MacRecipeLibraryActions.duplicateAsVariation(id, store: store, desktop: desktop)
+            }
+            .keyboardShortcut("d", modifiers: .command)
+            .disabled(focusedRecipe == nil)
+
             Divider()
 
             Button("Import Center…") { desktop.isImportCenterPresented = true }
@@ -44,8 +52,27 @@ struct MacCommands: Commands {
             // list. No shortcut on the removal item: it is destructive, and every
             // convenient chord is already spoken for.
             Button("Export recipes as CSV…") { runRecipeCSVExport() }
+            Button("Export Shown Recipes as Markdown…") {
+                let ids = Set(desktop.visibleRecipeIDs)
+                MacRecipeLibraryActions.exportMarkdown(store.recipes.filter { ids.contains($0.id) })
+            }
+            .disabled(desktop.visibleRecipeIDs.isEmpty)
             Button("Remove recipes from a CSV…") { runRecipeCSVRemoval() }
             Button("Remove Kaggle and Sowens recipes…") { runRetiredSourceRemoval() }
+        }
+
+        // Print and PDF act on the recipe selected in the library.
+        CommandGroup(replacing: .printItem) {
+            Button("Print Recipe…") {
+                if let recipe = focusedRecipe { MacRecipePrinter.print(recipe, system: desktop.measurementSystem) }
+            }
+            .keyboardShortcut("p", modifiers: .command)
+            .disabled(focusedRecipe == nil)
+            Button("Export Recipe as PDF…") {
+                if let recipe = focusedRecipe { MacRecipePrinter.exportPDF(recipe, system: desktop.measurementSystem) }
+            }
+            .keyboardShortcut("p", modifiers: [.command, .option])
+            .disabled(focusedRecipe == nil)
         }
 
         // Section switching, in the order the sidebar shows them.
@@ -98,6 +125,63 @@ struct MacCommands: Commands {
                 Task { await sync.resyncEverything(into: store) }
             }
             .disabled(!sync.isJoined || sync.status.isBusy)
+
+            Divider()
+
+            Button("Edit Selected Recipe…") {
+                guard let id = desktop.focusedRecipeID else { return }
+                navigation.section = .recipes
+                desktop.pendingEditRecipeID = id
+            }
+            .keyboardShortcut("e", modifiers: .command)
+            .disabled(focusedRecipe == nil)
+
+            Menu("Recently Viewed") {
+                let recent = desktop.recentRecipes(in: store.recipes)
+                if recent.isEmpty {
+                    Text("No recently viewed recipes")
+                } else {
+                    ForEach(recent) { recipe in
+                        Button(recipe.title) { reveal(recipe.id) }
+                    }
+                    Divider()
+                    Button("Clear Recently Viewed") { desktop.clearRecent() }
+                }
+            }
+
+            Menu("Saved Filters") {
+                if desktop.savedFilters.isEmpty {
+                    Text("Save filters from the Recipes list")
+                } else {
+                    ForEach(desktop.savedFilters) { filter in
+                        Button(filter.name) {
+                            navigation.section = .recipes
+                            desktop.pendingSavedFilter = filter
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            Button("Edit Shown Recipes…") {
+                navigation.section = .recipes
+                desktop.isBulkEditPresented = true
+            }
+            .keyboardShortcut("e", modifiers: [.command, .option])
+            .disabled(desktop.visibleRecipeIDs.isEmpty)
+            Button("Library Health…") { desktop.isLibraryHealthPresented = true }
+            Button("Find Duplicates…") { desktop.isDuplicateFinderPresented = true }
+            Button("Tag Manager…") { desktop.isTagManagerPresented = true }
+
+            Divider()
+
+            Picker("Show Amounts", selection: Binding(
+                get: { desktop.measurementSystem },
+                set: { desktop.measurementSystem = $0 }
+            )) {
+                ForEach(MacMeasurementSystem.allCases) { Text($0.rawValue).tag($0) }
+            }
         }
 
         // The Harvester's own actions, kept under one menu the way the standalone
@@ -140,6 +224,8 @@ struct MacCommands: Commands {
 
             Divider()
 
+            Button("Import Activity…") { desktop.isActivityLogPresented = true }
+                .keyboardShortcut("l", modifiers: [.command, .option])
             Button("Open Harvest Data Folder") { harvest.openDataFolder() }
         }
 
@@ -151,10 +237,33 @@ struct MacCommands: Commands {
             Divider()
             Button("Privacy Policy") { open(MacBuildConfig.privacyURL) }
             Button("Terms of Use")   { open(MacBuildConfig.termsURL) }
+            Button("Cookies & Tracking") { open(MacBuildConfig.cookiesURL) }
+            Button("Refund Policy") { open(MacBuildConfig.refundURL) }
+            Button("Request Data Deletion…") { open(MacBuildConfig.deleteDataURL) }
+            Divider()
+            Button("About & Business Details") { open(MacBuildConfig.aboutURL) }
+            Button("Open-Source Licenses") { open(MacBuildConfig.licensesURL) }
+            Button("Accessibility Statement") { open(MacBuildConfig.accessibilityURL) }
         }
     }
 
     // MARK: - Labels
+
+    private var focusedRecipe: UserRecipe? {
+        guard let id = desktop.focusedRecipeID else { return nil }
+        return store.recipes.first { $0.id == id }
+    }
+
+    /// Brings the main window forward and selects the recipe in the library.
+    private func reveal(_ id: UUID) {
+        navigation.section = .recipes
+        desktop.reveal(id)
+        NSApp.activate(ignoringOtherApps: true)
+        for window in NSApp.windows where window.canBecomeMain && window.identifier?.rawValue.contains("recipe") != true {
+            window.makeKeyAndOrderFront(nil)
+            break
+        }
+    }
 
     private var supportsAdding: Bool {
         // Kept in step with MacRootView's toolbar + button: the sections that read rather
@@ -173,16 +282,6 @@ struct MacCommands: Commands {
     }
 
     // MARK: - Actions
-
-    private func addLowStockToList() {
-        for item in store.lowStock {
-            let alreadyListed = store.grocery.contains {
-                $0.name.compare(item.name, options: .caseInsensitive) == .orderedSame
-            }
-            guard !alreadyListed else { continue }
-            store.addGrocery(name: item.name)
-        }
-    }
 
     /// Standard save panel. Sandboxed apps get write access to whatever the user picks
     /// here — that grant is the entire reason `files.user-selected.read-write` is in the

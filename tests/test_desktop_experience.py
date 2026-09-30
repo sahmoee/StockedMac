@@ -63,7 +63,7 @@ class DesktopExperienceRegressionTests(unittest.TestCase):
     def test_recipe_workspace_retains_accessible_adaptive_tools(self):
         recipes = self.read("StockedMac/Views/MacRecipesView.swift")
         for feature in [
-            "HSplitView", ".searchable(", "Table(rows", ".inspector(",
+            "MacAdjustableSplit", ".searchable(", "Table(rows", ".inspector(",
             ".quickLookPreview(", ".onDeleteCommand", ".draggable(",
             'openWindow(id: "recipe"',
         ]:
@@ -77,6 +77,41 @@ class DesktopExperienceRegressionTests(unittest.TestCase):
             "Export recipes as CSV…", "Remove recipes from a CSV…",
         ]:
             self.assertIn(label, commands)
+
+    def test_recipe_manager_tools_are_wired(self):
+        recipes = self.read("StockedMac/Views/MacRecipesView.swift")
+        root = self.read("StockedMac/Views/MacRootView.swift")
+        commands = self.read("StockedMac/Views/MacCommands.swift")
+        for feature in ["MacRecipeServingBar", "MacRecipeNotesEditor", "ShareLink(",
+                        "savedFiltersMenu", "libraryToolsMenu", "case quickest", "scope.includes"]:
+            self.assertIn(feature, recipes)
+        for sheet in ["MacLibraryHealthView()", "MacDuplicateFinderView()", "MacTagManagerView()",
+                      "MacBulkEditView(recipeIDs:", "MacActivityLogView()"]:
+            self.assertIn(sheet, root)
+        for label in ["Print Recipe…", "Export Recipe as PDF…", "Duplicate as Personal Variation",
+                      "Recently Viewed", "Import Activity…", "Export Shown Recipes as Markdown…"]:
+            self.assertIn(label, commands)
+        # ⌘1…⌘4 remain the only sidebar shortcuts; tools never add a sidebar destination.
+        self.assertIn("recipeManagerSections: [MacSection] = [.recipes, .browse, .catalog, .sync]", self.read("StockedMac/Views/MacRootView.swift"))
+
+    def test_library_tools_use_household_safe_mutations(self):
+        panels = self.read("StockedMac/Views/MacRecipeLibraryPanels.swift")
+        self.assertNotIn("store.recipes =", panels)
+        self.assertIn("store.updateRecipes(", panels)
+        self.assertIn("store.deleteRecipe(ids:", panels)
+        self.assertIn(".confirmationDialog(", panels)
+        store = self.read("StockedMac/Core/MacKitchenStore.swift")
+        bulk = store.split("func updateRecipes(", 1)[1].split("func assignMissingRecipeCuisines", 1)[0]
+        for invariant in ["MacPortableRecipePolicy.repaired", "hasRequiredImage", "lastWriterID = writerID", "scheduleSave(.recipes)"]:
+            self.assertIn(invariant, bulk)
+
+    def test_display_tools_never_rewrite_amounts(self):
+        detail = self.read("StockedMac/Views/MacRecipesView.swift").split("struct MacRecipeDetail", 1)[1]
+        self.assertIn("MacMeasurementConverter.display(", detail)
+        self.assertNotIn("updateRecipe(id: recipe.id) { $0.ingredients", detail)
+        variation = self.read("StockedMac/Core/MacRecipeLibraryTools.swift").split("enum MacRecipeVariation", 1)[1]
+        self.assertIn("copy.sourceURL = nil", variation)
+        self.assertIn("copy.portableSource = nil", variation)
 
 
 if __name__ == "__main__":

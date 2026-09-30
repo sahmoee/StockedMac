@@ -1,3 +1,4 @@
+import SowensKit
 import SwiftUI
 
 enum MacTheme {
@@ -224,8 +225,7 @@ struct MacCard<Content: View>: View {
             content
         }
         .padding(MacTheme.pad)
-        .background(MacTheme.card(dark: scheme == .dark), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12)
-            .stroke(MacTheme.cardBorder(dark: scheme == .dark)))
+        .sowensSurface(fill: MacTheme.card(dark: scheme == .dark),
+                       border: MacTheme.cardBorder(dark: scheme == .dark), radius: 12)
     }
 }

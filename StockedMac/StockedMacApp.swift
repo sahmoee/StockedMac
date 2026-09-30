@@ -52,6 +52,7 @@ struct StockedMacApp: App {
                     MacWelcomeView()
                 }
             }
+                .studioAgeGate()
                 .environment(store)
                 .environment(sync)
                 .environment(navigation)
@@ -78,7 +79,9 @@ struct StockedMacApp: App {
                     didStart = true
                     store.sync = sync
                     store.writerID = sync.memberID
-                    store.load()
+                    // File reads, JSON decoding and recipe repair run off the main actor so a large
+                    // library never freezes the window; the sync engine still waits for it below.
+                    await store.loadInBackground()
                     recipeInbox.start()
                     MacPublicRecipeSync.shared.start(store: store)
                     // StockedMac is recipe-only. Keep household transport compatible
@@ -182,6 +185,7 @@ struct StockedMacApp: App {
                 .environment(store)
                 .environment(sync)
                 .environment(harvest)
+                .environment(desktop)
                 .macThemedSurface()
                 .frame(width: 330)
         }
@@ -196,9 +200,33 @@ struct MacMenuBarView: View {
     @Environment(MacKitchenStore.self) private var store
     @Environment(MacHouseholdSync.self) private var sync
     @Environment(HarvestModel.self) private var harvest
+    @Environment(MacDesktopExperience.self) private var desktop
+    @Environment(\.openWindow) private var openWindow
+    @State private var query = ""
+
+    /// Quick search from the menu bar: title matches first, capped for instant typing.
+    private var matches: [UserRecipe] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard needle.count >= 2 else { return [] }
+        var found: [UserRecipe] = []
+        for recipe in store.recipes where recipe.title.localizedCaseInsensitiveContains(needle) {
+            found.append(recipe)
+            if found.count == 6 { break }
+        }
+        return found
+    }
+
+    private func open(_ recipe: UserRecipe) {
+        desktop.noteViewed(recipe.id)
+        openWindow(id: "recipe", value: recipe.id)
+        NSApp.activate(ignoringOtherApps: true)
+        query = ""
+    }
 
     private var recent: [UserRecipe] {
-        Array(store.recipes.sorted { $0.updatedAt > $1.updatedAt }.prefix(5))
+        let viewed = desktop.recentRecipes(in: store.recipes)
+        if !viewed.isEmpty { return Array(viewed.prefix(5)) }
+        return Array(store.recipes.sorted { $0.updatedAt > $1.updatedAt }.prefix(5))
     }
     private var needsReview: Int {
         harvest.recipes.filter { $0.reviewState == .needsReview }.count
@@ -213,6 +241,44 @@ struct MacMenuBarView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Find a recipe", text: $query)
+                    .textFieldStyle(.plain)
+                    .onSubmit { if let first = matches.first { open(first) } }
+                    .accessibilityLabel("Find a recipe")
+                if !query.isEmpty {
+                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless).foregroundStyle(.secondary)
+                }
+            }
+            .padding(6)
+            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
+
+            if !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                if matches.isEmpty {
+                    Text(query.count < 2 ? "Keep typing…" : "No recipe titles match.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(matches) { recipe in
+                            Button { open(recipe) } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "book.closed").foregroundStyle(MacTheme.gold).frame(width: 14)
+                                    Text(recipe.title).lineLimit(1)
+                                    Spacer(minLength: 6)
+                                    Text(recipe.cuisine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .font(.callout)
+                        }
+                    }
+                }
+                Divider()
+            }
+
             HStack(spacing: 8) {
                 MacPill(text: "\(harvest.queuedURLCount) queued", tint: .secondary, systemImage: "link")
                 MacPill(text: "\(needsReview) review", tint: needsReview > 0 ? .orange : .secondary,
@@ -223,8 +289,9 @@ struct MacMenuBarView: View {
                 Text("No recipes on this Mac yet.")
                     .font(.callout).foregroundStyle(.secondary)
             } else {
-                MacSectionHeader(title: "Recently updated")
+                MacSectionHeader(title: desktop.recentRecipeIDs.isEmpty ? "Recently updated" : "Recently viewed")
                 ForEach(recent) { recipe in
+                    Button { open(recipe) } label: {
                     HStack(spacing: 8) {
                         Image(systemName: recipe.isFavorited ? "star.fill" : "book.closed")
                             .foregroundStyle(recipe.isFavorited ? MacTheme.gold : .secondary)
@@ -235,6 +302,9 @@ struct MacMenuBarView: View {
                             Text(recipe.cuisine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
+                    .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 

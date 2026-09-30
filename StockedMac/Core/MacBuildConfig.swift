@@ -42,13 +42,14 @@ nonisolated enum MacBuildConfig {
     }
     static var displayLabel: String { "Version \(version) (\(buildNumber))" }
 
-    static let buildDate = "August 2026"
+    static let buildDate = "September 2026"
     static let buildName = """
-        Recipe import is now a short guided flow: paste one link, recipe text, or recipe \
-        screenshots; review only uncertain fields; then approve once to add the recipe \
-        to the Mac kitchen and Stocked iOS sync. Optional website discovery checks no \
-        more than three selected sources per pass, displays a finite recipe batch, and \
-        imports selected results directly instead of creating another queue step.
+        Recipe-manager tools: search recipes from the command palette and the menu bar, \
+        reopen recently viewed recipes, save filters, scale servings and switch units \
+        while reading, edit private notes inline, print or save a PDF, share or copy as \
+        Markdown or Cooklang, and keep a recipe window on top. Library Health, Find \
+        Duplicates, Tag Manager and Bulk Edit tidy large libraries through the same \
+        household-safe edits, and Import Activity exposes the log and queue tools.
         """
 
     // MARK: - Environment
@@ -89,9 +90,15 @@ nonisolated enum MacBuildConfig {
     // MARK: - Brand links
     static let websiteURL     = "https://sowensstudios.com"
     static let supportEmail   = "support@sowensstudios.com"
-    static let privacyURL     = "https://sahmoee.github.io/StockedMac/privacy.html"
-    static let termsURL       = "https://sahmoee.github.io/StockedMac/license.html"
-    static let supportPageURL = "https://sahmoee.github.io/StockedMac/support.html"
+    static let privacyURL     = "https://sowensstudios.com/privacy/"
+    static let termsURL       = "https://sowensstudios.com/terms/"
+    static let supportPageURL = "https://sowensstudios.com/support/"
+    static let refundURL      = "https://sowensstudios.com/refunds/"
+    static let cookiesURL     = "https://sowensstudios.com/cookies/"
+    static let deleteDataURL  = "https://sowensstudios.com/delete-data/"
+    static let aboutURL       = "https://sowensstudios.com/about/"
+    static let licensesURL    = "https://sowensstudios.com/licenses/"
+    static let accessibilityURL = "https://sowensstudios.com/accessibility/"
 
     // MARK: - Helpers
     private static func bundleString(_ key: String) -> String? {

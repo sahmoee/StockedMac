@@ -110,12 +110,14 @@ struct MacBrowserPanel: View {
             }
             .disabled(!session.canGoBack)
             .help("Back")
+                .accessibilityLabel("Back")
 
             Button(action: session.goForward) {
                 Image(systemName: "chevron.right")
             }
             .disabled(!session.canGoForward)
             .help("Forward")
+                .accessibilityLabel("Forward")
 
             Button {
                 if session.isLoading { session.stop() } else { session.reload() }

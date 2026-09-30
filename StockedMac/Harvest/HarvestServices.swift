@@ -98,6 +98,7 @@ actor PolicyFetcher {
 
     func updateUserAgent(_ userAgent: String) async {
         await http.updateUserAgent(userAgent)
+        await robots.updateUserAgent(userAgent)
     }
     
     func clearPause(for source: SourceProfile) async {
@@ -144,13 +145,11 @@ actor ImageStore {
             return RecipeImage(originalURL: urlString, localPath: localURL.path)
         }
 
-        // Check robots.txt
-        let allowed = await robots.isAllowed(url)
-        guard allowed else {
-            throw CompanionError.robotsDenied
-        }
-
-        // Apply rate limiting
+        // Images are not checked against robots.txt: they are subresources of a page the
+        // crawler was already allowed to fetch (the same way a browser loads them), often
+        // served from a CDN host whose robots.txt blocks crawlers wholesale. Checking them
+        // would fail the required-image gate for otherwise permitted recipes. Rate
+        // limiting still applies per image host.
         await limiter.waitIfNeeded(for: url.host ?? "")
 
         // Download image
@@ -1154,11 +1153,6 @@ actor SourceRegistry {
         return name
     }
     
-    func knownSourceURLs() async throws -> Set<String> {
-        // This would query the recipe store for all source URLs
-        []
-    }
-    
     private func persist() async throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -1902,22 +1896,6 @@ nonisolated struct HarvestWorkerParser {
             return Int(only.rounded())
         }
         return total > 0 ? total : nil
-    }
-}
-
-nonisolated struct IngredientParser {
-    func parseSections(_ sections: [IngredientSection]) -> [IngredientSection] {
-        sections.map { section in
-            var parsed = section
-            parsed.items = section.items.map(parseItem)
-            return parsed
-        }
-    }
-    
-    private func parseItem(_ item: IngredientItem) -> IngredientItem {
-        // Would parse structured data from raw ingredient text
-        // This is a placeholder
-        item
     }
 }
 

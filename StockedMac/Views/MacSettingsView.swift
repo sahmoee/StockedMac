@@ -54,10 +54,20 @@ struct MacSettingsView: View {
                     get: { desktop.isInspectorPresented },
                     set: { desktop.isInspectorPresented = $0 }
                 ))
+                Picker("Ingredient amounts", selection: Binding(
+                    get: { desktop.measurementSystem },
+                    set: { desktop.measurementSystem = $0 }
+                )) {
+                    ForEach(MacMeasurementSystem.allCases) { Text($0.rawValue).tag($0) }
+                }
+                LabeledContent("Recently viewed") {
+                    Button("Clear \(desktop.recentRecipeIDs.count)") { desktop.clearRecent() }
+                        .disabled(desktop.recentRecipeIDs.isEmpty)
+                }
             } header: {
                 Text("Desktop workspace")
             } footer: {
-                Text("These choices change presentation only. Text continues to follow the Mac's accessibility settings and recipe data stays unchanged.")
+                Text("These choices change presentation only. Scaled and converted amounts are for reading; saved recipes keep their original amounts. Text continues to follow the Mac's accessibility settings.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -199,6 +209,20 @@ struct MacSettingsView: View {
                 }
             } header: {
                 Text("Starting over")
+            }
+
+            Section {
+                Link("Privacy Policy", destination: URL(string: MacBuildConfig.privacyURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+                Link("Terms of Use", destination: URL(string: MacBuildConfig.termsURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+                Link("Cookies & Tracking (none)", destination: URL(string: MacBuildConfig.cookiesURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+                Link("Refund Policy", destination: URL(string: MacBuildConfig.refundURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+                Link("Request deletion of data we hold on our servers", destination: URL(string: MacBuildConfig.deleteDataURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+                Link("About & business details", destination: URL(string: MacBuildConfig.aboutURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+                Link("Open-source licenses & credits", destination: URL(string: MacBuildConfig.licensesURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+            } header: {
+                Text("Legal & data")
+            } footer: {
+                Text("Stocked for Mac has no ads, trackers or cookies. Nothing is sold. Contact \(MacBuildConfig.supportEmail).")
             }
         }
         .formStyle(.grouped)

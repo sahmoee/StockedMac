@@ -330,6 +330,7 @@ private struct CatalogImageThumbnail: View {
         Group {
             if let image {
                 Image(nsImage: image).resizable().scaledToFit()
+                    .accessibilityLabel("Item photo")
             } else if isLoading {
                 ProgressView().controlSize(.small)
             } else {

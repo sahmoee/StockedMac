@@ -129,6 +129,28 @@ struct MacRootView: View {
             get: { desktop.isImportCenterPresented },
             set: { desktop.isImportCenterPresented = $0 }
         )) { MacImportCenter().macThemedSurface() }
+        // Build 114 recipe-manager tools. One presentation owner, reachable from menus,
+        // the command palette and the Recipes library tools menu.
+        .sheet(isPresented: Binding(
+            get: { desktop.isLibraryHealthPresented },
+            set: { desktop.isLibraryHealthPresented = $0 }
+        )) { MacLibraryHealthView().macThemedSurface() }
+        .sheet(isPresented: Binding(
+            get: { desktop.isDuplicateFinderPresented },
+            set: { desktop.isDuplicateFinderPresented = $0 }
+        )) { MacDuplicateFinderView().macThemedSurface() }
+        .sheet(isPresented: Binding(
+            get: { desktop.isTagManagerPresented },
+            set: { desktop.isTagManagerPresented = $0 }
+        )) { MacTagManagerView().macThemedSurface() }
+        .sheet(isPresented: Binding(
+            get: { desktop.isBulkEditPresented },
+            set: { desktop.isBulkEditPresented = $0 }
+        )) { MacBulkEditView(recipeIDs: desktop.visibleRecipeIDs).macThemedSurface() }
+        .sheet(isPresented: Binding(
+            get: { desktop.isActivityLogPresented },
+            set: { desktop.isActivityLogPresented = $0 }
+        )) { MacActivityLogView().macThemedSurface() }
         // Pull whenever the window comes back to the front. A Mac app is left open for
         // hours, so "refresh on launch" alone would leave stale numbers on screen all day.
         .onReceive(NotificationCenter.default.publisher(

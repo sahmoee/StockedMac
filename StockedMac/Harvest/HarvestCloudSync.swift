@@ -167,17 +167,26 @@ enum HarvestCloudSync {
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
         request.timeoutInterval = 30
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw MacServiceError.malformedResponse("The Worker returned no HTTP response.")
-        }
-        if http.statusCode == 429 {
-            let retry = http.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
-            throw MacServiceError.rateLimited(retryAfter: retry)
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            throw MacServiceError.httpStatus(http.statusCode, object?["error"] as? String)
+        // One short, server-directed retry for a rate-limit or brief outage. Anything longer than
+        // ten seconds is the server's stated minimum, so it surfaces to the caller instead.
+        for attempt in 0..<2 {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw MacServiceError.malformedResponse("The Worker returned no HTTP response.")
+            }
+            if http.statusCode == 429 || http.statusCode == 503 {
+                let retry = MacWorkerClient.retryAfter(http.value(forHTTPHeaderField: "Retry-After"))
+                if attempt == 0, let retry, retry <= 10 {
+                    try await Task.sleep(for: .seconds(max(retry, 0.5)))
+                    continue
+                }
+                if http.statusCode == 429 { throw MacServiceError.rateLimited(retryAfter: retry) }
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                throw MacServiceError.httpStatus(http.statusCode, object?["error"] as? String)
+            }
+            return
         }
     }
 

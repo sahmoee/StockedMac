@@ -25,6 +25,7 @@
 // anything writing a collection wholesale (household sync, import) calls `save()`.
 
 import Foundation
+import CryptoKit
 import Observation
 import os
 
@@ -180,31 +181,9 @@ final class MacKitchenStore {
         if let data = read(.recipes),
            let value = try? decoder.decode([UserRecipe].self, from: data) {
             recipes = value.map { original in
-                var recipe = MacPortableRecipePolicy.repaired(original)
-                if recipe.sourceURL != original.sourceURL || recipe.notes != original.notes || recipe.portableSource != original.portableSource {
-                    compactedRemoteRecipeImages = true
-                }
-                let cleanTitle = RecipeTitlePolicy.cleaned(recipe.title)
-                if cleanTitle != recipe.title {
-                    recipe.title = cleanTitle
-                    compactedRemoteRecipeImages = true
-                }
-                // Retain the source record and its diagnostic URL for repair; presentation and
-                // public sharing exclude this known branding asset, including cached bytes.
-                if MacRecipeImagePolicy.isKnownPublisherPlaceholder(recipe.imageURL ?? "") { return recipe }
-                if let imageURL = recipe.imageURL,
-                   !MacRecipeImagePolicy.isLikelyRecipeImageURL(imageURL, sourceURL: recipe.sourceURL) {
-                    recipe.imageURL = nil
-                    recipe.imageData = nil
-                    recipe.imageValidatedAt = nil
-                    compactedRemoteRecipeImages = true
-                }
-                guard recipe.imageURL?.nilIfBlank != nil, recipe.imageData != nil else { return recipe }
-                var compact = recipe
-                compact.imageValidatedAt = compact.imageValidatedAt ?? Date()
-                compact.imageData = nil
-                compactedRemoteRecipeImages = true
-                return compact
+                let (recipe, changed) = Self.repairedOnLoad(original)
+                if changed { compactedRemoteRecipeImages = true }
+                return recipe
             }
         }
         if let data = read(.savedRecipes),
@@ -222,6 +201,100 @@ final class MacKitchenStore {
         if let data = read(.profile),
            let value = try? decoder.decode(UserCookingProfile.self, from: data) {
             profile = value
+        }
+    }
+
+    // MARK: - Off-main load (Build cache/load pass)
+
+    private nonisolated struct LoadedCollections: Sendable {
+        var inventory: [LocalInventoryItem]?
+        var grocery: [LocalGroceryItem]?
+        var recipes: [UserRecipe]?
+        var savedRecipes: [GeneratedRecipe]?
+        var plan: [PlannedMeal]?
+        var history: [LocalPastMeal]?
+        var profile: UserCookingProfile?
+        var recipesChanged = false
+    }
+
+    /// The per-recipe repair `load()` has always applied, isolated so the background loader can
+    /// run it off the main actor. Returns whether the recipe differs from what was on disk.
+    private nonisolated static func repairedOnLoad(_ original: UserRecipe) -> (UserRecipe, Bool) {
+        var changed = false
+        var recipe = MacPortableRecipePolicy.repaired(original)
+        if recipe.sourceURL != original.sourceURL || recipe.notes != original.notes || recipe.portableSource != original.portableSource {
+            changed = true
+        }
+        let cleanTitle = RecipeTitlePolicy.cleaned(recipe.title)
+        if cleanTitle != recipe.title {
+            recipe.title = cleanTitle
+            changed = true
+        }
+        // Retain the source record and its diagnostic URL for repair; presentation and
+        // public sharing exclude this known branding asset, including cached bytes.
+        if MacRecipeImagePolicy.isKnownPublisherPlaceholder(recipe.imageURL ?? "") { return (recipe, changed) }
+        if let imageURL = recipe.imageURL,
+           !MacRecipeImagePolicy.isLikelyRecipeImageURL(imageURL, sourceURL: recipe.sourceURL) {
+            recipe.imageURL = nil
+            recipe.imageData = nil
+            recipe.imageValidatedAt = nil
+            changed = true
+        }
+        guard recipe.imageURL?.nilIfBlank != nil, recipe.imageData != nil else { return (recipe, changed) }
+        var compact = recipe
+        compact.imageValidatedAt = compact.imageValidatedAt ?? Date()
+        compact.imageData = nil
+        return (compact, true)
+    }
+
+    private nonisolated static func readCollections(directory: URL) -> LoadedCollections {
+        let decoder = JSONDecoder()
+        func bytes(_ collection: Collection) -> Data? {
+            let url = directory.appendingPathComponent(collection.filename)
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return try? Data(contentsOf: url)
+        }
+        var out = LoadedCollections()
+        if let data = bytes(.inventory) { out.inventory = try? decoder.decode([LocalInventoryItem].self, from: data) }
+        if let data = bytes(.grocery) { out.grocery = try? decoder.decode([LocalGroceryItem].self, from: data) }
+        if let data = bytes(.recipes), let value = try? decoder.decode([UserRecipe].self, from: data) {
+            var anyChanged = false
+            out.recipes = value.map { original in
+                let (recipe, changed) = repairedOnLoad(original)
+                if changed { anyChanged = true }
+                return recipe
+            }
+            out.recipesChanged = anyChanged
+        }
+        if let data = bytes(.savedRecipes) { out.savedRecipes = try? decoder.decode([GeneratedRecipe].self, from: data) }
+        if let data = bytes(.plan) { out.plan = try? decoder.decode([PlannedMeal].self, from: data) }
+        if let data = bytes(.history) { out.history = try? decoder.decode([LocalPastMeal].self, from: data) }
+        if let data = bytes(.profile) { out.profile = try? decoder.decode(UserCookingProfile.self, from: data) }
+        return out
+    }
+
+    /// Same result as `load()`, but file reads, JSON decoding and recipe repair run on a utility
+    /// task so a large library never blocks the window on the main actor. Collections are applied
+    /// in one main-actor step, and the one-time compaction write still happens before returning.
+    func loadInBackground() async {
+        isLoading = true
+        isRestoring = true
+        let source = directory
+        let loaded = await Task.detached(priority: .userInitiated) {
+            Self.readCollections(directory: source)
+        }.value
+        if let value = loaded.inventory { inventory = value }
+        if let value = loaded.grocery { grocery = value }
+        if let value = loaded.recipes { recipes = value }
+        if let value = loaded.savedRecipes { savedRecipes = value }
+        if let value = loaded.plan { plannedMeals = value }
+        if let value = loaded.history { pastMeals = value }
+        if let value = loaded.profile { profile = value }
+        isRestoring = false
+        isLoading = false
+        if loaded.recipesChanged {
+            dirty.insert(.recipes)
+            flush()
         }
     }
 
@@ -305,7 +378,12 @@ final class MacKitchenStore {
                     case .history: data = try encoder.encode(snapshot.pastMeals)
                     case .profile: data = try encoder.encode(snapshot.profile)
                     }
-                    try data.write(to: destination.appendingPathComponent(collection.filename), options: [.atomic])
+                    let target = destination.appendingPathComponent(collection.filename)
+                    let digest = SHA256.hash(data: data)
+                    let key = Self.ledgerKey(destination, collection)
+                    if Self.ledger.matches(digest, key: key), FileManager.default.fileExists(atPath: target.path) { continue }
+                    try data.write(to: target, options: [.atomic])
+                    Self.ledger.record(digest, key: key)
                 }
                 return nil as String?
             } catch {
@@ -353,6 +431,14 @@ final class MacKitchenStore {
         // `.atomic` writes to a temp file in the same directory and renames it into place.
         try data.write(to: directory.appendingPathComponent(collection.filename),
                        options: [.atomic])
+        Self.ledger.record(SHA256.hash(data: data), key: Self.ledgerKey(directory, collection))
+    }
+
+    /// Digest of the bytes last written per collection. A save whose encoded bytes are identical
+    /// (a sync pass that changed nothing, a re-marked dirty flag) skips the atomic replace.
+    private nonisolated static let ledger = MacWriteLedger()
+    private nonisolated static func ledgerKey(_ directory: URL, _ collection: Collection) -> String {
+        directory.path + "#" + collection.rawValue
     }
 
     // MARK: - Stamping
@@ -593,6 +679,34 @@ final class MacKitchenStore {
         updated.title = RecipeTitlePolicy.cleaned(updated.title)
         recipes[index] = updated
         stampRecipe(at: index)
+    }
+
+    /// Bulk form of `updateRecipe` for library tools (bulk edit, tag manager). One pass
+    /// over the library instead of one index search per recipe, one coalesced save, and
+    /// the same invariants: portable-source repair, blank-cuisine inference, the required
+    /// image gate, title cleaning and last-write stamping. Records whose edit produces no
+    /// change are left untouched so they do not churn household sync.
+    @discardableResult
+    func updateRecipes(ids: Set<UUID>, _ change: (inout UserRecipe) -> Void) -> Int {
+        guard !ids.isEmpty else { return 0 }
+        var changed = 0
+        let stamp = nowMillis
+        for index in recipes.indices where ids.contains(recipes[index].id) {
+            let original = recipes[index]
+            var updated = original
+            change(&updated)
+            guard updated != original else { continue }
+            updated = MacPortableRecipePolicy.repaired(updated, preserving: original)
+            if let cuisine = RecipeCuisineClassifier.infer(for: updated) { updated.cuisine = cuisine }
+            guard MacRecipeImagePolicy.hasRequiredImage(updated) else { continue }
+            updated.title = RecipeTitlePolicy.cleaned(updated.title)
+            updated.updatedAt = stamp
+            updated.lastWriterID = writerID
+            recipes[index] = updated
+            changed += 1
+        }
+        if changed > 0 { scheduleSave(.recipes) }
+        return changed
     }
 
     /// Idempotent historical/household backfill. Assignment mutates only blank cuisines
@@ -1048,5 +1162,20 @@ final class MacKitchenStore {
 
         isRestoring = false
         save()
+    }
+}
+
+
+/// Lock-protected record of the last bytes written for each collection file.
+nonisolated final class MacWriteLedger: @unchecked Sendable {
+    private let lock = NSLock()
+    private var digests: [String: SHA256.Digest] = [:]
+    func matches(_ digest: SHA256.Digest, key: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return digests[key] == digest
+    }
+    func record(_ digest: SHA256.Digest, key: String) {
+        lock.lock(); defer { lock.unlock() }
+        digests[key] = digest
     }
 }

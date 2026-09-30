@@ -46,13 +46,68 @@ struct MacCommandPalette: View {
             Action(id: "toggle-inspector", title: desktop.isInspectorPresented ? "Hide inspector" : "Show inspector",
                    subtitle: "Toggle recipe metadata", symbol: "sidebar.right") {
                 desktop.isInspectorPresented.toggle(); dismiss()
+            },
+            Action(id: "health", title: "Library Health", subtitle: "Find recipes with missing details", symbol: "stethoscope") {
+                dismiss(); desktop.isLibraryHealthPresented = true
+            },
+            Action(id: "duplicates", title: "Find Duplicates", subtitle: "Group copies of the same recipe", symbol: "square.on.square") {
+                dismiss(); desktop.isDuplicateFinderPresented = true
+            },
+            Action(id: "tags", title: "Tag Manager", subtitle: "Rename, merge or remove tags", symbol: "tag") {
+                dismiss(); desktop.isTagManagerPresented = true
+            },
+            Action(id: "bulk", title: "Edit shown recipes", subtitle: "\(desktop.visibleRecipeIDs.count) recipes in the current list", symbol: "square.stack.3d.up") {
+                navigation.section = .recipes; dismiss(); desktop.isBulkEditPresented = true
+            },
+            Action(id: "activity", title: "Import activity", subtitle: "Log, queue tools and failure diagnostics", symbol: "list.bullet.rectangle.portrait") {
+                dismiss(); desktop.isActivityLogPresented = true
             }
         ])
+        values.append(contentsOf: desktop.savedFilters.map { filter in
+            Action(id: "filter-\(filter.id.uuidString)", title: "Apply filter: \(filter.name)",
+                   subtitle: filter.summary, symbol: "bookmark") {
+                navigation.section = .recipes
+                desktop.pendingSavedFilter = filter
+                dismiss()
+            }
+        })
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return values }
-        return values.filter {
+        guard !needle.isEmpty else {
+            let recent = desktop.recentRecipes(in: store.recipes).prefix(5).map(recipeAction)
+            return Array(recent) + values
+        }
+        let commands = values.filter {
             $0.title.localizedCaseInsensitiveContains(needle)
                 || $0.subtitle.localizedCaseInsensitiveContains(needle)
+        }
+        return commands + recipeMatches(needle).map(recipeAction)
+    }
+
+    /// Title matches first, then cuisine/source matches, capped so typing stays instant.
+    private func recipeMatches(_ needle: String) -> [UserRecipe] {
+        var titled: [UserRecipe] = []
+        var related: [UserRecipe] = []
+        for recipe in store.recipes {
+            if recipe.title.localizedCaseInsensitiveContains(needle) {
+                titled.append(recipe)
+                if titled.count >= 12 { break }
+            } else if related.count < 6,
+                      recipe.cuisine.localizedCaseInsensitiveContains(needle)
+                        || (recipe.sourceName?.localizedCaseInsensitiveContains(needle) ?? false) {
+                related.append(recipe)
+            }
+        }
+        return Array((titled + related).prefix(12))
+    }
+
+    private func recipeAction(_ recipe: UserRecipe) -> Action {
+        Action(id: "recipe-\(recipe.id.uuidString)", title: recipe.title,
+               subtitle: [recipe.cuisine.nilIfBlank, recipe.sourceName?.nilIfBlank ?? "Personal recipe"]
+                .compactMap { $0 }.joined(separator: " · "),
+               symbol: recipe.isFavorited ? "star.fill" : "book.closed") {
+            navigation.section = .recipes
+            desktop.reveal(recipe.id)
+            dismiss()
         }
     }
 
@@ -60,10 +115,11 @@ struct MacCommandPalette: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "command").foregroundStyle(MacTheme.gold)
-                TextField("Type a command", text: $query)
+                TextField("Type a command or recipe name", text: $query)
                     .textFieldStyle(.plain)
                     .font(.title3)
                     .focused($focused)
+                    .onSubmit { actions.first?.perform() }
                 Text("esc").font(.caption.monospaced()).foregroundStyle(.secondary)
             }
             .padding(14)
@@ -214,7 +270,9 @@ struct MacImportCenter: View {
 struct MacDetachedRecipeView: View {
     let recipeID: UUID
     @Environment(MacKitchenStore.self) private var store
+    @Environment(MacDesktopExperience.self) private var desktop
     @State private var editing = false
+    @State private var keepOnTop = false
 
     private var recipe: UserRecipe? { store.recipes.first { $0.id == recipeID } }
 
@@ -223,6 +281,17 @@ struct MacDetachedRecipeView: View {
             if let recipe {
                 MacRecipeDetail(recipe: recipe, onEdit: { editing = true })
                     .navigationTitle(recipe.title)
+                    .toolbar {
+                        ToolbarItem(placement: .primaryAction) {
+                            Toggle(isOn: $keepOnTop) {
+                                Label("Keep on Top", systemImage: keepOnTop ? "pin.fill" : "pin")
+                            }
+                            .toggleStyle(.button)
+                            .help(keepOnTop ? "Stop floating above other windows" : "Keep this recipe above other windows while you work")
+                        }
+                    }
+                    .background(MacWindowLevelAccessor(floating: keepOnTop))
+                    .onAppear { desktop.noteViewed(recipe.id) }
                     .sheet(isPresented: $editing) {
                         MacRecipeEditor(recipe: recipe) { updated in
                             store.updateRecipe(id: recipe.id) { $0 = updated }

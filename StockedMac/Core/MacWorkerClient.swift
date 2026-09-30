@@ -81,12 +81,35 @@ nonisolated enum MacWorkerClient {
         if let seconds = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
             return seconds.isFinite && seconds >= 0 ? seconds : nil
         }
+        return httpDate(raw).map { max(0, $0.timeIntervalSince(now)) }
+    }
+
+    // DateFormatter construction is expensive and this runs on every 429; build it once.
+    private static let httpDateLock = NSLock()
+    private static let httpDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
-        return formatter.date(from: raw).map { max(0, $0.timeIntervalSince(now)) }
+        return formatter
+    }()
+    private static func httpDate(_ raw: String) -> Date? {
+        httpDateLock.lock(); defer { httpDateLock.unlock() }
+        return httpDateFormatter.date(from: raw)
     }
+
+    /// One ephemeral session for every Worker call. A session per request paid a fresh TLS
+    /// handshake each time and could never reuse an HTTP/2 connection; sharing one keeps the
+    /// same no-cache, no-cookie, no-redirect policy while letting requests ride one connection.
+    private static let workerSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.urlCache = nil
+        configuration.timeoutIntervalForResource = 120
+        configuration.httpMaximumConnectionsPerHost = 4
+        return URLSession(configuration: configuration, delegate: MacWorkerRedirectGuard(), delegateQueue: nil)
+    }()
 
     private static func boundedData(for original: URLRequest) async throws -> (Data, URLResponse) {
         guard !Task.isCancelled else { throw MacServiceError.cancelled }
@@ -100,21 +123,27 @@ nonisolated enum MacWorkerClient {
         }
         var request = original
         request.timeoutInterval = request.timeoutInterval.isFinite ? min(120, max(5, request.timeoutInterval)) : 30
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpShouldSetCookies = false
-        configuration.httpCookieStorage = nil
-        configuration.urlCache = nil
-        configuration.timeoutIntervalForResource = request.timeoutInterval
-        let session = URLSession(configuration: configuration, delegate: MacWorkerRedirectGuard(), delegateQueue: nil)
-        defer { session.invalidateAndCancel() }
+        let session = workerSession
         do {
             let (bytes, response) = try await session.bytes(for: request)
             guard response.expectedContentLength <= limit else {
                 throw MacServiceError.malformedResponse("The service response is too large.")
             }
             var data = Data()
+            if response.expectedContentLength > 0 {
+                data.reserveCapacity(Int(min(response.expectedContentLength, Int64(limit))))
+            }
+            // The shared session's resource timeout is the 120s ceiling; this deadline keeps the
+            // per-request budget the old per-request session enforced.
+            let deadline = Date().addingTimeInterval(request.timeoutInterval)
+            var sinceCheck = 0
             for try await byte in bytes {
-                if data.count % 16384 == 0 { try Task.checkCancellation() }
+                sinceCheck += 1
+                if sinceCheck >= 16384 {
+                    sinceCheck = 0
+                    try Task.checkCancellation()
+                    if Date() > deadline { throw URLError(.timedOut) }
+                }
                 guard data.count < limit else { throw MacServiceError.malformedResponse("The service response is too large.") }
                 data.append(byte)
             }

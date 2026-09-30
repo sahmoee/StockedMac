@@ -20,6 +20,7 @@
 //   POST /household/presence    ["code"]                                  → ["members"]
 
 import Foundation
+import AppKit
 import Observation
 import CryptoKit
 import os
@@ -247,6 +248,10 @@ final class MacHouseholdSync {
 
             if http.statusCode == 429 {
                 let retry = http.value(forHTTPHeaderField: "Retry-After").flatMap(Int.init)
+                // Retry-After may be seconds or an HTTP date; either way the auto-sync loop
+                // must not poll again before the server's stated minimum.
+                let cooldown = MacWorkerClient.retryAfter(http.value(forHTTPHeaderField: "Retry-After")) ?? 60
+                serverCooldownUntil = Date().addingTimeInterval(min(max(cooldown, 1), 3_600))
                 status = .failed(retry.map { "Too many requests — try again in \($0)s." }
                                  ?? "Too many requests — try again shortly.")
                 return nil
@@ -545,11 +550,58 @@ final class MacHouseholdSync {
         autoSyncTask?.cancel()
         autoSyncTask = Task { [weak self, weak store] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
+                try? await Task.sleep(for: .seconds(self?.nextAutoSyncDelay() ?? 30))
                 guard let self, let store, self.isJoined else { continue }
+                // A server-imposed pause is a minimum deadline, never shortened by the timer.
+                guard Date() >= self.serverCooldownUntil else { continue }
                 await self.syncNow(store: store)
+                self.noteAutoSyncOutcome()
             }
         }
+        // Returning to the app is the moment the user expects fresh phone changes.
+        if activationObserver == nil {
+            activationObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+            ) { [weak self, weak store] _ in
+                Task { @MainActor in
+                    guard let self, let store else { return }
+                    await self.syncOnActivation(store: store)
+                }
+            }
+        }
+    }
+
+    // MARK: - Adaptive cadence
+
+    @ObservationIgnored private var serverCooldownUntil = Date.distantPast
+    @ObservationIgnored private var consecutiveAutoSyncFailures = 0
+    @ObservationIgnored private var lastActivationSyncAt = Date.distantPast
+    @ObservationIgnored private var activationObserver: NSObjectProtocol?
+
+    /// 30 s while the app is frontmost, 90 s in the background, and exponential (30 s → 5 min)
+    /// after consecutive failures, so a broken connection or quota pause stops being hammered.
+    private func nextAutoSyncDelay() -> Double {
+        var delay: Double = NSApplication.shared.isActive ? 30 : 90
+        if consecutiveAutoSyncFailures > 0 {
+            let backoff = min(30 * pow(2, Double(min(consecutiveAutoSyncFailures - 1, 4))), 300)
+            delay = max(delay, backoff)
+        }
+        let remaining = serverCooldownUntil.timeIntervalSinceNow
+        if remaining > delay { delay = min(remaining, 600) }
+        return delay
+    }
+
+    private func noteAutoSyncOutcome() {
+        if case .failed = status { consecutiveAutoSyncFailures = min(consecutiveAutoSyncFailures + 1, 8) }
+        else { consecutiveAutoSyncFailures = 0 }
+    }
+
+    private func syncOnActivation(store: MacKitchenStore) async {
+        guard isJoined, !status.isBusy, Date() >= serverCooldownUntil,
+              Date().timeIntervalSince(lastActivationSyncAt) > 15 else { return }
+        lastActivationSyncAt = Date()
+        await syncNow(store: store)
+        noteAutoSyncOutcome()
     }
 
     /// Read-only refresh — used on launch and by the menu bar's Refresh command.
