@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Security
 
 extension Notification.Name {
     static let macInventoryNeedsCatalogEnrichment = Notification.Name("com.sowens.StockedMac.inventoryNeedsCatalogEnrichment")
@@ -1165,7 +1166,7 @@ final class CatalogModel {
         library.removeAll { $0.source == .legacyRemoved }
         queue.removeAll { $0.source == .legacyRemoved }
         rebuildIdentityIndexes()
-        usdaAPIKey = UserDefaults.standard.string(forKey: "stocked.usdaAPIKey") ?? ""
+        usdaAPIKey = CatalogAPIKeyStore.loadMigratingFromDefaults()
         if UserDefaults.standard.object(forKey: "catalog.bulk.enabled.v1") == nil {
             isBulkImportEnabled = true
         } else {
@@ -1205,7 +1206,7 @@ final class CatalogModel {
     }
 
     private func persistSmallSettings() {
-        UserDefaults.standard.set(usdaAPIKey, forKey: "stocked.usdaAPIKey")
+        CatalogAPIKeyStore.save(usdaAPIKey)
         UserDefaults.standard.set(isBulkImportEnabled, forKey: "catalog.bulk.enabled.v1")
         UserDefaults.standard.set(isBulkImportPaused, forKey: "catalog.bulk.paused.v1")
         UserDefaults.standard.set(try? JSONEncoder().encode(bulkCursor), forKey: "catalog.bulk.cursor.v1")
@@ -1312,6 +1313,61 @@ final class CatalogModel {
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             value = try? container.decode(String.self, forKey: .value)
+        }
+    }
+}
+
+/// Keeps the optional data.gov (USDA) API key in the Keychain instead of
+/// UserDefaults, migrating any value saved by earlier builds on first load.
+private enum CatalogAPIKeyStore {
+    private static let account = "stocked.usdaAPIKey"
+    private static let service = "com.sowens.StockedMac.catalog"
+    private static var lastSaved: String?
+
+    private static var baseQuery: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: service,
+         kSecAttrAccount as String: account]
+    }
+
+    static func loadMigratingFromDefaults() -> String {
+        var query = baseQuery
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+           let data = item as? Data, let value = String(data: data, encoding: .utf8) {
+            lastSaved = value
+            UserDefaults.standard.removeObject(forKey: account)
+            return value
+        }
+        let legacy = UserDefaults.standard.string(forKey: account) ?? ""
+        if !legacy.isEmpty {
+            save(legacy)
+            if lastSaved == legacy { UserDefaults.standard.removeObject(forKey: account) }
+        }
+        return legacy
+    }
+
+    static func save(_ value: String) {
+        guard value != lastSaved else { return }
+        if value.isEmpty {
+            let status = SecItemDelete(baseQuery as CFDictionary)
+            if status == errSecSuccess || status == errSecItemNotFound {
+                lastSaved = value
+                UserDefaults.standard.removeObject(forKey: account)
+            }
+            return
+        }
+        var add = baseQuery
+        add[kSecValueData as String] = Data(value.utf8)
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        let status = SecItemAdd(add as CFDictionary, nil)
+        if status == errSecSuccess ||
+           (status == errSecDuplicateItem && SecItemUpdate(baseQuery as CFDictionary,
+               [kSecValueData as String: Data(value.utf8)] as CFDictionary) == errSecSuccess) {
+            lastSaved = value
+            UserDefaults.standard.removeObject(forKey: account)
         }
     }
 }
