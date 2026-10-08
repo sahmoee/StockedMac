@@ -149,17 +149,18 @@ nonisolated enum RecipeBrowseTaxonomy {
     static func categoryName(fromURL urlString: String) -> String {
         let decoded = urlString.removingPercentEncoding ?? urlString
         let path = URL(string: decoded)?.path ?? decoded
-        let segment = path
-            .split(separator: "/")
-            .map(String.init)
-            .last { seg in !seg.allSatisfy(\.isNumber) && seg.count > 1 }
-            ?? (URL(string: decoded)?.host ?? "Category")
-        let words = segment
+        let segments: [String] = path.split(separator: "/").map(String.init)
+        let lastWord: String? = segments.last { (seg: String) -> Bool in
+            !seg.allSatisfy { (c: Character) in c.isNumber } && seg.count > 1
+        }
+        let fallback: String = URL(string: decoded)?.host ?? "Category"
+        let segment: String = lastWord ?? fallback
+        let words: [String] = segment
             .replacingOccurrences(of: "_", with: "-")
             .split(separator: "-")
             .map(String.init)
-            .filter { !$0.isEmpty && !$0.allSatisfy(\.isNumber) }
-        let titled = words.map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .filter { (w: String) -> Bool in !w.isEmpty && !w.allSatisfy { (c: Character) in c.isNumber } }
+        let titled: [String] = words.map { (w: String) -> String in w.prefix(1).uppercased() + w.dropFirst() }
         let name = titled.joined(separator: " ")
         return name.isEmpty ? "Category" : name
     }

@@ -20,11 +20,14 @@ enum MacHarvestBridge {
     /// only the fallback for personal recipes without a source.
     @discardableResult
     static func add(_ drafts: [RecipeDraft], to store: MacKitchenStore) -> Int {
-        var existingSources: [String: UUID] = Dictionary(uniqueKeysWithValues: store.recipes.compactMap { recipe in
+        // Existing duplicate sources are valid user data. Pick the first retained
+        // record deterministically instead of trapping or deleting another recipe.
+        var existingSources: [String: UUID] = [:]
+        for recipe in store.recipes {
             guard let key = recipe.sourceURL.flatMap({ try? URLSafety.validatedRemoteURL($0) })
-                .map({ URLSafety.normalized($0).absoluteString }) else { return nil }
-            return (key, recipe.id)
-        })
+                .map({ URLSafety.normalized($0).absoluteString }) else { continue }
+            if existingSources[key] == nil { existingSources[key] = recipe.id }
+        }
         var personalTitles = Set(store.recipes.filter { $0.sourceURL?.nilIfBlank == nil }
             .map { normalizedTitle($0.title) })
         var added = 0
