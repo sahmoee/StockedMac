@@ -85,17 +85,17 @@ struct MacHouseholdView: View {
     // MARK: - Not joined
 
     private var joinCard: some View {
-        MacCard(title: "Join with a code", systemImage: "person.badge.key") {
+        MacCard(title: "Join with an invite", systemImage: "person.badge.key") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Open Stocked on your phone, go to Household, and read off the code.")
+                Text("Open Household on your phone and share a fresh invitation link.")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 8) {
-                    TextField("Code", text: $joinCode)
+                    TextField("Invitation link", text: $joinCode)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 15, weight: .medium, design: .monospaced))
-                        .frame(width: 160)
+                        .frame(minWidth: 160, maxWidth: .infinity)
                         .onSubmit(runJoin)
                     TextField("Your name on this Mac", text: $joinName)
                         .textFieldStyle(.roundedBorder)
@@ -114,7 +114,7 @@ struct MacHouseholdView: View {
     }
 
     private var canJoin: Bool {
-        !joinCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !MacHouseholdInvite.parse(joinCode).code.isEmpty && MacHouseholdInvite.parse(joinCode).invite != nil
         && !joinName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -180,11 +180,11 @@ struct MacHouseholdView: View {
                         .font(.system(size: 26, weight: .semibold, design: .monospaced))
                         .foregroundStyle(MacTheme.accent(dark: scheme == .dark))
                         .textSelection(.enabled)
-                    Button(justCopied ? "Copied" : "Copy") { copyCode() }
+                    Button(justCopied ? "Copied" : "Copy invitation") { copyCode() }
                         .buttonStyle(.link)
                     Spacer(minLength: 0)
                 }
-                Text("Read this out to anyone joining. They'll need it once.")
+                Text("Copy a fresh invitation for each person joining. The household code alone does not grant access.")
                     .font(.callout).foregroundStyle(.secondary)
 
                 Divider()
@@ -389,17 +389,21 @@ struct MacHouseholdView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Everything currently on this Mac stays on this Mac. You can rejoin later "
-                 + "with the same code.")
+                 + "with a fresh invitation link.")
         }
     }
 
     // MARK: - Actions
 
     private func copyCode() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(sync.code, forType: .string)
-        justCopied = true
+        guard !working else { return }
         Task {
+            working = true
+            defer { working = false }
+            guard let link = await sync.createInvite() else { problem = sync.status.message; return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(link, forType: .string)
+            justCopied = true
             try? await Task.sleep(nanoseconds: 1_400_000_000)
             justCopied = false
         }

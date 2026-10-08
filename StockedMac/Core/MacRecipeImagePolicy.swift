@@ -38,18 +38,18 @@ nonisolated enum MacRecipeImagePolicy {
                 guard let (index, recipe) = iterator.next() else { return }
                 group.addTask {
                     if isUsable(recipe.imageData) { return (index, recipe) }
-                    guard let imageURL = recipe.imageURL?.nilIfBlank else { return (index, nil) }
+                    guard let imageURL = recipe.imageURL?.nilIfBlank else { return (index, recipe) }
                     do {
                         var hydrated = recipe
                         hydrated.imageData = try await download(imageURL, referer: recipe.sourceURL)
                         return (index, hydrated)
                     } catch {
-                        return (index, nil)
+                        return (index, recipe)
                     }
                 }
             }
 
-            for _ in 0..<min(maximumConcurrent, recipes.count) { submitNext() }
+            for _ in 0..<min(max(1, maximumConcurrent), recipes.count) { submitNext() }
             while let (index, recipe) = await group.next() {
                 results[index] = recipe
                 submitNext()

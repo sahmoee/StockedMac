@@ -2,8 +2,8 @@
 //
 // This is the seam that makes the Mac app useful without coupling it to the iOS project.
 // The two apps share no code and no bundle identifier; what they share is the household
-// wire protocol on the Stocked Worker. The Mac joins with the same six-character code the
-// phone uses, becomes another member device, and pushes and pulls the same JSON.
+// wire protocol on the Stocked Worker. The Mac joins with the same eight-character code the
+// phone uses plus a single-use secret invitation, becomes another member device, and pushes and pulls the same JSON.
 //
 // Every route, body key and merge rule below is matched to Stocked/HouseholdSync.swift on
 // iOS. Rename a key here and the two stop agreeing — the phone will quietly ignore what
@@ -22,6 +22,7 @@
 import Foundation
 import Observation
 import os
+import Security
 
 // MARK: - Merge policy
 //
@@ -139,6 +140,7 @@ final class MacHouseholdSync {
     /// times out on a slow connection, even with a large recipe library.
     nonisolated static let maxPushBodyBytes = 800_000
 
+    @ObservationIgnored private var membershipEpoch: UInt64 = 0
     @ObservationIgnored private var autoSyncTask: Task<Void, Never>?
 
     private let log = Logger(subsystem: "com.sowens.StockedMac", category: "household")
@@ -172,6 +174,10 @@ final class MacHouseholdSync {
         code          = defaults.string(forKey: Key.code) ?? ""
         householdName = defaults.string(forKey: Key.hname) ?? ""
         lastPulledAt  = defaults.double(forKey: Key.since)
+        pendingInventoryDeletes = Set(defaults.stringArray(forKey: "mac_household_pending_inv_v1") ?? [])
+        pendingGroceryDeletes = Set(defaults.stringArray(forKey: "mac_household_pending_gro_v1") ?? [])
+        pendingRecipeDeletes = Set(defaults.stringArray(forKey: "mac_household_pending_rec_v1") ?? [])
+        pendingMealDeletes = Set(defaults.stringArray(forKey: "mac_household_pending_meal_v1") ?? [])
 
         if let existing = defaults.string(forKey: Key.member), !existing.isEmpty {
             memberID = existing
@@ -200,6 +206,10 @@ final class MacHouseholdSync {
         defaults.set(memberName, forKey: Key.name)
         defaults.set(householdName, forKey: Key.hname)
         defaults.set(lastPulledAt, forKey: Key.since)
+        defaults.set(Array(pendingInventoryDeletes), forKey: "mac_household_pending_inv_v1")
+        defaults.set(Array(pendingGroceryDeletes), forKey: "mac_household_pending_gro_v1")
+        defaults.set(Array(pendingRecipeDeletes), forKey: "mac_household_pending_rec_v1")
+        defaults.set(Array(pendingMealDeletes), forKey: "mac_household_pending_meal_v1")
     }
 
     func persistPreferences() {
@@ -220,15 +230,23 @@ final class MacHouseholdSync {
             return nil
         }
 
+        let requestEpoch = membershipEpoch
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         MacBuildConfig.authorizeWorkerRequest(&request)
+        guard let credential = MacHouseholdCredential.loadOrCreate() else {
+            status = .failed("Your secure household key is unavailable. Unlock your Mac and try again.")
+            return nil
+        }
+        request.setValue(memberID, forHTTPHeaderField: "X-Household-Member")
+        request.setValue(credential, forHTTPHeaderField: "X-Household-Credential")
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 12
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            guard requestEpoch == membershipEpoch, !Task.isCancelled else { return nil }
             guard let http = response as? HTTPURLResponse else { return nil }
 
             if http.statusCode == 429 {
@@ -251,6 +269,7 @@ final class MacHouseholdSync {
             }
             return object
         } catch {
+            guard requestEpoch == membershipEpoch, !Task.isCancelled else { return nil }
             log.error("household \(path, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             status = .failed("Couldn't reach Stocked. Check your connection.")
             return nil
@@ -262,6 +281,7 @@ final class MacHouseholdSync {
     /// Start a brand-new household from the Mac. Returns the code to share.
     @discardableResult
     func createHousehold(ownerName: String) async -> String? {
+        membershipEpoch &+= 1
         status = .syncing
         let trimmed = ownerName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let response = await post("/household/create",
@@ -282,17 +302,19 @@ final class MacHouseholdSync {
 
     /// Join the kitchen the phone already has. This is the normal path.
     func join(code newCode: String, as name: String) async -> Bool {
-        let cleanCode = newCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        membershipEpoch &+= 1
+        let parsed = MacHouseholdInvite.parse(newCode)
+        let cleanCode = parsed.code
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanCode.isEmpty else {
-            status = .failed("Enter your household code.")
+        guard !cleanCode.isEmpty, let invite = parsed.invite else {
+            status = .failed("Paste the invite link shared by your household manager.")
             return false
         }
         status = .syncing
         guard let response = await post("/household/join",
                                         ["code": cleanCode,
                                          "memberName": cleanName.isEmpty ? memberName : cleanName,
-                                         "memberId": memberID]),
+                                         "invite": invite, "memberId": memberID]),
               (response["ok"] as? Bool) == true else {
             if case .syncing = status { status = .failed("That code didn't work. Check it and try again.") }
             return false
@@ -310,6 +332,7 @@ final class MacHouseholdSync {
     /// and silently wiping the user's kitchen because they unlinked a device would be
     /// unforgivable. Settings offers a separate explicit "remove local data".
     func leave() async {
+        membershipEpoch &+= 1
         guard isJoined else { return }
         status = .syncing
         _ = await post("/household/leave",
@@ -348,12 +371,19 @@ final class MacHouseholdSync {
     /// Issue a new join code, invalidating the old one.
     @discardableResult
     func regenerateCode() async -> String? {
+        membershipEpoch &+= 1
         guard isJoined else { return nil }
         guard let response = await post("/household/regenerate", ["code": code]),
               let newCode = response["code"] as? String, !newCode.isEmpty else { return nil }
         code = newCode
         persistIdentity()
         return newCode
+    }
+
+    /// Manager-created single-use invitation; never persist the invite secret.
+    func createInvite() async -> String? {
+        guard isJoined, let response = await post("/household/invite", ["code": code]) else { return nil }
+        return response["link"] as? String
     }
 
     /// Who else is in the kitchen right now.
@@ -386,10 +416,10 @@ final class MacHouseholdSync {
     // The store calls these when the user removes something, so the next push carries the
     // tombstone. Without them a delete on the Mac is undone by the next pull.
 
-    func noteInventoryDeleted(_ id: UUID) { pendingInventoryDeletes.insert(id.uuidString) }
-    func noteGroceryDeleted(_ id: UUID)   { pendingGroceryDeletes.insert(id.uuidString) }
-    func noteRecipeDeleted(_ id: UUID)    { pendingRecipeDeletes.insert(id.uuidString) }
-    func noteMealDeleted(_ id: UUID)      { pendingMealDeletes.insert(id.uuidString) }
+    func noteInventoryDeleted(_ id: UUID) { pendingInventoryDeletes.insert(id.uuidString); persistIdentity() }
+    func noteGroceryDeleted(_ id: UUID)   { pendingGroceryDeletes.insert(id.uuidString); persistIdentity() }
+    func noteRecipeDeleted(_ id: UUID)    { pendingRecipeDeletes.insert(id.uuidString); persistIdentity() }
+    func noteMealDeleted(_ id: UUID)      { pendingMealDeletes.insert(id.uuidString); persistIdentity() }
 
     // MARK: - Sync
 
@@ -424,15 +454,21 @@ final class MacHouseholdSync {
             body["mealDeleted"]  = Array(pendingMealDeletes)
         }
 
+        let sentInventoryDeletes = pendingInventoryDeletes
+        let sentGroceryDeletes = pendingGroceryDeletes
+        let sentRecipeDeletes = pendingRecipeDeletes
+        let sentMealDeletes = pendingMealDeletes
         guard let response = await post("/household/push", body) else { return }
 
-        // The push succeeded, so the tombstones have been recorded server-side and can go.
-        pendingInventoryDeletes.removeAll()
-        pendingGroceryDeletes.removeAll()
-        pendingRecipeDeletes.removeAll()
-        pendingMealDeletes.removeAll()
+        // A response acknowledges only the deletions actually sent in that request.
+        if syncInventory { pendingInventoryDeletes.subtract(sentInventoryDeletes) }
+        if syncGrocery { pendingGroceryDeletes.subtract(sentGroceryDeletes) }
+        if syncRecipes { pendingRecipeDeletes.subtract(sentRecipeDeletes) }
+        if syncPlan { pendingMealDeletes.subtract(sentMealDeletes) }
 
+        let responseEpoch = membershipEpoch
         await apply(response["household"] as? [String: Any] ?? response, into: store)
+        guard responseEpoch == membershipEpoch, !Task.isCancelled else { return }
         lastPulledAt = Date().timeIntervalSince1970 * 1000
         persistIdentity()
         status = .synced(Date())
@@ -470,7 +506,9 @@ final class MacHouseholdSync {
         status = .syncing
         guard let response = await post("/household/pull",
                                         ["code": code, "since": lastPulledAt]) else { return }
+        let responseEpoch = membershipEpoch
         await apply(response["household"] as? [String: Any] ?? response, into: store)
+        guard responseEpoch == membershipEpoch, !Task.isCancelled else { return }
         lastPulledAt = Date().timeIntervalSince1970 * 1000
         persistIdentity()
         status = .synced(Date())
@@ -526,9 +564,8 @@ final class MacHouseholdSync {
     /// 3. Sort newest-first and drop from the tail until the payload fits. Pull always
     ///    fetches the whole library; only this incremental push is capped.
     private func recipesForPayload(_ store: MacKitchenStore) -> [[String: Any]] {
-        // Only sync recipes that have an image — imageless recipes render poorly
-        // on iOS and unnecessarily inflate the payload.
-        let withImages = store.recipes.filter { MacRecipeImagePolicy.isUsable($0.imageData) }
+        // Saved household recipes remain valid without an image.
+        let withImages = store.recipes
         var dicts = withImages.compactMap(userRecipeDict)
         guard !dicts.isEmpty else { return dicts }
 
@@ -606,7 +643,8 @@ final class MacHouseholdSync {
     /// Fold a household payload into the local store. Merge by id, last-write-wins with the
     /// shared tie-break, tombstones applied last so a remote delete beats a stale remote add.
     private func apply(_ payload: [String: Any]?, into store: MacKitchenStore) async {
-        guard let payload else { return }
+        let applyEpoch = membershipEpoch
+        guard let payload, !Task.isCancelled else { return }
 
         if let name = payload["name"] as? String, !name.isEmpty { householdName = name }
         readMembers(from: payload)
@@ -670,6 +708,7 @@ final class MacHouseholdSync {
                 cleaned.title = RecipeTitlePolicy.cleaned(cleaned.title)
                 return cleaned
             }
+            guard applyEpoch == membershipEpoch, !Task.isCancelled else { return }
             let deleted = Set((payload["userRecipeDeleted"] as? [String]) ?? [])
                 .union(pendingRecipeDeletes)
             var merged = store.recipes
@@ -711,5 +750,62 @@ final class MacHouseholdSync {
         }
 
         store.save()
+    }
+}
+
+
+/// A membership ID is public metadata; only this Keychain credential proves ownership.
+nonisolated enum MacHouseholdCredential {
+    static func loadOrCreate() -> String? {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.sowens.StockedMac.household",
+            kSecAttrAccount as String: "membership", kSecAttrSynchronizable as String: false]
+        var read = query
+        read[kSecReturnData as String] = true
+        read[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(read as CFDictionary, &result)
+        if status == errSecSuccess {
+            guard let data = result as? Data, let value = String(data: data, encoding: .utf8), value.count == 43,
+                  value.utf8.allSatisfy({ (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 45 || $0 == 95 }) else { return nil }
+            return value
+        }
+        guard status == errSecItemNotFound else { return nil }
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
+        let value = Data(bytes).base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        var insert = query
+        insert[kSecValueData as String] = Data(value.utf8)
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        let inserted = SecItemAdd(insert as CFDictionary, nil)
+        if inserted == errSecDuplicateItem {
+            var existing: CFTypeRef?
+            guard SecItemCopyMatching(read as CFDictionary, &existing) == errSecSuccess,
+                  let data = existing as? Data, let saved = String(data: data, encoding: .utf8),
+                  saved.count == 43,
+                  saved.utf8.allSatisfy({ (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 45 || $0 == 95 }) else { return nil }
+            return saved
+        }
+        guard inserted == errSecSuccess else { return nil }
+        return value
+    }
+}
+
+nonisolated enum MacHouseholdInvite {
+    static func parse(_ text: String) -> (code: String, invite: String?) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var invite: String?
+        if let range = trimmed.range(of: "invite=") {
+            let candidate = trimmed[range.upperBound...].prefix { !$0.isWhitespace && $0 != "&" }
+            let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+            if (43...128).contains(candidate.count), candidate.unicodeScalars.allSatisfy({ allowed.contains($0) }) { invite = String(candidate) }
+        }
+        var source = trimmed
+        if let join = trimmed.range(of: "/join/") {
+            source = String(trimmed[join.upperBound...].prefix { $0 != "#" && $0 != "?" && $0 != "/" })
+        } else if let hash = trimmed.firstIndex(of: "#") { source = String(trimmed[..<hash]) }
+        let code = source.uppercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
+        return (code.count == 8 ? code : "", invite)
     }
 }
