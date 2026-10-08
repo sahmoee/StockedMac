@@ -306,15 +306,15 @@ final class MacHouseholdSync {
         let parsed = MacHouseholdInvite.parse(newCode)
         let cleanCode = parsed.code
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanCode.isEmpty, let invite = parsed.invite else {
-            status = .failed("Paste the invite link shared by your household manager.")
+        guard !cleanCode.isEmpty else {
+            status = .failed("Enter the household code or paste an invite link.")
             return false
         }
         status = .syncing
         guard let response = await post("/household/join",
                                         ["code": cleanCode,
                                          "memberName": cleanName.isEmpty ? memberName : cleanName,
-                                         "invite": invite, "memberId": memberID]),
+                                         "invite": parsed.invite ?? "", "memberId": memberID]),
               (response["ok"] as? Bool) == true else {
             if case .syncing = status { status = .failed("That code didn't work. Check it and try again.") }
             return false
@@ -806,6 +806,6 @@ nonisolated enum MacHouseholdInvite {
             source = String(trimmed[join.upperBound...].prefix { $0 != "#" && $0 != "?" && $0 != "/" })
         } else if let hash = trimmed.firstIndex(of: "#") { source = String(trimmed[..<hash]) }
         let code = source.uppercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
-        return (code.count == 8 ? code : "", invite)
+        return ((6...16).contains(code.count) ? code : "", invite)
     }
 }

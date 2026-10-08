@@ -85,14 +85,14 @@ struct MacHouseholdView: View {
     // MARK: - Not joined
 
     private var joinCard: some View {
-        MacCard(title: "Join with an invite", systemImage: "person.badge.key") {
+        MacCard(title: "Join a household", systemImage: "person.badge.key") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Open Household on your phone and share a fresh invitation link.")
+                Text("Enter the household code from your phone, or paste an invite link.")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 8) {
-                    TextField("Invitation link", text: $joinCode)
+                    TextField("Code or invite link", text: $joinCode)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 15, weight: .medium, design: .monospaced))
                         .frame(minWidth: 160, maxWidth: .infinity)
@@ -114,7 +114,7 @@ struct MacHouseholdView: View {
     }
 
     private var canJoin: Bool {
-        !MacHouseholdInvite.parse(joinCode).code.isEmpty && MacHouseholdInvite.parse(joinCode).invite != nil
+        !MacHouseholdInvite.parse(joinCode).code.isEmpty
         && !joinName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -184,7 +184,7 @@ struct MacHouseholdView: View {
                         .buttonStyle(.link)
                     Spacer(minLength: 0)
                 }
-                Text("Copy a fresh invitation for each person joining. The household code alone does not grant access.")
+                Text("Share the code, or copy a single-use invitation link for each person joining.")
                     .font(.callout).foregroundStyle(.secondary)
 
                 Divider()
