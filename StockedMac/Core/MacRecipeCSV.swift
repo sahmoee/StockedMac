@@ -94,10 +94,7 @@ enum MacRecipeCSV {
 
     /// Quotes a field only when it needs it, and doubles any quote inside.
     static func csvEscape(_ s: String) -> String {
-        if s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r") {
-            return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-        }
-        return s
+        MacCSVInterchange.escape(s)
     }
 
     /// Case- and punctuation-insensitive key for title matching. "Mum's Ragù" and
@@ -251,7 +248,7 @@ enum MacRecipeCSV {
 
             func cell(_ i: Int?) -> String {
                 guard let i, i < cells.count else { return "" }
-                return cells[i].trimmingCharacters(in: .whitespacesAndNewlines)
+                return MacCSVInterchange.unguard(cells[i]).trimmingCharacters(in: .whitespacesAndNewlines)
             }
 
             let title = cell(titleCol)
