@@ -7,6 +7,8 @@ struct MacCatalogView: View {
     @State private var filter: CatalogRecordKind?
     @State private var editingRecord: CatalogRecord?
     @State private var sourcePendingDeletion: CatalogSource?
+    @State private var pendingDeletionIDs: Set<UUID> = []
+    @State private var pendingDeletionFromLibrary = false
 
     private enum Mode: String, CaseIterable, Identifiable { case discover = "Find & Import", library = "Library", sources = "Sources"; var id: String { rawValue } }
     private var rows: [CatalogRecord] {
@@ -19,12 +21,32 @@ struct MacCatalogView: View {
         VStack(spacing: 0) {
             Picker("Workspace", selection: $mode) { ForEach(Mode.allCases) { Text($0.rawValue).tag($0) } }
                 .pickerStyle(.segmented).frame(maxWidth: 520).padding()
+            if let warning = catalog.storageWarning {
+                Label(warning, systemImage: "exclamationmark.triangle").font(.caption).padding(.horizontal)
+            }
+            if catalog.catalogSaveNeedsRetry {
+                Button("Retry saving catalog") { catalog.retryCatalogSave() }.padding(.bottom, 8)
+            }
             Divider()
             if mode == .sources { sourcesView }
             else if mode == .discover { discoverView }
             else { libraryView }
         }
         .macThemedSurface()
+        .onChange(of: mode) { _, _ in selection.removeAll() }
+        .confirmationDialog("Delete \(pendingDeletionIDs.count) catalog records?", isPresented: Binding(
+            get: { !pendingDeletionIDs.isEmpty }, set: { if !$0 { pendingDeletionIDs.removeAll() } }
+        ), titleVisibility: .visible) {
+            let ids = pendingDeletionIDs
+            let fromLibrary = pendingDeletionFromLibrary
+            Button("Delete records", role: .destructive) {
+                if fromLibrary { catalog.deleteLibrary(ids) }
+                else { catalog.removeFromQueue(ids) }
+                selection.subtract(ids)
+                pendingDeletionIDs.removeAll()
+            }
+            Button("Cancel", role: .cancel) { pendingDeletionIDs.removeAll() }
+        }
         .sheet(item: $editingRecord) { record in
             CatalogRecordEditor(record: record) { catalog.update($0) }
                 .macThemedSurface()
@@ -188,6 +210,7 @@ struct MacCatalogView: View {
                             if source == .usda {
                                 SecureField("data.gov API key (optional)", text: $catalog.usdaAPIKey)
                                     .textFieldStyle(.roundedBorder)
+                                    .onChange(of: catalog.usdaAPIKey) { _, _ in catalog.saveSettings() }
                                 Link("Get a free key", destination: URL(string: "https://api.data.gov/signup/")!)
                             }
                         }.padding(8)
@@ -225,8 +248,8 @@ struct MacCatalogView: View {
                         Button("Edit") { editingRecord = record }
                     }
                     Button("Delete \(selection.count)", role: .destructive) {
-                        mode == .library ? catalog.deleteLibrary(selection) : catalog.removeFromQueue(selection)
-                        selection.removeAll()
+                        pendingDeletionIDs = selection.intersection(Set(records.map(\.id)))
+                        pendingDeletionFromLibrary = mode == .library
                     }
                 }
             }.padding(16)
@@ -253,6 +276,7 @@ struct MacCatalogView: View {
     private func sourceBinding(_ source: CatalogSource) -> Binding<Bool> {
         Binding(get: { catalog.selectedSources.contains(source) }, set: { enabled in
             if enabled { catalog.selectedSources.insert(source) } else { catalog.selectedSources.remove(source) }
+            catalog.saveSettings()
         })
     }
 }

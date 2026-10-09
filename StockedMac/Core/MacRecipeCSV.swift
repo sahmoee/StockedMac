@@ -65,7 +65,7 @@ nonisolated struct MacRecipeCSVMatch: Identifiable, Sendable {
 
     var isAmbiguous: Bool { candidates.count > 1 }
     var isUnmatched: Bool { candidates.isEmpty }
-    var isClean: Bool     { candidates.count == 1 }
+    var isClean: Bool { candidates.count == 1 }
 }
 
 /// Everything the confirmation window needs. A plan describes what *could* be removed;
@@ -76,7 +76,7 @@ nonisolated struct MacRecipeCSVPlan: Sendable {
     var hadRemoveColumn: Bool = false
     var parseError: String?
 
-    var clean: [MacRecipeCSVMatch]     { matches.filter(\.isClean) }
+    var clean: [MacRecipeCSVMatch] { matches.filter(\.isClean) }
     var ambiguous: [MacRecipeCSVMatch] { matches.filter(\.isAmbiguous) }
     var unmatched: [MacRecipeCSVMatch] { matches.filter(\.isUnmatched) }
 }
@@ -94,10 +94,7 @@ enum MacRecipeCSV {
 
     /// Quotes a field only when it needs it, and doubles any quote inside.
     static func csvEscape(_ s: String) -> String {
-        if s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r") {
-            return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-        }
-        return s
+        MacCSVInterchange.escape(s)
     }
 
     /// Case- and punctuation-insensitive key for title matching. "Mum's Ragù" and
@@ -112,6 +109,7 @@ enum MacRecipeCSV {
     /// RFC-4180-ish reader: handles quoted fields, embedded commas, embedded newlines,
     /// doubled quotes, and CRLF. Tolerant of a trailing newline and of blank lines.
     static func parseCSVRows(_ text: String) -> [[String]] {
+        let text = text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
         var rows: [[String]] = []
         var field = ""
         var row: [String] = []
@@ -145,8 +143,7 @@ enum MacRecipeCSV {
                 switch ch {
                 case "\"": inQuotes = true
                 case ",":  endField()
-                case "\n": endRow()
-                case "\r": break            // CRLF — the \n does the work
+                case "\r\n", "\n", "\r": endRow()
                 default:   field.append(ch)
                 }
             }
@@ -251,7 +248,7 @@ enum MacRecipeCSV {
 
             func cell(_ i: Int?) -> String {
                 guard let i, i < cells.count else { return "" }
-                return cells[i].trimmingCharacters(in: .whitespacesAndNewlines)
+                return MacCSVInterchange.unguard(cells[i]).trimmingCharacters(in: .whitespacesAndNewlines)
             }
 
             let title = cell(titleCol)
@@ -341,7 +338,7 @@ enum MacRecipeCSV {
             if candidates.isEmpty, !row.title.isEmpty {
                 let key = normKey(row.title)
                 if row.library != .saved { candidates += byTitleMine[key] ?? [] }
-                if row.library != .mine  { candidates += byTitleSaved[key] ?? [] }
+                if row.library != .mine { candidates += byTitleSaved[key] ?? [] }
             }
 
             if candidates.count == 1, seen.contains(candidates[0].id) { continue }
@@ -390,7 +387,7 @@ enum MacRecipeCSV {
         let doomedSaved = store.savedRecipes.filter { savedRecipeIDs.contains($0.id) }
         let backupURL = writeBackup(userRecipes: doomedMine, generated: doomedSaved)
 
-        if !recipeIDs.isEmpty      { store.deleteRecipe(ids: recipeIDs) }
+        if !recipeIDs.isEmpty { store.deleteRecipe(ids: recipeIDs) }
         if !savedRecipeIDs.isEmpty { store.deleteSavedRecipes(ids: savedRecipeIDs) }
 
         let total = doomedMine.count + doomedSaved.count

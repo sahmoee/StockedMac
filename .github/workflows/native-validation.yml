@@ -1,0 +1,44 @@
+name: Native validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select installed Xcode 26
+        run: |
+          XCODE=$(python3 -c 'import glob,re; paths=glob.glob("/Applications/Xcode_26*.app"); assert paths, "Xcode 26 is required"; print(max(paths,key=lambda p:tuple(map(int,re.findall(r"\d+",p)))))')
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+      - name: Validate tracked project
+        run: plutil -lint StockedMac.xcodeproj/project.pbxproj
+      - name: Build Mac app and run presentation tests
+        run: |
+          set -o pipefail
+          mkdir -p validation/native
+          xcodebuild -project StockedMac.xcodeproj -scheme Presentation -configuration Debug -destination 'platform=macOS' -jobs 2 -parallel-testing-enabled NO -derivedDataPath "$RUNNER_TEMP/StockedMacDerivedData" -resultBundlePath validation/native/mac-tests.xcresult -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO test 2>&1 | tee validation/native/mac-tests.log
+      - name: Retain build and test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-validation-diagnostics
+          path: |
+            validation/native/*.log
+            validation/native/*.xcresult
+            PresentationTests/__Snapshots__/**/*.png
+          if-no-files-found: warn
+          retention-days: 7
