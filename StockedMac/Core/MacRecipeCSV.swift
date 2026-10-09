@@ -109,6 +109,7 @@ enum MacRecipeCSV {
     /// RFC-4180-ish reader: handles quoted fields, embedded commas, embedded newlines,
     /// doubled quotes, and CRLF. Tolerant of a trailing newline and of blank lines.
     static func parseCSVRows(_ text: String) -> [[String]] {
+        let text = text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
         var rows: [[String]] = []
         var field = ""
         var row: [String] = []
@@ -142,8 +143,7 @@ enum MacRecipeCSV {
                 switch ch {
                 case "\"": inQuotes = true
                 case ",":  endField()
-                case "\n": endRow()
-                case "\r": break            // CRLF — the \n does the work
+                case "\r\n", "\n", "\r": endRow()
                 default:   field.append(ch)
                 }
             }
