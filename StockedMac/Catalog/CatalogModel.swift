@@ -205,10 +205,17 @@ nonisolated private struct CatalogSnapshot: Codable, Sendable {
     var queue: [CatalogRecord]
 }
 
-private actor CatalogSnapshotWriter {
-    func write(_ snapshot: CatalogSnapshot, to url: URL) {
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        try? data.write(to: url, options: .atomic)
+nonisolated private final class CatalogSnapshotWriter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var newestGeneration: UInt = 0
+
+    func write(_ snapshot: CatalogSnapshot, to url: URL, generation: UInt = 0) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard generation >= newestGeneration else { return }
+        let data = try JSONEncoder().encode(snapshot)
+        try data.write(to: url, options: .atomic)
+        newestGeneration = generation
     }
 }
 
@@ -252,6 +259,8 @@ final class CatalogModel {
     var isDiscovering = false
     var status = "Ready"
     var lastError: String?
+    var storageWarning: String?
+    var catalogSaveNeedsRetry = false
     var usdaAPIKey = ""
     var isBulkImportEnabled = false
     var isBulkImportPaused = false
@@ -265,7 +274,7 @@ final class CatalogModel {
     }
 
     private let session: URLSession
-    private let saveURL: URL
+    private var saveURL: URL
     private var bulkTask: Task<Void, Never>?
     private var bulkRunID: UUID?
     /// Catalog snapshots can be several megabytes. Coalescing nearby mutations avoids
@@ -279,6 +288,7 @@ final class CatalogModel {
     private var libraryIdentityIndex: [String: Int] = [:]
     private var queueIdentityIndex: [String: Int] = [:]
     private var bulkCursor = BulkCursor()
+    private var providerOperationInFlight = false
     private var requestQueryOverride: String?
     private var requestLocationOverride: String?
     private var requestQuery: String { requestQueryOverride ?? query }
@@ -355,8 +365,6 @@ final class CatalogModel {
         bulkTask?.cancel()
         bulkTask = nil
         bulkRunID = nil
-        requestQueryOverride = nil
-        requestLocationOverride = nil
         bulkStatus = "Stopped — saved position will be used the next time you start"
         saveNow()
     }
@@ -415,7 +423,9 @@ final class CatalogModel {
             if mutation.actorID != mutationActorID {
                 apply(mutation)
             }
-            try? Data(Date().ISO8601Format().utf8).write(to: receipt, options: .atomic)
+            guard saveNow() else { continue }
+            do { try Data(Date().ISO8601Format().utf8).write(to: receipt, options: .atomic) }
+            catch { lastError = "Catalog changes were saved, but their acknowledgement could not be written." }
         }
     }
 
@@ -462,6 +472,11 @@ final class CatalogModel {
                 serverBatchStatus = "Ignored invalid Server Mac catalog batch \(file.lastPathComponent)"
                 continue
             }
+            if batch.batchID != ".", batch.batchID != "..",
+               batch.batchID.range(of: "^[A-Za-z0-9._-]{1,200}$", options: .regularExpression) != nil {
+                let legacyReceipt = receipts.appendingPathComponent(batch.batchID).appendingPathExtension("receipt")
+                if FileManager.default.fileExists(atPath: legacyReceipt.path) { continue }
+            }
             var added = 0, enriched = 0
             var queuedIDsToRemove = Set<UUID>()
             for var record in batch.records where record.source != .legacyRemoved && record.name.nilIfBlank != nil {
@@ -481,7 +496,11 @@ final class CatalogModel {
                 queue.removeAll { queuedIDsToRemove.contains($0.id) }
                 rebuildQueueIdentityIndex()
             }
-            let receipt = receipts.appendingPathComponent(batch.batchID).appendingPathExtension("receipt")
+            let receipt = receipts.appendingPathComponent(file.deletingPathExtension().lastPathComponent).appendingPathExtension("receipt")
+            guard saveNow() else {
+                serverBatchStatus = "Server Mac batch is awaiting a durable catalog save"
+                continue
+            }
             do {
                 try Data("\(Date().ISO8601Format()) added=\(added) enriched=\(enriched)\n".utf8).write(to: receipt, options: .atomic)
                 serverImportedCount += added
@@ -498,64 +517,76 @@ final class CatalogModel {
     /// never resets the global sweep or strands already-discovered data in a review queue.
     private func runBulkImport(runID: UUID) async {
         defer {
-            requestQueryOverride = nil
-            requestLocationOverride = nil
-            if bulkRunID == runID {
-                bulkTask = nil
-                bulkRunID = nil
-            }
+            if bulkRunID == runID { bulkTask = nil; bulkRunID = nil }
         }
-        while isBulkImportEnabled && !Task.isCancelled {
-            requestLocationOverride = Self.storeRegions[bulkCursor.regionIndex % Self.storeRegions.count]
-            let sources = orderedSources().filter { selectedSources.contains($0) }
-            guard !sources.isEmpty else {
-                bulkStatus = "Select at least one source to continue"
-                try? await Task.sleep(for: .seconds(5))
-                continue
-            }
-
-            let source = sources[bulkCursor.sourceIndex % sources.count]
-            if let until = bulkCursor.cooldowns[source.rawValue], until > Date() {
-                advanceBulkCursor(sourceCount: sources.count)
-                try? await Task.sleep(for: .seconds(1))
-                continue
-            }
-
-            let seed = Self.bulkSeeds[bulkCursor.seedIndex % Self.bulkSeeds.count]
-            requestQueryOverride = seed
-            bulkStatus = "Importing \(source.rawValue) · \(seed) · page \(bulkCursor.page + 1)"
-
-            do {
-                let records = try await fetch(source: source, limit: 50, page: bulkCursor.page)
-                bulkRequestCount += 1
-                let merged = mergeDiscovered(records)
-                let before = library.count
-                importQueued(enrichAfterImport: false)
-                bulkImportedCount += max(0, library.count - before)
-                bulkStatus = "Added \(merged.added), enriched \(merged.enriched) · \(library.count) total"
-                bulkCursor.consecutiveFailures[source.rawValue] = 0
-                advanceBulkCursor(sourceCount: sources.count, received: records.count, source: source)
-            } catch is CancellationError {
-                break
-            } catch MacServiceError.rateLimited(let retryAfter) {
-                let delay = max(60, retryAfter ?? 300)
-                bulkCursor.cooldowns[source.rawValue] = Date().addingTimeInterval(delay)
-                bulkStatus = "\(source.rawValue) cooling down; continuing with other sources"
-                advanceBulkCursor(sourceCount: sources.count)
-            } catch {
-                let failures = (bulkCursor.consecutiveFailures[source.rawValue] ?? 0) + 1
-                bulkCursor.consecutiveFailures[source.rawValue] = failures
-                let delay = min(3_600.0, pow(2, Double(min(failures, 8))) * 15)
-                bulkCursor.cooldowns[source.rawValue] = Date().addingTimeInterval(delay)
-                bulkStatus = "\(source.rawValue) deferred for \(Int(delay / 60)) min; continuing with other sources"
-                advanceBulkCursor(sourceCount: sources.count)
-            }
-
-            requestQueryOverride = nil
-            requestLocationOverride = nil
-            save()
-            try? await Task.sleep(for: .milliseconds(Self.delayMilliseconds(for: source)))
+        while isBulkImportEnabled && !Task.isCancelled && bulkRunID == runID {
+            let delay = await runBulkStep(runID: runID)
+            // Release query context before throttling so waiting manual operations run.
+            do { try await Task.sleep(for: .milliseconds(delay)) }
+            catch { break }
         }
+    }
+
+    private func runBulkStep(runID: UUID) async -> Int {
+        guard await acquireProviderOperation() else { return 0 }
+        defer { releaseProviderOperation() }
+        guard bulkRunID == runID, isBulkImportEnabled else { return 0 }
+        requestLocationOverride = Self.storeRegions[bulkCursor.regionIndex % Self.storeRegions.count]
+        let sources = orderedSources().filter { selectedSources.contains($0) }
+        guard !sources.isEmpty else { bulkStatus = "Select at least one source to continue"; return 5_000 }
+        let source = sources[bulkCursor.sourceIndex % sources.count]
+        if let until = bulkCursor.cooldowns[source.rawValue], until > Date() {
+            advanceBulkCursor(sourceCount: sources.count)
+            return 1_000
+        }
+        let seed = Self.bulkSeeds[bulkCursor.seedIndex % Self.bulkSeeds.count]
+        requestQueryOverride = seed
+        bulkStatus = "Importing \(source.rawValue) · \(seed) · page \(bulkCursor.page + 1)"
+        do {
+            let records = try await fetch(source: source, limit: 50, page: bulkCursor.page)
+            guard !Task.isCancelled, bulkRunID == runID, isBulkImportEnabled else { return 0 }
+            bulkRequestCount += 1
+            let merged = mergeDiscovered(records)
+            let before = library.count
+            importQueued(enrichAfterImport: false)
+            bulkImportedCount += max(0, library.count - before)
+            bulkStatus = "Added \(merged.added), enriched \(merged.enriched) · \(library.count) total"
+            bulkCursor.consecutiveFailures[source.rawValue] = 0
+            advanceBulkCursor(sourceCount: sources.count, received: records.count, source: source)
+        } catch is CancellationError { return 0 }
+        catch let error as URLError where error.code == .cancelled { return 0 }
+        catch MacServiceError.rateLimited(let retryAfter) {
+            bulkCursor.cooldowns[source.rawValue] = Date().addingTimeInterval(max(60, retryAfter ?? 300))
+            bulkStatus = "\(source.rawValue) cooling down; continuing with other sources"
+            advanceBulkCursor(sourceCount: sources.count)
+        } catch {
+            let failures = (bulkCursor.consecutiveFailures[source.rawValue] ?? 0) + 1
+            bulkCursor.consecutiveFailures[source.rawValue] = failures
+            let delay = min(3_600.0, pow(2, Double(min(failures, 8))) * 15)
+            bulkCursor.cooldowns[source.rawValue] = Date().addingTimeInterval(delay)
+            bulkStatus = "\(source.rawValue) deferred for \(Int(delay / 60)) min; continuing with other sources"
+            advanceBulkCursor(sourceCount: sources.count)
+        }
+        save()
+        return Self.delayMilliseconds(for: source)
+    }
+
+    // Provider methods use shared query overrides. One lease prevents an unrelated
+    // async search from replacing that context while a request is suspended.
+    private func acquireProviderOperation() async -> Bool {
+        while providerOperationInFlight {
+            do { try await Task.sleep(for: .milliseconds(50)) }
+            catch { return false }
+        }
+        guard !Task.isCancelled else { return false }
+        providerOperationInFlight = true
+        return true
+    }
+
+    private func releaseProviderOperation() {
+        requestQueryOverride = nil
+        requestLocationOverride = nil
+        providerOperationInFlight = false
     }
 
     private func advanceBulkCursor(sourceCount: Int, received: Int? = nil, source: CatalogSource? = nil) {
@@ -591,13 +622,22 @@ final class CatalogModel {
         lastError = nil
         status = "Searching selected sources…"
         defer { isDiscovering = false; save() }
+        guard await acquireProviderOperation() else { status = "Search cancelled."; return }
+        defer { releaseProviderOperation() }
         var found: [CatalogRecord] = []
         var failures: [String] = []
         let perSource = max(10, resultLimit / max(1, selectedSources.count))
 
         for source in orderedSources() where selectedSources.contains(source) {
+            guard !Task.isCancelled else { status = "Search cancelled."; return }
             do {
-                found += try await fetch(source: source, limit: perSource, page: 0)
+                let records = try await fetch(source: source, limit: perSource, page: 0)
+                guard !Task.isCancelled else { status = "Search cancelled."; return }
+                found += records
+            } catch is CancellationError {
+                status = "Search cancelled."; return
+            } catch let error as URLError where error.code == .cancelled {
+                status = "Search cancelled."; return
             } catch {
                 failures.append("\(source.rawValue): \(error.localizedDescription)")
             }
@@ -740,13 +780,15 @@ final class CatalogModel {
     /// the first page forever. Provider failures keep the current record and retry on
     /// the next cycle; partial enrichment is saved after each record.
     func enrichAllExisting(prioritizing ids: [UUID] = [], batchSize: Int = 20) async {
+        guard await acquireProviderOperation() else { return }
+        defer { releaseProviderOperation() }
         guard !library.isEmpty else { return }
         let cursorKey = "catalog.enrichmentCursor.v2"
-        let start = UserDefaults.standard.integer(forKey: cursorKey) % library.count
+        let start = max(0, UserDefaults.standard.integer(forKey: cursorKey)) % library.count
         let prioritized = ids.compactMap { id in library.firstIndex(where: { $0.id == id }) }
-        let rotating = (0..<min(batchSize, library.count)).map { (start + $0) % library.count }
+        let rotating = (0..<max(0, min(batchSize, library.count))).map { (start + $0) % library.count }
         var seen = Set<Int>()
-        let indexes = (prioritized + rotating).filter { seen.insert($0).inserted }
+        let recordIDs = (prioritized + rotating).filter { seen.insert($0).inserted }.map { library[$0].id }
         defer {
             requestQueryOverride = nil
             requestLocationOverride = nil
@@ -754,21 +796,25 @@ final class CatalogModel {
             save()
         }
 
-        for index in indexes where library.indices.contains(index) {
-            let base = library[index]
+        for id in recordIDs {
+            guard !Task.isCancelled else { return }
+            guard let base = library.first(where: { $0.id == id }) else { continue }
             requestQueryOverride = base.name
             if base.kind == .store {
                 requestLocationOverride = base.address ?? base.name
-            } else if Self.isHEBRecord(base) {
-                requestLocationOverride = "Texas"
+            } else {
+                requestLocationOverride = Self.isHEBRecord(base) ? "Texas" : nil
             }
             var candidates: [CatalogRecord] = []
-            for source in orderedSources() where source != .legacyRemoved {
+            for source in orderedSources() where selectedSources.contains(source) && source != .legacyRemoved {
+                guard !Task.isCancelled else { return }
                 do { candidates += try await fetch(source: source, limit: 12) }
-                catch { continue }
+                catch { if Task.isCancelled { return }; continue }
             }
+            guard !Task.isCancelled, let index = library.firstIndex(where: { $0.id == id }),
+                  library[index].identityKey == base.identityKey else { continue }
             let matches = candidates.filter { Self.matches($0, base) }.sorted { $0.confidence > $1.confidence }
-            for match in matches { _ = library[index].mergeEnrichment(from: match) }
+            for match in matches { _ = mergeLibrary(at: index, from: match) }
             if library[index].aisle?.nilIfBlank == nil {
                 library[index].aisle = GroceryAisleClassifier.aisle(for: library[index].category ?? library[index].name)
             }
@@ -779,17 +825,21 @@ final class CatalogModel {
     }
 
     func enrichInventoryItem(id: UUID, store: MacKitchenStore) async {
+        guard await acquireProviderOperation() else { return }
+        defer { releaseProviderOperation() }
         guard let item = store.inventory.first(where: { $0.id == id }) else { return }
-        defer { requestQueryOverride = nil; requestLocationOverride = nil }
         requestQueryOverride = [item.brand, item.name].compactMap { $0?.nilIfBlank }.joined(separator: " ")
         if [item.brand, item.name].compactMap({ $0 }).contains(where: Self.isHEBText) {
             requestLocationOverride = "Texas"
         }
         var candidates: [CatalogRecord] = []
-        for source in orderedSources() where source != .legacyRemoved && source != .openStreetMap {
+        for source in orderedSources() where selectedSources.contains(source) && source != .legacyRemoved && source != .openStreetMap {
+            guard !Task.isCancelled else { return }
             do { candidates += try await fetch(source: source, limit: 12) }
-            catch { continue }
+            catch { if Task.isCancelled { return }; continue }
         }
+        guard !Task.isCancelled, let current = store.inventory.first(where: { $0.id == id }),
+              current.name == item.name, current.brand == item.brand, current.barcode == item.barcode else { return }
         let base = CatalogRecord(kind: .product, name: item.name, brand: item.brand,
                                  barcode: item.barcode, source: .stockedReference, state: .imported)
         let matches = candidates.filter { Self.matches($0, base) }.sorted { $0.confidence > $1.confidence }
@@ -813,10 +863,10 @@ final class CatalogModel {
     func enrichInventoryBatch(store: MacKitchenStore, limit: Int = 20) async {
         guard !store.inventory.isEmpty else { return }
         let key = "catalog.inventoryEnrichmentCursor.v2"
-        let start = UserDefaults.standard.integer(forKey: key) % store.inventory.count
-        let ids = (0..<min(limit, store.inventory.count)).map { store.inventory[(start + $0) % store.inventory.count].id }
+        let start = max(0, UserDefaults.standard.integer(forKey: key)) % store.inventory.count
+        let ids = (0..<max(0, min(limit, store.inventory.count))).map { store.inventory[(start + $0) % store.inventory.count].id }
         UserDefaults.standard.set((start + ids.count) % store.inventory.count, forKey: key)
-        for id in ids { await enrichInventoryItem(id: id, store: store) }
+        for id in ids { guard !Task.isCancelled else { return }; await enrichInventoryItem(id: id, store: store) }
     }
 
     private func fetch(source: CatalogSource, limit: Int, page: Int = 0) async throws -> [CatalogRecord] {
@@ -901,7 +951,10 @@ final class CatalogModel {
     }
 
     private func fetchUSDA(limit: Int, page: Int) async throws -> [CatalogRecord] {
-        var request = URLRequest(url: URL(string: "https://api.nal.usda.gov/fdc/v1/foods/search?api_key=\(usdaAPIKey.nilIfBlank ?? "DEMO_KEY")")!)
+        var components = URLComponents(string: "https://api.nal.usda.gov/fdc/v1/foods/search")!
+        components.queryItems = [URLQueryItem(name: "api_key", value: usdaAPIKey.nilIfBlank ?? "DEMO_KEY")]
+        guard let url = components.url else { throw MacServiceError.invalidRequest("The USDA catalog request could not be created.") }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["query": providerQuery(for: .usda), "dataType": ["Branded"], "pageSize": min(limit, 100), "pageNumber": page + 1])
@@ -1161,11 +1214,26 @@ final class CatalogModel {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: saveURL), let snapshot = try? JSONDecoder().decode(CatalogSnapshot.self, from: data) else { return }
-        library = snapshot.library; queue = snapshot.queue
-        library.removeAll { $0.source == .legacyRemoved }
-        queue.removeAll { $0.source == .legacyRemoved }
-        rebuildIdentityIndexes()
+        // Small settings and credential migration must also run on a fresh install
+        // or when an existing catalog needs repair.
+        if FileManager.default.fileExists(atPath: saveURL.path) {
+            do {
+                let snapshot = try JSONDecoder().decode(CatalogSnapshot.self, from: Data(contentsOf: saveURL))
+                library = snapshot.library; queue = snapshot.queue
+                library.removeAll { $0.source == .legacyRemoved }
+                queue.removeAll { $0.source == .legacyRemoved }
+                rebuildIdentityIndexes()
+            } catch {
+                storageWarning = "The original catalog could not be loaded and has been preserved. Changes are saved to a recovery catalog."
+                saveURL = saveURL.deletingLastPathComponent().appendingPathComponent("brand-store-catalog.recovered.json")
+                if let recoveredData = try? Data(contentsOf: saveURL),
+                   let recovered = try? JSONDecoder().decode(CatalogSnapshot.self, from: recoveredData) {
+                    library = recovered.library.filter { $0.source != .legacyRemoved }
+                    queue = recovered.queue.filter { $0.source != .legacyRemoved }
+                    rebuildIdentityIndexes()
+                }
+            }
+        }
         usdaAPIKey = CatalogAPIKeyStore.loadMigratingFromDefaults()
         if UserDefaults.standard.object(forKey: "catalog.bulk.enabled.v1") == nil {
             isBulkImportEnabled = true
@@ -1175,7 +1243,17 @@ final class CatalogModel {
         isBulkImportPaused = UserDefaults.standard.bool(forKey: "catalog.bulk.paused.v1")
         if isBulkImportPaused { isBulkImportEnabled = false }
         if let data = UserDefaults.standard.data(forKey: "catalog.bulk.cursor.v1"),
-           let cursor = try? JSONDecoder().decode(BulkCursor.self, from: data) { bulkCursor = cursor }
+           var cursor = try? JSONDecoder().decode(BulkCursor.self, from: data) {
+            cursor.sourceIndex = max(0, cursor.sourceIndex)
+            cursor.seedIndex = max(0, cursor.seedIndex)
+            cursor.regionIndex = max(0, cursor.regionIndex)
+            cursor.page = min(49, max(0, cursor.page))
+            bulkCursor = cursor
+        }
+        if let data = UserDefaults.standard.data(forKey: "catalog.selectedSources.v1"),
+           let sources = try? JSONDecoder().decode([CatalogSource].self, from: data) {
+            selectedSources = Set(sources.filter { $0 != .legacyRemoved })
+        }
     }
 
     private func save() {
@@ -1188,7 +1266,16 @@ final class CatalogModel {
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
             guard let self else { return }
-            await snapshotWriter.write(snapshot, to: destination)
+            do {
+                let writer = snapshotWriter
+                try await Task.detached { try writer.write(snapshot, to: destination, generation: generation) }.value
+                if saveGeneration == generation { clearSaveFailure() }
+            } catch {
+                if saveGeneration == generation {
+                    catalogSaveNeedsRetry = true
+                    lastError = "Catalog changes could not be saved. Your changes remain in memory; retry before quitting."
+                }
+            }
             if saveGeneration == generation { pendingSaveTask = nil }
         }
         persistSmallSettings()
@@ -1197,19 +1284,38 @@ final class CatalogModel {
 
     /// Used at pause/stop boundaries where the resumable cursor must be durable before
     /// returning. Ordinary mutations use the coalesced writer above.
-    private func saveNow() {
+    @discardableResult private func saveNow() -> Bool {
         pendingSaveTask?.cancel()
         saveGeneration &+= 1
         pendingSaveTask = nil
-        try? JSONEncoder().encode(CatalogSnapshot(library: library, queue: queue)).write(to: saveURL, options: .atomic)
+        do {
+            try snapshotWriter.write(CatalogSnapshot(library: library, queue: queue), to: saveURL, generation: saveGeneration)
+        } catch {
+            catalogSaveNeedsRetry = true
+            lastError = "Catalog changes could not be saved. Your changes remain in memory; retry before quitting."
+            bulkStatus = "Stopped; catalog progress could not be saved"
+            return false
+        }
         persistSmallSettings()
+        clearSaveFailure()
+        return true
     }
+
+    func retryCatalogSave() { saveNow() }
+
+    private func clearSaveFailure() {
+        catalogSaveNeedsRetry = false
+        if lastError == "Catalog changes could not be saved. Your changes remain in memory; retry before quitting." { lastError = nil }
+    }
+
+    func saveSettings() { persistSmallSettings() }
 
     private func persistSmallSettings() {
         CatalogAPIKeyStore.save(usdaAPIKey)
         UserDefaults.standard.set(isBulkImportEnabled, forKey: "catalog.bulk.enabled.v1")
         UserDefaults.standard.set(isBulkImportPaused, forKey: "catalog.bulk.paused.v1")
         UserDefaults.standard.set(try? JSONEncoder().encode(bulkCursor), forKey: "catalog.bulk.cursor.v1")
+        UserDefaults.standard.set(try? JSONEncoder().encode(Array(selectedSources)), forKey: "catalog.selectedSources.v1")
     }
 
     private struct BulkCursor: Codable {
