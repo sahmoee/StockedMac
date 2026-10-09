@@ -65,7 +65,7 @@ nonisolated struct MacRecipeCSVMatch: Identifiable, Sendable {
 
     var isAmbiguous: Bool { candidates.count > 1 }
     var isUnmatched: Bool { candidates.isEmpty }
-    var isClean: Bool     { candidates.count == 1 }
+    var isClean: Bool { candidates.count == 1 }
 }
 
 /// Everything the confirmation window needs. A plan describes what *could* be removed;
@@ -76,7 +76,7 @@ nonisolated struct MacRecipeCSVPlan: Sendable {
     var hadRemoveColumn: Bool = false
     var parseError: String?
 
-    var clean: [MacRecipeCSVMatch]     { matches.filter(\.isClean) }
+    var clean: [MacRecipeCSVMatch] { matches.filter(\.isClean) }
     var ambiguous: [MacRecipeCSVMatch] { matches.filter(\.isAmbiguous) }
     var unmatched: [MacRecipeCSVMatch] { matches.filter(\.isUnmatched) }
 }
@@ -338,7 +338,7 @@ enum MacRecipeCSV {
             if candidates.isEmpty, !row.title.isEmpty {
                 let key = normKey(row.title)
                 if row.library != .saved { candidates += byTitleMine[key] ?? [] }
-                if row.library != .mine  { candidates += byTitleSaved[key] ?? [] }
+                if row.library != .mine { candidates += byTitleSaved[key] ?? [] }
             }
 
             if candidates.count == 1, seen.contains(candidates[0].id) { continue }
@@ -387,7 +387,7 @@ enum MacRecipeCSV {
         let doomedSaved = store.savedRecipes.filter { savedRecipeIDs.contains($0.id) }
         let backupURL = writeBackup(userRecipes: doomedMine, generated: doomedSaved)
 
-        if !recipeIDs.isEmpty      { store.deleteRecipe(ids: recipeIDs) }
+        if !recipeIDs.isEmpty { store.deleteRecipe(ids: recipeIDs) }
         if !savedRecipeIDs.isEmpty { store.deleteSavedRecipes(ids: savedRecipeIDs) }
 
         let total = doomedMine.count + doomedSaved.count
