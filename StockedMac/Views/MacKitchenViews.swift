@@ -3,10 +3,13 @@ import SwiftUI
 import WebKit
 
 struct MacHomeView: View {
+    /// Live design observation: re-evaluates MacTheme colors in place (no identity reset).
+    @Environment(\.macDesignVariant) private var themeVariant
     @Environment(MacKitchenStore.self) private var store
     @Environment(MacNavigation.self) private var navigation
 
     var body: some View {
+        let _ = themeVariant
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 190))], spacing: 14) {
                 metric("Stocked", "\(store.metrics.stockPercent)%", "refrigerator")
@@ -190,9 +193,12 @@ struct MacPlanView: View {
 }
 
 struct MacCookView: View {
+    /// Live design observation: re-evaluates MacTheme colors in place (no identity reset).
+    @Environment(\.macDesignVariant) private var themeVariant
     @Environment(MacKitchenStore.self) private var store
 
     var body: some View {
+        let _ = themeVariant
         List(store.recipes.filter { store.canCook($0) }) { recipe in
             Label(recipe.title, systemImage: "checkmark.circle.fill")
                 .foregroundStyle(MacTheme.green)
@@ -234,6 +240,8 @@ struct MacToolsView: View {
 // MARK: - HarvestDraftDetail
 
 struct HarvestDraftDetail: View {
+    /// Live design observation: re-evaluates MacTheme colors in place (no identity reset).
+    @Environment(\.macDesignVariant) private var themeVariant
     let draft: RecipeDraft
     @Binding var addStatus: String?
 
@@ -244,6 +252,7 @@ struct HarvestDraftDetail: View {
     @State private var showWebPreview = false
 
     var body: some View {
+        let _ = themeVariant
         VStack(spacing: 0) {
             if showWebPreview, let url = URL(string: draft.source.url) {
                 HStack(spacing: 6) {

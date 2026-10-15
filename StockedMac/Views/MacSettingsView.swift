@@ -11,17 +11,23 @@ import SwiftUI
 import AppKit
 
 struct MacSettingsView: View {
+    /// Live design observation: re-evaluates MacTheme colors in place (no identity reset).
+    @Environment(\.macDesignVariant) private var themeVariant
     @Environment(MacKitchenStore.self) private var store
     @Environment(MacHouseholdSync.self) private var sync
 
     @State private var confirmErase = false
     @State private var confirmSample = false
     @State private var erasedNotice = false
+    @AppStorage(MacDesignVariant.defaultsKey) private var designVariantRaw = MacDesignVariant.current.rawValue
 
     var body: some View {
+        let _ = themeVariant
         TabView {
             general
                 .tabItem { Label("General", systemImage: "gearshape") }
+            appearance
+                .tabItem { Label("Appearance", systemImage: "paintpalette") }
             data
                 .tabItem { Label("Data", systemImage: "internaldrive") }
             about
@@ -87,6 +93,42 @@ struct MacSettingsView: View {
                         .font(.caption).foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    // MARK: - Appearance
+
+    /// Optional designs. Writing the stable identifier is the whole persistence story;
+    /// unknown stored values show (and behave) as Current.
+    private var appearance: some View {
+        Form {
+            Section {
+                Picker("Design", selection: Binding(
+                    get: { MacDesignVariant(storedValue: designVariantRaw) },
+                    set: { designVariantRaw = $0.rawValue })) {
+                    ForEach(MacDesignVariant.allCases) { variant in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(variant == .current ? "Current (default)" : variant.title)
+                            Text(variant.summary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .tag(variant)
+                        .accessibilityLabel(variant == .current ? "Current design, default" : "\(variant.title) design")
+                        .accessibilityHint(variant.summary)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+            } header: {
+                Text("Design")
+            } footer: {
+                Text("Current keeps the standard Mac look and your system Light or Dark setting. "
+                     + "Evening Table is always dark. The same choice is available in Stocked on iPhone and iPad.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .formStyle(.grouped)

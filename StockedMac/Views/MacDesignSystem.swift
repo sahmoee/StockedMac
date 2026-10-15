@@ -1,10 +1,24 @@
 import SwiftUI
+import AppKit
 
 enum MacTheme {
-    static let gold = Color(red: 0.78, green: 0.57, blue: 0.16)
-    static let green = Color(red: 0.20, green: 0.58, blue: 0.32)
-    static let low = Color.orange
-    static let urgent = Color.red
+    // Current values are unchanged; a selected design variant supplies its own roles.
+    // The colors resolve per appearance, so Journal/Standard follow system Light/Dark.
+    nonisolated static var gold: Color { variantColor(\.accent) ?? Color(red: 0.78, green: 0.57, blue: 0.16) }
+    nonisolated static var green: Color { variantColor(\.success) ?? Color(red: 0.20, green: 0.58, blue: 0.32) }
+    nonisolated static var low: Color { variantColor(\.warn) ?? Color.orange }
+    nonisolated static var urgent: Color { variantColor(\.danger) ?? Color.red }
+
+    /// A dynamic color for the stored variant's role, or nil for the Current design.
+    nonisolated static func variantColor(_ role: KeyPath<MacVariantPalette, UInt32>,
+                                         variant: MacDesignVariant = .stored()) -> Color? {
+        guard variant != .current else { return nil }
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            guard let palette = variant.palette(dark: dark) else { return .controlAccentColor }
+            return NSColor(macHex: palette[keyPath: role])
+        })
+    }
 
     static let pad: CGFloat = 16
     static let sidebarMin: CGFloat = 180
@@ -14,24 +28,42 @@ enum MacTheme {
     static let minWindowHeight: CGFloat = 560
 
     static func accent(dark: Bool) -> Color {
-        dark ? Color(red: 0.95, green: 0.75, blue: 0.30) : gold
+        if let variant = variantColor(\.accent) { return variant }
+        return dark ? Color(red: 0.95, green: 0.75, blue: 0.30) : gold
     }
 
     static func expiryColor(daysLeft: Int?) -> Color {
         guard let daysLeft else { return .secondary }
         if daysLeft < 0 { return urgent }
-        if daysLeft <= 2 { return .orange }
+        if daysLeft <= 2 { return low }
         return green
     }
 }
 
 struct MacSectionHeader: View {
+    @Environment(\.macDesignVariant) private var variant
     let title: String
 
     var body: some View {
-        Text(title.uppercased())
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
+        if variant == .current {
+            Text(title.uppercased())
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        } else {
+            // Variants: a real heading (grouped sections, clear type hierarchy).
+            Text(title)
+                .font(MacTheme.heading(15, variant: variant))
+                .foregroundStyle(.primary)
+                .accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, variant.compactSections ? 8 : 0)
+                .padding(.vertical, variant.compactSections ? 4 : 0)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background {
+                    if variant.compactSections {
+                        RoundedRectangle(cornerRadius: 4).fill(MacTheme.variantColor(\.soft, variant: variant) ?? .clear)
+                    }
+                }
+        }
     }
 }
 
@@ -49,8 +81,9 @@ struct MacPill: View {
         .foregroundStyle(tint)
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(tint.opacity(0.12), in: Capsule())
+        .background(tint.opacity(0.12), in: MacTheme.chipShape(variant))
     }
+    @Environment(\.macDesignVariant) private var variant
 }
 
 struct MacEmpty: View {
@@ -81,20 +114,135 @@ struct MacCard<Content: View>: View {
         self.content = content()
     }
 
+    @Environment(\.macDesignVariant) private var variant
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        if let radius = variant.componentRadius {
+            variantBody(radius: radius)
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                if title != nil || systemImage != nil || footnote != nil {
+                    HStack(spacing: 7) {
+                        if let systemImage { Image(systemName: systemImage).foregroundStyle(MacTheme.gold) }
+                        if let title { Text(title).font(.headline) }
+                        Spacer(minLength: 0)
+                        if let footnote { Text(footnote).font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+                content
+            }
+            .padding(MacTheme.pad)
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.separator.opacity(0.35)))
+        }
+    }
+
+    /// Variant section: surface fill, hairline border, no shadow, heading-typed title.
+    private func variantBody(radius: Double) -> some View {
+        VStack(alignment: .leading, spacing: variant.compactSections ? 8 : 12) {
             if title != nil || systemImage != nil || footnote != nil {
                 HStack(spacing: 7) {
-                    if let systemImage { Image(systemName: systemImage).foregroundStyle(MacTheme.gold) }
-                    if let title { Text(title).font(.headline) }
+                    if let systemImage { Image(systemName: systemImage).foregroundStyle(MacTheme.gold).accessibilityHidden(true) }
+                    if let title {
+                        Text(title).font(MacTheme.heading(variant.compactSections ? 14 : 17, variant: variant))
+                            .accessibilityAddTraits(.isHeader)
+                    }
                     Spacer(minLength: 0)
                     if let footnote { Text(footnote).font(.caption).foregroundStyle(.secondary) }
+                }
+                .padding(.horizontal, variant.compactSections ? 8 : 0)
+                .padding(.vertical, variant.compactSections ? 5 : 0)
+                .background {
+                    if variant.compactSections {
+                        RoundedRectangle(cornerRadius: 4).fill(MacTheme.variantColor(\.soft, variant: variant) ?? .clear)
+                    }
                 }
             }
             content
         }
-        .padding(MacTheme.pad)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.separator.opacity(0.35)))
+        .padding(variant.compactSections ? 12 : MacTheme.pad)
+        .background(MacTheme.variantColor(\.surface, variant: variant) ?? .clear,
+                    in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .strokeBorder(MacTheme.variantColor(\.line, variant: variant) ?? .clear, lineWidth: 1))
     }
+}
+
+// MARK: - Design variants (SwiftUI layer)
+
+extension NSColor {
+    nonisolated convenience init(macHex hex: UInt32) {
+        self.init(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+                  green: CGFloat((hex >> 8) & 0xFF) / 255,
+                  blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+    }
+}
+
+private struct MacDesignVariantKey: EnvironmentKey {
+    static let defaultValue = MacDesignVariant.current
+}
+
+extension EnvironmentValues {
+    var macDesignVariant: MacDesignVariant {
+        get { self[MacDesignVariantKey.self] }
+        set { self[MacDesignVariantKey.self] = newValue }
+    }
+}
+
+extension MacTheme {
+    /// Heading font: Georgia for Journal/Evening, semibold system for Standard, and the
+    /// plain system headline for Current. Sizes scale with the system text size.
+    static func heading(_ size: CGFloat, variant: MacDesignVariant) -> Font {
+        if let family = variant.headingFamily {
+            return .custom(family, size: size, relativeTo: .headline)
+        }
+        return variant == .current ? .headline : .system(size: size, weight: .semibold)
+    }
+
+    static func chipShape(_ variant: MacDesignVariant) -> AnyShape {
+        if let radius = variant.chipRadius {
+            return AnyShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        }
+        return AnyShape(Capsule())
+    }
+}
+
+/// Installed once per scene (main window and Settings). Current applies nothing, so the
+/// shipped native look and system appearance are untouched.
+struct MacDesignVariantRoot: ViewModifier {
+    @AppStorage(MacDesignVariant.defaultsKey) private var raw = MacDesignVariant.current.rawValue
+
+    // No `.id`: view identity, navigation, selections and unsaved drafts survive a design
+    // change. Views that read legacy `MacTheme` colors observe `macDesignVariant` and
+    // re-evaluate in place; shared components read the environment directly.
+    func body(content: Content) -> some View {
+        let variant = MacDesignVariant(storedValue: raw)
+        // nil/automatic values for Current are exactly SwiftUI's defaults.
+        content
+            .environment(\.macDesignVariant, variant)
+            .tint(MacTheme.variantColor(\.accent, variant: variant))
+            .buttonBorderShape(variant.componentRadius.map { .roundedRectangle(radius: $0) } ?? .automatic)
+            .font(variant.bodyFamily.map { Font.custom($0, size: 13, relativeTo: .body) })
+            .preferredColorScheme(variant.forcesDarkAppearance ? .dark : nil)
+    }
+}
+
+/// Variant canvas behind detail panes and forms; Current keeps the system background.
+struct MacDesignVariantCanvas: ViewModifier {
+    @Environment(\.macDesignVariant) private var variant
+
+    func body(content: Content) -> some View {
+        if variant == .current {
+            content
+        } else {
+            content
+                .scrollContentBackground(.hidden)
+                .background(MacTheme.variantColor(\.bg, variant: variant) ?? .clear)
+        }
+    }
+}
+
+extension View {
+    func macDesignVariantRoot() -> some View { modifier(MacDesignVariantRoot()) }
+    func macDesignVariantCanvas() -> some View { modifier(MacDesignVariantCanvas()) }
 }

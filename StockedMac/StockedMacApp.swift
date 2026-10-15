@@ -48,6 +48,8 @@ struct StockedMacApp: App {
                 .environment(auth)
                 .environment(harvest)
                 .environment(catalog)
+                // Optional design variant; Current applies only SwiftUI defaults.
+                .macDesignVariantRoot()
                 .frame(minWidth: MacTheme.minWindowWidth,
                        minHeight: MacTheme.minWindowHeight)
                 // A gentle fade rather than a hard swap, so signing in doesn't feel like
@@ -117,6 +119,7 @@ struct StockedMacApp: App {
                 .environment(store)
                 .environment(sync)
                 .environment(auth)
+                .macDesignVariantRoot()
                 .frame(width: 560, height: 520)
         }
 

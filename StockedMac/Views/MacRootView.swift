@@ -91,6 +91,8 @@ final class MacNavigation {
 }
 
 struct MacRootView: View {
+    /// Live design observation: re-evaluates MacTheme colors in place (no identity reset).
+    @Environment(\.macDesignVariant) private var themeVariant
     @Environment(MacKitchenStore.self) private var store
     @Environment(MacHouseholdSync.self) private var sync
     @Environment(HarvestModel.self) private var harvest
@@ -101,6 +103,7 @@ struct MacRootView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     var body: some View {
+        let _ = themeVariant
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
                 .navigationSplitViewColumnWidth(min: MacTheme.sidebarMin,
@@ -108,6 +111,7 @@ struct MacRootView: View {
                                                 max: MacTheme.sidebarMax)
         } detail: {
             detail
+                .macDesignVariantCanvas()
                 .frame(minWidth: 640, minHeight: 420)
         }
         .navigationTitle(navigation.section.rawValue)

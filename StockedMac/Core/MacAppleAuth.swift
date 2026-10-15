@@ -31,9 +31,12 @@ final class MacAppleAuth {
 }
 
 struct MacWelcomeView: View {
+    /// Live design observation: re-evaluates MacTheme colors in place (no identity reset).
+    @Environment(\.macDesignVariant) private var themeVariant
     @Environment(MacAppleAuth.self) private var auth
 
     var body: some View {
+        let _ = themeVariant
         VStack(spacing: 18) {
             Image(systemName: "refrigerator.fill")
                 .font(.system(size: 54))

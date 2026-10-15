@@ -12,6 +12,8 @@ import SwiftUI
 import AppKit
 
 struct MacHouseholdView: View {
+    /// Live design observation: re-evaluates MacTheme colors in place (no identity reset).
+    @Environment(\.macDesignVariant) private var themeVariant
     @Environment(MacKitchenStore.self) private var store
     @Environment(MacHouseholdSync.self) private var sync
     @Environment(\.colorScheme) private var scheme
@@ -27,6 +29,7 @@ struct MacHouseholdView: View {
     @State private var justCopied = false
 
     var body: some View {
+        let _ = themeVariant
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 header

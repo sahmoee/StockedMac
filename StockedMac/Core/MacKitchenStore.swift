@@ -41,6 +41,9 @@ nonisolated struct MacKitchenSnapshot: Codable, Sendable {
     var profile:      UserCookingProfile   = UserCookingProfile()
     var exportedAt:   Date                 = Date()
     var appVersion:   String               = ""
+    /// Optional design identifier (`current`, `pantryJournal`, …). Additive: older files
+    /// omit it, older builds ignore it, and unknown values restore as `current`.
+    var designVariant: String?             = nil
 
     init(
         inventory: [LocalInventoryItem] = [],
@@ -51,7 +54,8 @@ nonisolated struct MacKitchenSnapshot: Codable, Sendable {
         pastMeals: [LocalPastMeal] = [],
         profile: UserCookingProfile = UserCookingProfile(),
         exportedAt: Date = Date(),
-        appVersion: String = ""
+        appVersion: String = "",
+        designVariant: String? = nil
     ) {
         self.inventory = inventory
         self.grocery = grocery
@@ -62,6 +66,7 @@ nonisolated struct MacKitchenSnapshot: Codable, Sendable {
         self.profile = profile
         self.exportedAt = exportedAt
         self.appVersion = appVersion
+        self.designVariant = designVariant
     }
 
     init(from decoder: Decoder) throws {
@@ -75,7 +80,9 @@ nonisolated struct MacKitchenSnapshot: Codable, Sendable {
         profile = try values.decodeIfPresent(UserCookingProfile.self, forKey: .profile) ?? UserCookingProfile()
         exportedAt = try values.decodeIfPresent(Date.self, forKey: .exportedAt) ?? Date()
         appVersion = try values.decodeIfPresent(String.self, forKey: .appVersion) ?? ""
+        designVariant = try values.decodeIfPresent(String.self, forKey: .designVariant)
     }
+
 }
 
 @MainActor
@@ -657,7 +664,8 @@ final class MacKitchenStore {
                            savedRecipes: savedRecipes,
                            plannedMeals: plannedMeals, pastMeals: pastMeals,
                            profile: profile, exportedAt: Date(),
-                           appVersion: MacBuildConfig.displayLabel)
+                           appVersion: MacBuildConfig.displayLabel,
+                           designVariant: MacDesignVariant.backupValue(from: .standard))
     }
 
     func exportData() throws -> Data {
@@ -682,6 +690,7 @@ final class MacKitchenStore {
         }
 
         isRestoring = true
+        MacDesignVariant.restoreBackupValue(incoming.designVariant, into: .standard)
         if replace {
             inventory    = incoming.inventory
             grocery      = incoming.grocery

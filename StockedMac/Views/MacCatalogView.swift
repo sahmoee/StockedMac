@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct MacCatalogView: View {
+    /// Live design observation: re-evaluates MacTheme colors in place (no identity reset).
+    @Environment(\.macDesignVariant) private var themeVariant
     @Environment(CatalogModel.self) private var catalog
     @State private var mode = Mode.discover
     @State private var selection: Set<UUID> = []
@@ -14,6 +16,7 @@ struct MacCatalogView: View {
     }
 
     var body: some View {
+        let _ = themeVariant
         @Bindable var catalog = catalog
         VStack(spacing: 0) {
             Picker("Workspace", selection: $mode) { ForEach(Mode.allCases) { Text($0.rawValue).tag($0) } }

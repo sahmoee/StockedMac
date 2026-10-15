@@ -6,6 +6,8 @@ import SwiftUI
 import WebKit
 
 struct MacBrowserPanel: View {
+    /// Live design observation: re-evaluates MacTheme colors in place (no identity reset).
+    @Environment(\.macDesignVariant) private var themeVariant
     @Environment(HarvestModel.self) private var harvest
     @Environment(\.dismiss) private var dismiss
 
@@ -21,6 +23,7 @@ struct MacBrowserPanel: View {
     @FocusState private var addressFocused: Bool
 
     var body: some View {
+        let _ = themeVariant
         VStack(spacing: 0) {
             navigationBar
             Divider()

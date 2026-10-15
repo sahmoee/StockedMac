@@ -15,6 +15,7 @@ struct MacRecipesView: View {
     @Environment(MacNavigation.self) private var navigation
     @Environment(HarvestModel.self) private var harvest
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.macDesignVariant) private var variant
 
     @State private var selection: UUID?
     @State private var search = ""
@@ -124,7 +125,7 @@ struct MacRecipesView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(MacTheme.variantColor(\.bg, variant: variant) ?? Color(nsColor: .windowBackgroundColor))
         .sheet(isPresented: $navigation.isAddingItem) {
             MacRecipeEditor(recipe: nil) { newRecipe in
                 store.addRecipe(newRecipe)
@@ -219,6 +220,7 @@ struct MacRecipesView: View {
                     }
             }
             .listStyle(.sidebar)
+            .macDesignVariantCanvas()
 
             Divider()
 
@@ -254,7 +256,9 @@ struct MacRecipesView: View {
                             .font(.system(size: 9))
                             .foregroundStyle(MacTheme.gold)
                     }
-                    Text(recipe.title).font(.callout.weight(.medium)).lineLimit(1)
+                    Text(recipe.title)
+                        .font(variant == .current ? .callout.weight(.medium) : MacTheme.heading(14, variant: variant))
+                        .lineLimit(variant == .current ? 1 : 2)
                 }
                 HStack(spacing: 6) {
                     Text(recipe.sourceName?.nilIfBlank ?? "Personal recipe")
@@ -351,7 +355,7 @@ struct MacRecipesView: View {
             }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .clipShape(RoundedRectangle(cornerRadius: variant.chipRadius ?? 7))
     }
 
     private func uniqueSorted(_ values: [String]) -> [String] {
@@ -433,16 +437,19 @@ struct MacRecipeDetail: View {
 
     @Environment(MacKitchenStore.self) private var store
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.macDesignVariant) private var variant
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: variant.compactSections ? 10 : 14) {
                 if let data = recipe.imageData, let image = NSImage(data: data) {
+                    // Evening Table leads with a larger photo; Standard keeps it compact.
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFill()
-                        .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 260)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .frame(maxWidth: .infinity, minHeight: variant == .kitchenStandard ? 150 : 180,
+                               maxHeight: variant.recipeHeroMaxHeight)
+                        .clipShape(RoundedRectangle(cornerRadius: variant.componentRadius ?? 14))
                         .clipped()
                         .accessibilityLabel("Photo of \(recipe.title)")
                 }
@@ -484,14 +491,21 @@ struct MacRecipeDetail: View {
                     }
                 }
             }
-            .padding(18)
+            .padding(variant == .current ? 18 : 24)
+            .frame(maxWidth: variant == .current ? nil : 980, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .macDesignVariantCanvas()
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(recipe.title).font(.system(size: 21, weight: .semibold))
+                Text(recipe.title)
+                    .font(variant == .current ? .system(size: 21, weight: .semibold)
+                          : MacTheme.heading(variant.recipeTitleSize, variant: variant))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 8)
                 Button {
                     store.toggleFavorite(recipeID: recipe.id)
@@ -501,7 +515,12 @@ struct MacRecipeDetail: View {
                 }
                 .buttonStyle(.borderless)
                 .help(recipe.isFavorited ? "Remove from favourites" : "Add to favourites")
-                Button("Edit…", action: onEdit)
+                if variant == .current {
+                    Button("Edit…", action: onEdit)
+                } else {
+                    // One clear primary action per recipe.
+                    Button("Edit…", action: onEdit).buttonStyle(.borderedProminent)
+                }
                 Menu {
                     Button("Copy full recipe") { copyRecipe() }
                     Button("Copy ingredients") { copyIngredients() }
@@ -615,12 +634,15 @@ struct MacRecipeDetail: View {
                 VStack(alignment: .leading, spacing: 9) {
                     ForEach(Array(recipe.instructions.enumerated()), id: \.offset) { pair in
                         HStack(alignment: .firstTextBaseline, spacing: 9) {
-                            Text("\(pair.offset + 1)")
+                            Text(variant == .current ? "\(pair.offset + 1)" : String(format: "%02d", pair.offset + 1))
                                 .font(.caption.monospacedDigit().weight(.semibold))
                                 .foregroundStyle(MacTheme.accent(dark: scheme == .dark))
-                                .frame(width: 16, alignment: .trailing)
+                                .frame(width: variant == .current ? 16 : 22, alignment: .trailing)
+                                .accessibilityLabel("Step \(pair.offset + 1)")
                             Text(pair.element)
-                                .font(.callout)
+                                // Cooking steps read larger in the recipe-first Evening design.
+                                .font(variant == .eveningTable ? .body : .callout)
+                                .lineSpacing(variant == .current ? 0 : 3)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }

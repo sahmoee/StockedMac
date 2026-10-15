@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 @preconcurrency import Vision
 
 struct MacBrowseView: View {
+    /// Live design observation: re-evaluates MacTheme colors in place (no identity reset).
+    @Environment(\.macDesignVariant) private var themeVariant
     @Environment(HarvestModel.self) private var harvest
     @Environment(MacKitchenStore.self) private var store
 
@@ -89,6 +91,7 @@ struct MacBrowseView: View {
     // MARK: - Body
 
     var body: some View {
+        let _ = themeVariant
         VStack(spacing: 0) {
             if harvest.isPaused { pauseBanner }
             paneSwitcher
@@ -1161,6 +1164,8 @@ struct MacBrowseView: View {
 }
 
 private struct SourceRecipeCategoryMultiPicker: View {
+    /// Live design observation: re-evaluates MacTheme colors in place (no identity reset).
+    @Environment(\.macDesignVariant) private var themeVariant
     let categories: [SourceCategory]
     @Binding var selection: Set<String>
     @State private var search = ""
@@ -1179,6 +1184,7 @@ private struct SourceRecipeCategoryMultiPicker: View {
     }
 
     var body: some View {
+        let _ = themeVariant
         VStack(spacing: 0) {
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -1233,6 +1239,8 @@ private struct SourceRecipeCategoryMultiPicker: View {
 /// health dots, and a running count. Selection lives in the parent so the action
 /// buttons can follow it.
 private struct SourceMultiPicker: View {
+    /// Live design observation: re-evaluates MacTheme colors in place (no identity reset).
+    @Environment(\.macDesignVariant) private var themeVariant
     @Environment(HarvestModel.self) private var harvest
     @Binding var search: String
     @Binding var selected: Set<String>
@@ -1278,6 +1286,7 @@ private struct SourceMultiPicker: View {
     }
 
     var body: some View {
+        let _ = themeVariant
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 5) {
                 Image(systemName: "magnifyingglass").font(.caption2).foregroundStyle(.secondary)

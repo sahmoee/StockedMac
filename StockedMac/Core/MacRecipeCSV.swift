@@ -478,6 +478,8 @@ enum MacRecipeCSVWindow {
 /// the wrong dinner. Rows that matched nothing are listed at the bottom, so a typo reads
 /// as a typo instead of as silence.
 struct MacRecipeCSVRemovalView: View {
+    /// Live design observation: re-evaluates MacTheme colors in place (no identity reset).
+    @Environment(\.macDesignVariant) private var themeVariant
 
     let plan: MacRecipeCSVPlan
     /// nil = cancelled.
@@ -492,6 +494,7 @@ struct MacRecipeCSVRemovalView: View {
     private var selectedCount: Int { selected.count }
 
     var body: some View {
+        let _ = themeVariant
         VStack(spacing: 0) {
             header
             Divider()
