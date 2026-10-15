@@ -20,5 +20,5 @@ extension String { var nilIfBlank: String? { isEmpty ? nil : self } }
 '''
 with tempfile.TemporaryDirectory(prefix='stockedmac-hydration-') as d:
  p=pathlib.Path(d);(p/'checks.swift').write_text(policy+fixtures)
- subprocess.run(['/Library/Developer/CommandLineTools/usr/bin/swiftc','-parse-as-library','-sdk','/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk',str(p/'checks.swift'),'-o',str(p/'checks')],check=True)
+ subprocess.run([subprocess.check_output(['xcrun', '--find', 'swiftc'], text=True).strip(),'-parse-as-library','-sdk',subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip(),str(p/'checks.swift'),'-o',str(p/'checks')],check=True)
  subprocess.run([str(p/'checks')],check=True)
