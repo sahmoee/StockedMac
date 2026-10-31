@@ -1,3 +1,6 @@
+<!-- PROJECT-KNOWLEDGE managed; do not edit this export -->
+> Maintained in ProjectKnowledge: `projects/stockedmac/documents/PRIVACY.md`. This is a generated portable read-only export. Update the central source with `project-knowledge put`; use `project-knowledge publish` to refresh exports. Relative links and code paths below refer to this original project location.
+
 # StockedMac Privacy Policy
 
 **Effective and last updated: August 8, 2026**
@@ -11,6 +14,10 @@ StockedMac stores inventory, groceries, recipes, saved recipes, meal plans, cook
 ## Recipe browsing and imports
 
 When you browse, test, or import a recipe source, StockedMac connects to the website or feed you selected and may download pages, sitemaps, feeds, and images. The publisher and its network providers can receive your IP address, request time, user-agent string, and requested URL under their own policies. Imported recipe text, source URL, and images may be saved locally.
+
+An optional background service on the owner's Server Mac can visit enabled, robots-aware recipe sitemaps at a bounded rate and send candidate URLs to StockedMac. StockedMac—not the server service—parses and approves each candidate, requires a usable image and source attribution, removes duplicates, and publishes accepted structured recipes to the Stocked service for access by StockedMac and invited Stocked iOS devices. The visited publisher receives the ordinary network request information described above.
+
+StockedMac does not claim ownership of third-party recipes, photographs, editorial text, names, logos, or trademarks. Rights remain with their respective creators, publishers, or rights holders. The app retains the source link and attribution when available. Rights holders may request correction or removal by contacting support.
 
 ## Stocked Worker, household sync, and AI
 

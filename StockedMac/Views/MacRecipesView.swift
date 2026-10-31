@@ -8,17 +8,19 @@
 // an inventory at all, so it should be visible without pressing anything.
 
 import AppKit
+import QuickLook
 import SwiftUI
 
 struct MacRecipesView: View {
     @Environment(MacKitchenStore.self) private var store
     @Environment(MacNavigation.self) private var navigation
     @Environment(HarvestModel.self) private var harvest
+    @Environment(MacDesktopExperience.self) private var desktop
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var scheme
     @Environment(\.macDesignVariant) private var variant
 
     @State private var selection: UUID?
-    @State private var search = ""
     @State private var sort: Sort = .name
     @State private var favoritesOnly = false
     @State private var selectedCuisine = ""
@@ -26,12 +28,25 @@ struct MacRecipesView: View {
     @State private var selectedDifficulty = ""
     @State private var selectedRole = ""
     @State private var editingID: UUID?
+    @State private var previewURL: URL?
+    @State private var pendingDeletion: UserRecipe?
+    @State private var previewError: String?
+    @State private var materializedRows: [UserRecipe] = []
+    @State private var scope: MacRecipeScope = .all
+    @State private var isNamingFilter = false
+    @State private var filterName = ""
+    @State private var revealToken = 0
     @FocusState private var searchFocused: Bool
 
     private enum Sort: String, CaseIterable, Identifiable {
         case name     = "Name"
         case recent   = "Recently added"
         case favorites = "Favorites first"
+        case oldest = "Oldest added"
+        case updated = "Recently updated"
+        case source = "Source"
+        case ingredients = "Fewest ingredients"
+        case quickest = "Quickest total time"
         var id: String { rawValue }
     }
 
@@ -53,10 +68,29 @@ struct MacRecipesView: View {
         }
     }
 
-    private var rows: [UserRecipe] {
-        var items = store.recipes
+    private var rows: [UserRecipe] { materializedRows }
 
-        let tokens = searchTokens(search)
+    private var recipeRevision: [RecipeRevisionToken] {
+        store.recipes.map { RecipeRevisionToken(id: $0.id, updatedAt: $0.updatedAt) }
+    }
+
+    private var filterRevision: String {
+        [navigation.searchText, sort.rawValue, favoritesOnly.description, selectedCuisine,
+         selectedTag, selectedDifficulty, selectedRole, scope.rawValue].joined(separator: "\u{1F}")
+    }
+
+    private struct RecipeRevisionToken: Equatable {
+        let id: UUID
+        let updatedAt: Double
+    }
+
+    private func rebuildRows() {
+        var items = store.recipes.filter {
+            !MacRecipeImagePolicy.isKnownPublisherPlaceholder($0.imageURL ?? "")
+        }
+
+        if scope != .all { items = items.filter(scope.includes) }
+        let tokens = searchTokens(navigation.searchText)
         if !tokens.isEmpty { items = items.filter { matchesSearch($0, tokens: tokens) } }
         if favoritesOnly { items = items.filter(\.isFavorited) }
         if !selectedCuisine.isEmpty {
@@ -73,16 +107,47 @@ struct MacRecipesView: View {
         if !selectedRole.isEmpty {
             items = items.filter { $0.dishRole.rawValue == selectedRole }
         }
+        // Decorate once before sorting. Calculating a cleaned title from inside the sort
+        // comparator multiplied regex work by O(n log n) every time SwiftUI evaluated body.
+        let titleKeys = Dictionary(uniqueKeysWithValues: items.map {
+            ($0.id, RecipeTitlePolicy.sortKey($0.title))
+        })
+        func orderedByTitle(_ lhs: UserRecipe, _ rhs: UserRecipe) -> Bool {
+            let a = titleKeys[lhs.id] ?? lhs.title
+            let b = titleKeys[rhs.id] ?? rhs.title
+            let order = a.localizedCaseInsensitiveCompare(b)
+            return order == .orderedSame ? lhs.id.uuidString < rhs.id.uuidString : order == .orderedAscending
+        }
         switch sort {
-        case .name:   items.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .recent: items.sort { $0.dateCreated > $1.dateCreated }
+        case .name:   items.sort(by: orderedByTitle)
+        case .recent: items.sort { $0.dateCreated == $1.dateCreated ? orderedByTitle($0, $1) : $0.dateCreated > $1.dateCreated }
+        case .oldest: items.sort { $0.dateCreated == $1.dateCreated ? orderedByTitle($0, $1) : $0.dateCreated < $1.dateCreated }
+        case .updated: items.sort { $0.updatedAt == $1.updatedAt ? orderedByTitle($0, $1) : $0.updatedAt > $1.updatedAt }
+        case .source:
+            items.sort {
+                let a = $0.sourceName ?? "", b = $1.sourceName ?? ""
+                return a == b ? orderedByTitle($0, $1) : a.localizedCaseInsensitiveCompare(b) == .orderedAscending
+            }
+        case .ingredients:
+            items.sort { $0.ingredients.count == $1.ingredients.count ? orderedByTitle($0, $1) : $0.ingredients.count < $1.ingredients.count }
         case .favorites:
             items.sort {
                 if $0.isFavorited != $1.isFavorited { return $0.isFavorited }
-                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+                return orderedByTitle($0, $1)
+            }
+        case .quickest:
+            // Parse each recipe's times once, then sort; unknown times go last.
+            let minutes = Dictionary(uniqueKeysWithValues: items.map { ($0.id, MacRecipeTiming.totalMinutes($0) ?? Int.max) })
+            items.sort {
+                let a = minutes[$0.id] ?? Int.max, b = minutes[$1.id] ?? Int.max
+                return a == b ? orderedByTitle($0, $1) : a < b
             }
         }
-        return items
+        materializedRows = items
+        desktop.visibleRecipeIDs = items.map(\.id)
+        let ids = Set(items.map(\.id))
+        if let selection, ids.contains(selection) { return }
+        selection = items.first?.id
     }
 
     private var current: UserRecipe? {
@@ -91,23 +156,70 @@ struct MacRecipesView: View {
     }
 
     private var activeFilterCount: Int {
-        (search.nilIfBlank == nil ? 0 : 1)
+        (navigation.searchText.nilIfBlank == nil ? 0 : 1)
             + (favoritesOnly ? 1 : 0)
             + (selectedCuisine.isEmpty ? 0 : 1)
             + (selectedTag.isEmpty ? 0 : 1)
             + (selectedDifficulty.isEmpty ? 0 : 1)
             + (selectedRole.isEmpty ? 0 : 1)
+            + (scope == .all ? 0 : 1)
     }
 
     // MARK: - Body
 
+    /// The body is split so the type checker handles the long modifier chain quickly.
     var body: some View {
+        workspace
+        .onChange(of: selection) { old, new in
+            desktop.focusedRecipeID = new
+            // The first automatic selection is not a "view"; later changes are.
+            if old != nil, let new { desktop.noteViewed(new) }
+        }
+        .onChange(of: desktop.pendingRecipeSelection) { _, id in
+            guard let id else { return }
+            desktop.pendingRecipeSelection = nil
+            revealRecipe(id)
+        }
+        .onChange(of: desktop.pendingEditRecipeID) { _, id in
+            guard let id else { return }
+            desktop.pendingEditRecipeID = nil
+            if store.recipes.contains(where: { $0.id == id }) { editingID = id }
+        }
+        .onChange(of: desktop.pendingSavedFilter) { _, filter in
+            guard let filter else { return }
+            desktop.pendingSavedFilter = nil
+            apply(filter)
+        }
+        .onAppear {
+            desktop.focusedRecipeID = selection
+            if let id = desktop.pendingRecipeSelection { desktop.pendingRecipeSelection = nil; revealRecipe(id) }
+            if let filter = desktop.pendingSavedFilter { desktop.pendingSavedFilter = nil; apply(filter) }
+            if let id = desktop.pendingEditRecipeID {
+                desktop.pendingEditRecipeID = nil
+                if store.recipes.contains(where: { $0.id == id }) { editingID = id }
+            }
+        }
+        .alert("Save Current Filters", isPresented: $isNamingFilter) {
+            TextField("Name", text: $filterName)
+            Button("Save") { saveCurrentFilter() }
+                .disabled(filterName.nilIfBlank == nil)
+            Button("Cancel", role: .cancel) { filterName = "" }
+        } message: {
+            Text("Saved filters keep this search, scope, facets and sort for one click later. They stay on this Mac.")
+        }
+    }
+
+    private var workspace: some View {
         @Bindable var navigation = navigation
 
-        HStack(spacing: 0) {
+        return MacAdjustableSplit(
+            initialLeadingWidth: 330,
+            minimumLeadingWidth: 220,
+            maximumLeadingWidth: 500,
+            minimumTrailingWidth: 320
+        ) {
             index
-                .frame(width: 330)
-            Divider()
+        } trailing: {
             Group {
                 if let recipe = current {
                     MacRecipeDetail(recipe: recipe, onEdit: { editingID = recipe.id })
@@ -117,34 +229,56 @@ struct MacRecipesView: View {
                                     + "across everything already saved on your phone.",
                              systemImage: "book")
                 } else {
-                    MacEmpty(title: "Nothing matches",
-                             message: "No recipe matches that search. Try a shorter word, or turn "
-                                    + "off \"only what I can cook\".",
-                             systemImage: "magnifyingglass")
+                    VStack(spacing: 12) {
+                        MacEmpty(title: "Nothing matches", message: "Try another search or reset your recipe filters.", systemImage: "magnifyingglass")
+                        Button("Reset search and filters") { resetFilters() }
+                    }.padding()
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(MacTheme.variantColor(\.bg, variant: variant) ?? Color(nsColor: .windowBackgroundColor))
+        .searchable(text: searchBinding, placement: .toolbar, prompt: "Search all recipe fields")
+        .inspector(isPresented: Binding(
+            get: { desktop.isInspectorPresented },
+            set: { desktop.isInspectorPresented = $0 }
+        )) { recipeInspector }
+        .quickLookPreview($previewURL)
+        .onDeleteCommand { deleteCurrentRecipe() }
+        .confirmationDialog("Delete recipe?", isPresented: Binding(
+            get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }
+        ), titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                guard let recipe = pendingDeletion else { return }
+                store.deleteRecipe(ids: [recipe.id])
+                if selection == recipe.id { selection = nil }
+                pendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDeletion = nil }
+        } message: {
+            Text("Remove “\(pendingDeletion?.title ?? "")” from your recipe library? This change also syncs to your household.")
+        }
+        .alert("Quick Look unavailable", isPresented: Binding(
+            get: { previewError != nil }, set: { if !$0 { previewError = nil } }
+        )) { Button("OK") { previewError = nil } } message: { Text(previewError ?? "") }
         .sheet(isPresented: $navigation.isAddingItem) {
             MacRecipeEditor(recipe: nil) { newRecipe in
                 store.addRecipe(newRecipe)
                 selection = newRecipe.id
             }
+            .macThemedSurface()
         }
         .sheet(item: Binding(get: { editingID.flatMap { id in store.recipes.first { $0.id == id } } },
                              set: { editingID = $0?.id })) { recipe in
             MacRecipeEditor(recipe: recipe) { updated in
                 store.updateRecipe(id: recipe.id) { $0 = updated }
             }
+            .macThemedSurface()
         }
-        .onChange(of: store.recipes.map { "\($0.id):\($0.updatedAt)" }) {
+        .task { rebuildRows() }
+        .onChange(of: recipeRevision) { rebuildRows() }
+        .onChange(of: filterRevision) { rebuildRows() }
+        .onChange(of: store.recipes.filter { $0.lastWriterID != "shared-catalogue" }.map { "\($0.id):\($0.updatedAt)" }) {
             harvest.syncKitchenToCloud(store.recipes)
-        }
-        .onChange(of: rows.map(\.id)) {
-            let ids = Set(rows.map(\.id))
-            if let selection, ids.contains(selection) { return }
-            selection = rows.first?.id
         }
     }
 
@@ -154,13 +288,13 @@ struct MacRecipesView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search recipes", text: $search)
+                TextField("Search recipes", text: searchBinding)
                     .textFieldStyle(.plain)
                     .focused($searchFocused)
                     .help("Use quotes for an exact phrase or prefix a word with - to exclude it")
-                if !search.isEmpty {
+                if !navigation.searchText.isEmpty {
                     Button {
-                        search = ""
+                        navigation.searchText = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                     }
@@ -174,6 +308,13 @@ struct MacRecipesView: View {
             Divider()
 
             HStack(spacing: 7) {
+                Button {
+                    Task { await MacPublicRecipeSync.shared.refresh(store: store, maxPages: 8, force: true) }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .disabled(MacPublicRecipeSync.shared.isSyncing)
+                .help(MacPublicRecipeSync.shared.status)
                 Text(rows.count == store.recipes.count
                      ? "\(rows.count) recipes"
                      : "\(rows.count) of \(store.recipes.count)")
@@ -201,26 +342,24 @@ struct MacRecipesView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
 
+            Text(MacPublicRecipeSync.shared.status)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
+            if MacPublicRecipeSync.shared.isSyncing {
+                ProgressView().controlSize(.small).padding(.bottom, 6)
+            } else if let date = MacPublicRecipeSync.shared.lastCompletedAt {
+                Text("Last complete refresh: \(date.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .padding(.horizontal, 12).padding(.bottom, 6)
+            }
+
             Divider()
 
-            List(rows, selection: $selection) { recipe in
-                indexRow(recipe)
-                    .tag(recipe.id)
-                    .contextMenu {
-                        Button("Edit…") { editingID = recipe.id }
-                        Button(recipe.isFavorited ? "Remove from favourites" : "Add to favourites") {
-                            store.toggleFavorite(recipeID: recipe.id)
-                        }
-                        Button("Copy ingredients") { copyIngredients(recipe) }
-                        Divider()
-                        Button("Delete", role: .destructive) {
-                            store.deleteRecipe(ids: [recipe.id])
-                            if selection == recipe.id { selection = nil }
-                        }
-                    }
-            }
-            .listStyle(.sidebar)
-            .macDesignVariantCanvas()
+            recipeCollection
+                .macDesignVariantCanvas()
 
             Divider()
 
@@ -240,6 +379,8 @@ struct MacRecipesView: View {
                 .buttonStyle(.borderless)
                 .help(favoritesOnly ? "Show all recipes" : "Favorites only")
                 filterMenu
+                savedFiltersMenu
+                libraryToolsMenu
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
@@ -248,7 +389,7 @@ struct MacRecipesView: View {
 
     private func indexRow(_ recipe: UserRecipe) -> some View {
         HStack(spacing: 9) {
-            recipeThumbnail(recipe, size: 44)
+            recipeThumbnail(recipe, size: desktop.density.thumbnailSize)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
                     if recipe.isFavorited {
@@ -258,7 +399,7 @@ struct MacRecipesView: View {
                     }
                     Text(recipe.title)
                         .font(variant == .current ? .callout.weight(.medium) : MacTheme.heading(14, variant: variant))
-                        .lineLimit(variant == .current ? 1 : 2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(spacing: 6) {
                     Text(recipe.sourceName?.nilIfBlank ?? "Personal recipe")
@@ -279,14 +420,173 @@ struct MacRecipesView: View {
                 .font(.caption2).foregroundStyle(.tertiary)
             }
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, desktop.density.rowPadding)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(recipe.title)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { openWindow(id: "recipe", value: recipe.id) }
+        .draggable(recipe.id.uuidString)
+    }
+
+    @ViewBuilder
+    private var recipeCollection: some View {
+        switch desktop.recipeMode {
+        case .list:
+            ScrollViewReader { proxy in
+                List(rows, selection: $selection) { recipe in
+                    indexRow(recipe)
+                        .tag(recipe.id)
+                        .contextMenu { recipeMenu(recipe) }
+                }
+                .listStyle(.sidebar)
+                .onChange(of: revealToken) { _, _ in
+                    guard let selection else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(selection, anchor: .center) }
+                }
+            }
+        case .table:
+            // Table rows are identified by recipe ID, so the same reader scrolls a
+            // revealed recipe into view in table mode too.
+            ScrollViewReader { proxy in
+                recipeTable
+                    .onChange(of: revealToken) { _, _ in
+                        guard let selection else { return }
+                        withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(selection, anchor: .center) }
+                    }
+            }
+        }
+    }
+
+    private var recipeTable: some View {
+        Table(rows, selection: $selection) {
+            TableColumn("Recipe") { recipe in
+                HStack(spacing: 7) {
+                    recipeThumbnail(recipe, size: desktop.density.thumbnailSize)
+                    Text(recipe.title).lineLimit(2)
+                }
+                .contextMenu { recipeMenu(recipe) }
+            }
+            TableColumn("Cuisine") { recipe in Text(recipe.cuisine.nilIfBlank ?? "—") }
+                .width(min: 80, ideal: 110)
+            TableColumn("Source") { recipe in Text(recipe.sourceName?.nilIfBlank ?? "Personal") }
+                .width(min: 90, ideal: 130)
+            TableColumn("Added") { recipe in Text(recipe.dateCreated, style: .date) }
+                .width(min: 80, ideal: 100)
+        }
+        .tableStyle(.inset(alternatesRowBackgrounds: true))
+    }
+
+    @ViewBuilder
+    private func recipeMenu(_ recipe: UserRecipe) -> some View {
+        Button("Open in New Window") { openWindow(id: "recipe", value: recipe.id) }
+        Button("Quick Look") { preview(recipe) }
+        Button("Edit…") { editingID = recipe.id }
+        Button(recipe.isFavorited ? "Remove from favourites" : "Add to favourites") {
+            store.toggleFavorite(recipeID: recipe.id)
+        }
+        Button("Copy ingredients") { copyIngredients(recipe) }
+        Menu("Copy As") {
+            Button("Markdown") { MacRecipeClipboard.copyMarkdown(recipe) }
+            Button("Cooklang") { MacRecipeClipboard.copyCooklang(recipe) }
+            Button("Plain text") { MacRecipeClipboard.copy(MacRecipeTextExport.plainText(recipe)) }
+        }
+        Button("Duplicate as Personal Variation") {
+            MacRecipeLibraryActions.duplicateAsVariation(recipe.id, store: store, desktop: desktop)
+        }
+        Button("Print…") { MacRecipePrinter.print(recipe) }
+        Button("Export as PDF…") { MacRecipePrinter.exportPDF(recipe) }
+        if let raw = recipe.sourceURL, let url = URL(string: raw), url.scheme == "https" {
+            Link("Open original source", destination: url)
+            Button("Copy source link") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url.absoluteString, forType: .string)
+            }
+        }
+        Divider()
+        Button("Delete", role: .destructive) {
+            pendingDeletion = recipe
+        }
+    }
+
+    @ViewBuilder
+    private var recipeInspector: some View {
+        if let recipe = current {
+            Form {
+                Section("Recipe") {
+                    LabeledContent("Cuisine", value: recipe.cuisine.nilIfBlank ?? "Not set")
+                    LabeledContent("Role", value: recipe.dishRole.label)
+                    LabeledContent("Difficulty", value: recipe.difficulty)
+                    LabeledContent("Servings", value: "\(recipe.servings)")
+                    LabeledContent("Ingredients", value: "\(recipe.ingredients.count)")
+                    LabeledContent("Steps", value: "\(recipe.instructions.count)")
+                }
+                let issues = MacRecipeHealth.issues(for: recipe)
+                Section("Quality") {
+                    if issues.isEmpty {
+                        Label("Complete", systemImage: "checkmark.seal.fill").foregroundStyle(MacTheme.green)
+                    } else {
+                        ForEach(issues) { issue in
+                            Label(issue.rawValue, systemImage: issue.systemImage)
+                                .foregroundStyle(MacTheme.gold)
+                                .help(issue.advice)
+                        }
+                    }
+                    if let minutes = MacRecipeTiming.totalMinutes(recipe) {
+                        LabeledContent("Total time", value: "\(minutes) min")
+                    }
+                    if recipe.updatedAt > 0 {
+                        LabeledContent("Updated") {
+                            Text(Date(timeIntervalSince1970: recipe.updatedAt / 1000), style: .date)
+                        }
+                    }
+                }
+                Section("Provenance") {
+                    LabeledContent("Source", value: recipe.sourceName?.nilIfBlank ?? "Personal recipe")
+                    if let raw = recipe.sourceURL?.nilIfBlank, let url = URL(string: raw) {
+                        Link("Open original", destination: url)
+                    }
+                    LabeledContent("Added") { Text(recipe.dateCreated, style: .date) }
+                }
+                Section {
+                    Button("Open in New Window") { openWindow(id: "recipe", value: recipe.id) }
+                    Button("Quick Look") { preview(recipe) }
+                    Button("Edit…") { editingID = recipe.id }
+                }
+            }
+            .formStyle(.grouped)
+            .inspectorColumnWidth(min: 220, ideal: 270, max: 360)
+        } else {
+            MacEmpty(title: "No recipe selected", message: "Select a recipe to inspect its details.", systemImage: "sidebar.right")
+                .inspectorColumnWidth(min: 220, ideal: 270, max: 360)
+        }
+    }
+
+    private func deleteCurrentRecipe() {
+        guard let selection, let recipe = store.recipes.first(where: { $0.id == selection }) else { return }
+        pendingDeletion = recipe
+    }
+
+    private func preview(_ recipe: UserRecipe) {
+        let ingredients = recipe.ingredients.map {
+            "• " + ($0.amount.isEmpty ? $0.name : "\($0.amount) \($0.name)")
+        }.joined(separator: "\n")
+        let method = recipe.instructions.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+        let value = "\(recipe.title)\n\n\(recipe.description)\n\nINGREDIENTS\n\(ingredients)\n\nMETHOD\n\(method)\n"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Stocked-QuickLook", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("Recipe-\(recipe.id.uuidString).txt")
+        do { try value.write(to: url, atomically: true, encoding: .utf8); previewURL = url }
+        catch { previewError = "The preview could not be saved. Check available disk space and try again." }
     }
 
     private var filterMenu: some View {
         Menu {
             Toggle("Favorites only", isOn: $favoritesOnly)
+            Picker("Library scope", selection: $scope) {
+                ForEach(MacRecipeScope.allCases) { item in
+                    Label(item.rawValue, systemImage: item.systemImage).tag(item)
+                }
+            }
             Divider()
             facetMenu("Cuisine", values: cuisines, selection: $selectedCuisine)
             facetMenu("Tag", values: tags, selection: $selectedTag)
@@ -342,10 +642,19 @@ struct MacRecipesView: View {
 
     private func recipeThumbnail(_ recipe: UserRecipe, size: CGFloat) -> some View {
         Group {
-            if let data = recipe.imageData, let image = NSImage(data: data) {
+            if let data = recipe.imageData,
+               let image = MacThumbnailCache.shared.thumbnail(id: recipe.id, data: data, maxPixel: Int(size * 2)) {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFill()
+                    .accessibilityLabel("Recipe photo")
+            } else if let rawURL = recipe.imageURL, let url = URL(string: rawURL) {
+                AsyncImage(url: url) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Color.secondary.opacity(0.10)
+                }
+                    .accessibilityHidden(true)
             } else {
                 ZStack {
                     Color.secondary.opacity(0.10)
@@ -367,8 +676,98 @@ struct MacRecipesView: View {
         return originalsByKey.values.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
+    // MARK: - Saved filters and library tools (Build 114)
+
+    private var savedFiltersMenu: some View {
+        Menu {
+            if desktop.savedFilters.isEmpty {
+                Text("No saved filters yet")
+            } else {
+                ForEach(desktop.savedFilters) { filter in
+                    Button {
+                        apply(filter)
+                    } label: {
+                        Text(filter.name)
+                    }
+                    .help(filter.summary)
+                }
+                Divider()
+                Menu("Remove Saved Filter") {
+                    ForEach(desktop.savedFilters) { filter in
+                        Button(filter.name, role: .destructive) { desktop.removeFilter(id: filter.id) }
+                    }
+                }
+            }
+            Divider()
+            Button("Save Current Filters…") {
+                filterName = navigation.searchText.nilIfBlank ?? (scope == .all ? "" : scope.rawValue)
+                isNamingFilter = true
+            }
+            .disabled(activeFilterCount == 0 && sort == .name)
+        } label: {
+            Image(systemName: "bookmark")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Saved filters")
+    }
+
+    private var libraryToolsMenu: some View {
+        Menu {
+            Button("Edit \(rows.count) Shown Recipe\(rows.count == 1 ? "" : "s")…") {
+                desktop.isBulkEditPresented = true
+            }
+            .disabled(rows.isEmpty)
+            Button("Export Shown as Markdown…") { MacRecipeLibraryActions.exportMarkdown(rows) }
+                .disabled(rows.isEmpty)
+            Divider()
+            Button("Library Health…") { desktop.isLibraryHealthPresented = true }
+            Button("Find Duplicates…") { desktop.isDuplicateFinderPresented = true }
+            Button("Tag Manager…") { desktop.isTagManagerPresented = true }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Library tools")
+    }
+
+    private func apply(_ filter: MacSavedRecipeFilter) {
+        navigation.searchText = filter.search
+        sort = Sort(rawValue: filter.sort) ?? .name
+        favoritesOnly = filter.favoritesOnly
+        selectedCuisine = filter.cuisine
+        selectedTag = filter.tag
+        selectedDifficulty = filter.difficulty
+        selectedRole = filter.role
+        scope = filter.scope
+    }
+
+    private func saveCurrentFilter() {
+        guard let name = filterName.nilIfBlank else { return }
+        desktop.saveFilter(MacSavedRecipeFilter(
+            name: name, search: navigation.searchText, sort: sort.rawValue,
+            favoritesOnly: favoritesOnly, cuisine: selectedCuisine, tag: selectedTag,
+            difficulty: selectedDifficulty, role: selectedRole, scope: scope))
+        filterName = ""
+    }
+
+    /// Selects a recipe, clearing filters first if they currently hide it.
+    private func revealRecipe(_ id: UUID) {
+        guard store.recipes.contains(where: { $0.id == id }) else { return }
+        selection = id
+        desktop.noteViewed(id)
+        if !materializedRows.contains(where: { $0.id == id }) { resetFilters() }
+        Task {
+            // Let a filter reset rebuild the rows before scrolling to the recipe.
+            try? await Task.sleep(for: .milliseconds(120))
+            revealToken &+= 1
+        }
+    }
+
     private func resetFilters() {
-        search = ""
+        navigation.searchText = ""
+        scope = .all
         favoritesOnly = false
         selectedCuisine = ""
         selectedTag = ""
@@ -383,6 +782,10 @@ struct MacRecipesView: View {
         guard !value.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(value, forType: .string)
+    }
+
+    private var searchBinding: Binding<String> {
+        Binding(get: { navigation.searchText }, set: { navigation.searchText = $0 })
     }
 
     private struct SearchToken {
@@ -436,8 +839,20 @@ struct MacRecipeDetail: View {
     let onEdit: () -> Void
 
     @Environment(MacKitchenStore.self) private var store
+    @Environment(MacDesktopExperience.self) private var desktop
     @Environment(\.colorScheme) private var scheme
     @Environment(\.macDesignVariant) private var variant
+    @State private var servings = 0
+
+    /// Display-only serving factor. Never written back to the recipe.
+    private var factor: Double {
+        let base = max(1, recipe.servings)
+        return Double(servings > 0 ? servings : base) / Double(base)
+    }
+
+    private var unitSystem: Binding<MacMeasurementSystem> {
+        Binding(get: { desktop.measurementSystem }, set: { desktop.measurementSystem = $0 })
+    }
 
     var body: some View {
         ScrollView {
@@ -452,22 +867,41 @@ struct MacRecipeDetail: View {
                         .clipShape(RoundedRectangle(cornerRadius: variant.componentRadius ?? 14))
                         .clipped()
                         .accessibilityLabel("Photo of \(recipe.title)")
+                } else if let rawURL = recipe.imageURL, let url = URL(string: rawURL) {
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        Color.secondary.opacity(0.10)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 260)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .clipped()
+                    .accessibilityLabel("Photo of \(recipe.title)")
                 }
                 header
+                MacRecipeServingBar(
+                    baseServings: max(1, recipe.servings),
+                    servings: Binding(get: { servings > 0 ? servings : max(1, recipe.servings) },
+                                      set: { servings = $0 }),
+                    system: unitSystem
+                )
                 if !recipe.description.isEmpty {
                     Text(recipe.description)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if recipe.sourceName?.nilIfBlank != nil || recipe.sourceURL?.nilIfBlank != nil {
+                if recipe.sourceName?.nilIfBlank != nil || recipe.attributedSourceURL?.nilIfBlank != nil || recipe.author?.nilIfBlank != nil || recipe.license?.nilIfBlank != nil || recipe.imageAttribution?.nilIfBlank != nil {
                     MacCard(title: "Source", systemImage: "link") {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(recipe.sourceName?.nilIfBlank ?? "Original source")
-                            if let source = recipe.sourceURL?.nilIfBlank,
-                               let url = URL(string: source) {
+                            if let source = recipe.attributedSourceURL?.nilIfBlank,
+                               let url = URL(string: source), ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
                                 Link(source, destination: url).font(.caption).lineLimit(1)
                             }
+                            if let author = recipe.author?.nilIfBlank { Text("Author: " + author).font(.caption) }
+                            if let license = recipe.license?.nilIfBlank { Text("Recipe license: " + license).font(.caption) }
+                            if let credit = recipe.imageAttribution?.nilIfBlank { Text("Photo credit: " + credit).font(.caption) }
                         }
                     }
                 }
@@ -483,19 +917,14 @@ struct MacRecipeDetail: View {
                     }
                 }
 
-                if !recipe.notes.isEmpty {
-                    MacCard(title: "Notes", systemImage: "note.text") {
-                        Text(recipe.notes)
-                            .font(.callout)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
+                MacRecipeNotesEditor(recipe: recipe)
             }
             .padding(variant == .current ? 18 : 24)
             .frame(maxWidth: variant == .current ? nil : 980, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .macDesignVariantCanvas()
+        .onChange(of: recipe.id) { _, _ in servings = 0 }
     }
 
     private var header: some View {
@@ -521,15 +950,34 @@ struct MacRecipeDetail: View {
                     // One clear primary action per recipe.
                     Button("Edit…", action: onEdit).buttonStyle(.borderedProminent)
                 }
+                ShareLink(item: MacRecipeTextExport.plainText(recipe, factor: factor, system: desktop.measurementSystem),
+                          subject: Text(recipe.title)) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .buttonStyle(.borderless)
+                .help("Share recipe")
                 Menu {
                     Button("Copy full recipe") { copyRecipe() }
                     Button("Copy ingredients") { copyIngredients() }
                     Button("Copy method") { copyMethod() }
+                    Divider()
+                    Button("Copy as Markdown") {
+                        MacRecipeClipboard.copyMarkdown(recipe, factor: factor, system: desktop.measurementSystem)
+                    }
+                    Button("Copy as Cooklang") { MacRecipeClipboard.copyCooklang(recipe) }
+                    Divider()
+                    Button("Print…") { MacRecipePrinter.print(recipe, factor: factor, system: desktop.measurementSystem) }
+                    Button("Export as PDF…") { MacRecipePrinter.exportPDF(recipe, factor: factor, system: desktop.measurementSystem) }
+                    Divider()
+                    Button("Duplicate as Personal Variation") {
+                        MacRecipeLibraryActions.duplicateAsVariation(recipe.id, store: store, desktop: desktop)
+                    }
                 } label: {
-                    Image(systemName: "square.and.arrow.up")
+                    Image(systemName: "ellipsis.circle")
                 }
                 .menuStyle(.borderlessButton)
-                .help("Copy recipe")
+                .fixedSize()
+                .help("Copy, print, export or duplicate")
             }
             HStack(spacing: 6) {
                 if !recipe.cookTime.isEmpty {
@@ -539,6 +987,9 @@ struct MacRecipeDetail: View {
                     MacPill(text: "\(recipe.prepTime) prep", tint: .secondary, systemImage: "timer")
                 }
                 MacPill(text: "serves \(recipe.servings)", tint: .secondary, systemImage: "person.2")
+                if let minutes = MacRecipeTiming.totalMinutes(recipe) {
+                    MacPill(text: "\(minutes) min total", tint: .secondary, systemImage: "hourglass")
+                }
                 MacPill(text: recipe.difficulty, tint: .secondary)
                 if !recipe.cuisine.isEmpty {
                     MacPill(text: recipe.cuisine, tint: MacTheme.gold)
@@ -613,9 +1064,12 @@ struct MacRecipeDetail: View {
                                 MacPill(text: "optional", tint: .secondary)
                             }
                             if !ingredient.amount.isEmpty {
-                                Text(ingredient.amount)
+                                Text(MacMeasurementConverter.display(ingredient.amount, factor: factor,
+                                                                     system: desktop.measurementSystem))
                                     .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(factor == 1 && desktop.measurementSystem == .asWritten
+                                                     ? Color.secondary : MacTheme.gold)
+                                    .help(ingredient.amount)
                             }
                         }
                     }
@@ -845,7 +1299,7 @@ struct MacRecipeEditor: View {
         role       = recipe.dishRole
         notes      = recipe.notes
         sourceName = recipe.sourceName ?? ""
-        sourceURL = recipe.sourceURL ?? ""
+        sourceURL = recipe.attributedSourceURL ?? ""
         categoriesText = (recipe.categories ?? []).joined(separator: ", ")
         tagsText = recipe.tags.joined(separator: ", ")
         imageURL = recipe.imageURL ?? ""
@@ -871,6 +1325,10 @@ struct MacRecipeEditor: View {
         result.notes       = notes
         result.sourceName  = sourceName.nilIfBlank
         result.sourceURL   = sourceURL.nilIfBlank
+        if let original = result.portableSource, original.catalogueSharingApproved != true {
+            result.portableSource?.originalSourceURL = sourceURL.nilIfBlank
+            result.sourceURL = nil
+        }
         result.categories  = Self.parseList(categoriesText)
         result.tags        = Self.parseList(tagsText)
         result.imageURL    = imageURL.nilIfBlank

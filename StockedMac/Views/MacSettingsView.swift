@@ -15,6 +15,7 @@ struct MacSettingsView: View {
     @Environment(\.macDesignVariant) private var themeVariant
     @Environment(MacKitchenStore.self) private var store
     @Environment(MacHouseholdSync.self) private var sync
+    @Environment(MacDesktopExperience.self) private var desktop
 
     @State private var confirmErase = false
     @State private var confirmSample = false
@@ -33,13 +34,50 @@ struct MacSettingsView: View {
             about
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 560, height: 520)
+        .frame(minWidth: 560, idealWidth: 680, minHeight: 520, idealHeight: 620)
     }
 
     // MARK: - General
 
     private var general: some View {
         Form {
+            Section {
+                Picker("Recipe view", selection: Binding(
+                    get: { desktop.recipeMode },
+                    set: { desktop.recipeMode = $0 }
+                )) {
+                    ForEach(MacRecipeWorkspaceMode.allCases) { mode in
+                        Label(mode.rawValue, systemImage: mode.systemImage).tag(mode)
+                    }
+                }
+                Picker("Content density", selection: Binding(
+                    get: { desktop.density },
+                    set: { desktop.density = $0 }
+                )) {
+                    ForEach(MacContentDensity.allCases) { density in Text(density.rawValue).tag(density) }
+                }
+                Toggle("Show recipe inspector", isOn: Binding(
+                    get: { desktop.isInspectorPresented },
+                    set: { desktop.isInspectorPresented = $0 }
+                ))
+                Picker("Ingredient amounts", selection: Binding(
+                    get: { desktop.measurementSystem },
+                    set: { desktop.measurementSystem = $0 }
+                )) {
+                    ForEach(MacMeasurementSystem.allCases) { Text($0.rawValue).tag($0) }
+                }
+                LabeledContent("Recently viewed") {
+                    Button("Clear \(desktop.recentRecipeIDs.count)") { desktop.clearRecent() }
+                        .disabled(desktop.recentRecipeIDs.isEmpty)
+                }
+            } header: {
+                Text("Desktop workspace")
+            } footer: {
+                Text("These choices change presentation only. Scaled and converted amounts are for reading; saved recipes keep their original amounts. Text continues to follow the Mac's accessibility settings.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section {
                 LabeledContent("Household") {
                     if sync.isJoined {
@@ -61,6 +99,14 @@ struct MacSettingsView: View {
                 LabeledContent("Status") {
                     Text(sync.status.message)
                         .foregroundStyle(.secondary)
+                }
+                LabeledContent("Last household watermark") {
+                    if sync.lastPulledAt > 0 {
+                        Text(Date(timeIntervalSince1970: sync.lastPulledAt / 1_000), style: .relative)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Not pulled yet").foregroundStyle(.secondary)
+                    }
                 }
             } header: {
                 Text("Sharing")
@@ -205,6 +251,20 @@ struct MacSettingsView: View {
                 }
             } header: {
                 Text("Starting over")
+            }
+
+            Section {
+                Link("Privacy Policy", destination: URL(string: MacBuildConfig.privacyURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+                Link("Terms of Use", destination: URL(string: MacBuildConfig.termsURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+                Link("Cookies & Tracking (none)", destination: URL(string: MacBuildConfig.cookiesURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+                Link("Refund Policy", destination: URL(string: MacBuildConfig.refundURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+                Link("Request deletion of data we hold on our servers", destination: URL(string: MacBuildConfig.deleteDataURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+                Link("About & business details", destination: URL(string: MacBuildConfig.aboutURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+                Link("Open-source licenses & credits", destination: URL(string: MacBuildConfig.licensesURL) ?? URL(string: MacBuildConfig.websiteURL)!)
+            } header: {
+                Text("Legal & data")
+            } footer: {
+                Text("Stocked for Mac has no ads, trackers or cookies. Nothing is sold. Contact \(MacBuildConfig.supportEmail).")
             }
         }
         .formStyle(.grouped)

@@ -25,6 +25,7 @@
 // anything writing a collection wholesale (household sync, import) calls `save()`.
 
 import Foundation
+import CryptoKit
 import Observation
 import os
 
@@ -161,7 +162,18 @@ final class MacKitchenStore {
     func load() {
         isLoading = true
         isRestoring = true
-        defer { isRestoring = false; isLoading = false }
+        var compactedRemoteRecipeImages = false
+        defer {
+            isRestoring = false
+            isLoading = false
+            if compactedRemoteRecipeImages {
+                // Finish the one-time compaction before household work can re-enter the
+                // store. The compact payload is small; writing it now also ensures the
+                // next launch never has to decode the old 200+ MB base64 file again.
+                dirty.insert(.recipes)
+                flush()
+            }
+        }
 
         let decoder = JSONDecoder()
 
@@ -175,7 +187,11 @@ final class MacKitchenStore {
         }
         if let data = read(.recipes),
            let value = try? decoder.decode([UserRecipe].self, from: data) {
-            recipes = value
+            recipes = value.map { original in
+                let (recipe, changed) = Self.repairedOnLoad(original)
+                if changed { compactedRemoteRecipeImages = true }
+                return recipe
+            }
         }
         if let data = read(.savedRecipes),
            let value = try? decoder.decode([GeneratedRecipe].self, from: data) {
@@ -192,6 +208,100 @@ final class MacKitchenStore {
         if let data = read(.profile),
            let value = try? decoder.decode(UserCookingProfile.self, from: data) {
             profile = value
+        }
+    }
+
+    // MARK: - Off-main load (Build cache/load pass)
+
+    private nonisolated struct LoadedCollections: Sendable {
+        var inventory: [LocalInventoryItem]?
+        var grocery: [LocalGroceryItem]?
+        var recipes: [UserRecipe]?
+        var savedRecipes: [GeneratedRecipe]?
+        var plan: [PlannedMeal]?
+        var history: [LocalPastMeal]?
+        var profile: UserCookingProfile?
+        var recipesChanged = false
+    }
+
+    /// The per-recipe repair `load()` has always applied, isolated so the background loader can
+    /// run it off the main actor. Returns whether the recipe differs from what was on disk.
+    private nonisolated static func repairedOnLoad(_ original: UserRecipe) -> (UserRecipe, Bool) {
+        var changed = false
+        var recipe = MacPortableRecipePolicy.repaired(original)
+        if recipe.sourceURL != original.sourceURL || recipe.notes != original.notes || recipe.portableSource != original.portableSource {
+            changed = true
+        }
+        let cleanTitle = RecipeTitlePolicy.cleaned(recipe.title)
+        if cleanTitle != recipe.title {
+            recipe.title = cleanTitle
+            changed = true
+        }
+        // Retain the source record and its diagnostic URL for repair; presentation and
+        // public sharing exclude this known branding asset, including cached bytes.
+        if MacRecipeImagePolicy.isKnownPublisherPlaceholder(recipe.imageURL ?? "") { return (recipe, changed) }
+        if let imageURL = recipe.imageURL,
+           !MacRecipeImagePolicy.isLikelyRecipeImageURL(imageURL, sourceURL: recipe.sourceURL) {
+            recipe.imageURL = nil
+            recipe.imageData = nil
+            recipe.imageValidatedAt = nil
+            changed = true
+        }
+        guard recipe.imageURL?.nilIfBlank != nil, recipe.imageData != nil else { return (recipe, changed) }
+        var compact = recipe
+        compact.imageValidatedAt = compact.imageValidatedAt ?? Date()
+        compact.imageData = nil
+        return (compact, true)
+    }
+
+    private nonisolated static func readCollections(directory: URL) -> LoadedCollections {
+        let decoder = JSONDecoder()
+        func bytes(_ collection: Collection) -> Data? {
+            let url = directory.appendingPathComponent(collection.filename)
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return try? Data(contentsOf: url)
+        }
+        var out = LoadedCollections()
+        if let data = bytes(.inventory) { out.inventory = try? decoder.decode([LocalInventoryItem].self, from: data) }
+        if let data = bytes(.grocery) { out.grocery = try? decoder.decode([LocalGroceryItem].self, from: data) }
+        if let data = bytes(.recipes), let value = try? decoder.decode([UserRecipe].self, from: data) {
+            var anyChanged = false
+            out.recipes = value.map { original in
+                let (recipe, changed) = repairedOnLoad(original)
+                if changed { anyChanged = true }
+                return recipe
+            }
+            out.recipesChanged = anyChanged
+        }
+        if let data = bytes(.savedRecipes) { out.savedRecipes = try? decoder.decode([GeneratedRecipe].self, from: data) }
+        if let data = bytes(.plan) { out.plan = try? decoder.decode([PlannedMeal].self, from: data) }
+        if let data = bytes(.history) { out.history = try? decoder.decode([LocalPastMeal].self, from: data) }
+        if let data = bytes(.profile) { out.profile = try? decoder.decode(UserCookingProfile.self, from: data) }
+        return out
+    }
+
+    /// Same result as `load()`, but file reads, JSON decoding and recipe repair run on a utility
+    /// task so a large library never blocks the window on the main actor. Collections are applied
+    /// in one main-actor step, and the one-time compaction write still happens before returning.
+    func loadInBackground() async {
+        isLoading = true
+        isRestoring = true
+        let source = directory
+        let loaded = await Task.detached(priority: .userInitiated) {
+            Self.readCollections(directory: source)
+        }.value
+        if let value = loaded.inventory { inventory = value }
+        if let value = loaded.grocery { grocery = value }
+        if let value = loaded.recipes { recipes = value }
+        if let value = loaded.savedRecipes { savedRecipes = value }
+        if let value = loaded.plan { plannedMeals = value }
+        if let value = loaded.history { pastMeals = value }
+        if let value = loaded.profile { profile = value }
+        isRestoring = false
+        isLoading = false
+        if loaded.recipesChanged {
+            dirty.insert(.recipes)
+            flush()
         }
     }
 
@@ -238,9 +348,58 @@ final class MacKitchenStore {
             // second after typing still has the data.
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled, let self else { return }
+            await self.flushInBackground()
             self.flushTask = nil
-            self.flush()
+            // Mutations can arrive while the snapshot is being encoded. Their dirty
+            // flags remain pending and receive their own coalesced write.
+            if !self.dirty.isEmpty { self.scheduleFlush() }
         }
+    }
+
+    /// Scheduled persistence must never encode the complete recipe library on AppKit's
+    /// event thread. Capture immutable values on the actor, then encode and atomically
+    /// replace files on a utility task.
+    private func flushInBackground() async {
+        guard !dirty.isEmpty else { return }
+        let pending = dirty
+        dirty.removeAll()
+        let snapshot = MacKitchenSnapshot(
+            inventory: inventory, grocery: grocery, recipes: recipes,
+            savedRecipes: savedRecipes, plannedMeals: plannedMeals,
+            pastMeals: pastMeals, profile: profile
+        )
+        let destination = directory
+        let failure = await Task.detached(priority: .utility) {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            do {
+                try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+                for collection in pending {
+                    let data: Data
+                    switch collection {
+                    case .inventory: data = try encoder.encode(snapshot.inventory)
+                    case .grocery: data = try encoder.encode(snapshot.grocery)
+                    case .recipes: data = try encoder.encode(snapshot.recipes)
+                    case .savedRecipes: data = try encoder.encode(snapshot.savedRecipes)
+                    case .plan: data = try encoder.encode(snapshot.plannedMeals)
+                    case .history: data = try encoder.encode(snapshot.pastMeals)
+                    case .profile: data = try encoder.encode(snapshot.profile)
+                    }
+                    let target = destination.appendingPathComponent(collection.filename)
+                    let digest = SHA256.hash(data: data)
+                    let key = Self.ledgerKey(destination, collection)
+                    if Self.ledger.matches(digest, key: key), FileManager.default.fileExists(atPath: target.path) { continue }
+                    try data.write(to: target, options: [.atomic])
+                    Self.ledger.record(digest, key: key)
+                }
+                return nil as String?
+            } catch {
+                return error.localizedDescription
+            }
+        }.value
+        lastSaveError = failure
+        if failure == nil { lastSavedAt = Date() }
+        else if let failure { Self.log.error("background save failed: \(failure, privacy: .public)") }
     }
 
     private func flush() {
@@ -279,6 +438,14 @@ final class MacKitchenStore {
         // `.atomic` writes to a temp file in the same directory and renames it into place.
         try data.write(to: directory.appendingPathComponent(collection.filename),
                        options: [.atomic])
+        Self.ledger.record(SHA256.hash(data: data), key: Self.ledgerKey(directory, collection))
+    }
+
+    /// Digest of the bytes last written per collection. A save whose encoded bytes are identical
+    /// (a sync pass that changed nothing, a re-marked dirty flag) skips the atomic replace.
+    private nonisolated static let ledger = MacWriteLedger()
+    private nonisolated static func ledgerKey(_ directory: URL, _ collection: Collection) -> String {
+        directory.path + "#" + collection.rawValue
     }
 
     // MARK: - Stamping
@@ -318,6 +485,7 @@ final class MacKitchenStore {
         copy.lastWriterID = writerID
         inventory.append(copy)
         scheduleSave(.inventory)
+        NotificationCenter.default.post(name: .macInventoryNeedsCatalogEnrichment, object: copy.id)
     }
 
     @discardableResult
@@ -335,15 +503,19 @@ final class MacKitchenStore {
         item.lastWriterID = writerID
         inventory.append(item)
         scheduleSave(.inventory)
+        NotificationCenter.default.post(name: .macInventoryNeedsCatalogEnrichment, object: item.id)
         return item
     }
 
     /// Applies an edit and stamps it. Takes the change as a closure so callers can't
     /// forget the stamp — the only supported way to change an item in place.
-    func updateInventory(id: UUID, _ change: (inout LocalInventoryItem) -> Void) {
+    func updateInventory(id: UUID, requestEnrichment: Bool = true, _ change: (inout LocalInventoryItem) -> Void) {
         guard let index = inventory.firstIndex(where: { $0.id == id }) else { return }
         change(&inventory[index])
         stampInventory(at: index)
+        if requestEnrichment {
+            NotificationCenter.default.post(name: .macInventoryNeedsCatalogEnrichment, object: id)
+        }
     }
 
     func deleteInventory(ids: Set<UUID>) {
@@ -448,9 +620,55 @@ final class MacKitchenStore {
 
     // MARK: - Recipes
 
+    /// The authenticated public catalogue is already publisher/image gated by the
+    /// Worker. Keep local annotations and newer edits; never delete private/local rows.
+    func mergePublicRecipes(_ incoming: [UserRecipe]) {
+        var merged = recipes
+        var byID = Dictionary(merged.indices.map { (merged[$0].id, $0) }, uniquingKeysWith: { a, _ in a })
+        var bySource = Dictionary(merged.indices.map { (MacPublicRecipePage.identity(merged[$0]), $0) }, uniquingKeysWith: { a, _ in a })
+        var changed = false
+        for var remote in incoming {
+            // Public catalogue cache rows must never be household save records.
+            remote.collectionSavedByUser = false
+            // Public rows normally arrive classified by the Worker. Do not infer here:
+            // a progressive page merge is a latency-sensitive cache operation and the
+            // paced historical backfill handles the exceptional blank value later.
+            let key = MacPublicRecipePage.identity(remote)
+            if let index = byID[remote.id] ?? bySource[key] {
+                let local = merged[index]
+                if let source = local.portableSource, source.catalogueSharingApproved != true { continue }
+                guard remote.updatedAt > local.updatedAt else { continue }
+                var next = remote
+                next.id = local.id
+                next.notes = local.notes
+                next.portableSource = local.portableSource
+                next.isFavorited = local.isFavorited
+                next.collectionSavedByUser = local.collectionSavedByUser
+                next.cookCount = local.cookCount
+                next.lastCooked = local.lastCooked
+                if next.imageURL == local.imageURL {
+                    next.imageData = local.imageData
+                    next.imageValidatedAt = local.imageValidatedAt
+                }
+                if next != local { merged[index] = next; changed = true }
+                byID[remote.id] = index
+                bySource[key] = index
+            } else {
+                byID[remote.id] = merged.count
+                bySource[key] = merged.count
+                merged.append(remote)
+                changed = true
+            }
+        }
+        if changed { recipes = merged; scheduleSave(.recipes) }
+    }
+
     func addRecipe(_ recipe: UserRecipe) {
-        guard MacRecipeImagePolicy.isUsable(recipe.imageData) else { return }
+        var recipe = MacPortableRecipePolicy.repaired(recipe)
+        recipe.collectionSavedByUser = true
+        guard MacRecipeImagePolicy.hasRequiredImage(recipe) else { return }
         var copy = recipe
+        if let cuisine = RecipeCuisineClassifier.infer(for: copy) { copy.cuisine = cuisine }
         copy.title = RecipeTitlePolicy.cleaned(copy.title)
         copy.updatedAt = nowMillis
         copy.lastWriterID = writerID
@@ -462,10 +680,96 @@ final class MacKitchenStore {
         guard let index = recipes.firstIndex(where: { $0.id == id }) else { return }
         var updated = recipes[index]
         change(&updated)
-        guard MacRecipeImagePolicy.isUsable(updated.imageData) else { return }
+        updated = MacPortableRecipePolicy.repaired(updated, preserving: recipes[index])
+        if let cuisine = RecipeCuisineClassifier.infer(for: updated) { updated.cuisine = cuisine }
+        guard MacRecipeImagePolicy.hasRequiredImage(updated) else { return }
         updated.title = RecipeTitlePolicy.cleaned(updated.title)
         recipes[index] = updated
         stampRecipe(at: index)
+    }
+
+    /// Bulk form of `updateRecipe` for library tools (bulk edit, tag manager). One pass
+    /// over the library instead of one index search per recipe, one coalesced save, and
+    /// the same invariants: portable-source repair, blank-cuisine inference, the required
+    /// image gate, title cleaning and last-write stamping. Records whose edit produces no
+    /// change are left untouched so they do not churn household sync.
+    @discardableResult
+    func updateRecipes(ids: Set<UUID>, _ change: (inout UserRecipe) -> Void) -> Int {
+        guard !ids.isEmpty else { return 0 }
+        var changed = 0
+        let stamp = nowMillis
+        for index in recipes.indices where ids.contains(recipes[index].id) {
+            let original = recipes[index]
+            var updated = original
+            change(&updated)
+            guard updated != original else { continue }
+            updated = MacPortableRecipePolicy.repaired(updated, preserving: original)
+            if let cuisine = RecipeCuisineClassifier.infer(for: updated) { updated.cuisine = cuisine }
+            guard MacRecipeImagePolicy.hasRequiredImage(updated) else { continue }
+            updated.title = RecipeTitlePolicy.cleaned(updated.title)
+            updated.updatedAt = stamp
+            updated.lastWriterID = writerID
+            recipes[index] = updated
+            changed += 1
+        }
+        if changed > 0 { scheduleSave(.recipes) }
+        return changed
+    }
+
+    /// Idempotent historical/household backfill. Assignment mutates only blank cuisines
+    /// and schedules one coalesced recipe write instead of refreshing the whole UI per row.
+    @discardableResult
+    func assignMissingRecipeCuisines(limit: Int = .max) -> Int {
+        var assigned = 0
+        for index in recipes.indices where assigned < max(0, limit) {
+            guard let cuisine = RecipeCuisineClassifier.infer(for: recipes[index]) else { continue }
+            recipes[index].cuisine = cuisine
+            recipes[index].updatedAt = nowMillis
+            recipes[index].lastWriterID = writerID
+            assigned += 1
+        }
+        if assigned > 0 { scheduleSave(.recipes) }
+        return assigned
+    }
+
+    /// Migrates historical recipes without monopolizing the main actor. New and edited
+    /// recipes are classified synchronously at ingress; this service is only for old rows.
+    /// Each small evidence batch is classified at utility priority, committed together,
+    /// then deliberately paused so scrolling and typing retain priority. The migration
+    /// is intentionally an hours-long trickle: old rows are not launch-critical.
+    func backfillMissingRecipeCuisines(batchSize: Int = 24) async {
+        let revisionKey = "recipeCuisineBackgroundRepairRevision.v1"
+        guard UserDefaults.standard.integer(forKey: revisionKey) < 1 else { return }
+        let size = max(1, min(batchSize, 100))
+        var cursor = 0
+        while cursor < recipes.count, !Task.isCancelled {
+            let end = min(cursor + size, recipes.count)
+            let candidates = recipes[cursor..<end].enumerated().compactMap { offset, recipe -> (Int, UUID, RecipeCuisineClassifier.Evidence)? in
+                guard recipe.cuisine.nilIfBlank == nil else { return nil }
+                return (cursor + offset, recipe.id, RecipeCuisineClassifier.evidence(for: recipe))
+            }
+            let assignments = await Task.detached(priority: .utility) {
+                candidates.compactMap { index, id, evidence in
+                    RecipeCuisineClassifier.infer(from: evidence).map { (index, id, $0) }
+                }
+            }.value
+            if !assignments.isEmpty {
+                var changed = false
+                for (index, id, cuisine) in assignments {
+                    guard recipes.indices.contains(index), recipes[index].id == id,
+                          recipes[index].cuisine.nilIfBlank == nil else { continue }
+                    recipes[index].cuisine = cuisine
+                    changed = true
+                }
+                if changed { scheduleSave(.recipes) }
+            }
+            cursor = end
+            if cursor < recipes.count {
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            }
+        }
+        guard !Task.isCancelled else { return }
+        UserDefaults.standard.set(1, forKey: revisionKey)
     }
 
     func deleteRecipe(ids: Set<UUID>) {
@@ -680,6 +984,7 @@ final class MacKitchenStore {
     /// clashing row was written more recently — the same rule household sync uses, so an
     /// import can't quietly undo a change made on the phone five minutes ago.
     func importData(_ data: Data, replace: Bool) throws {
+        let originalPortableRecipes = Dictionary(recipes.filter { $0.portableSource != nil }.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let incoming: MacKitchenSnapshot
@@ -716,6 +1021,7 @@ final class MacKitchenStore {
             // backup taken before onboarding would wipe a completed profile.
             if incoming.profile.completedSetup { profile = incoming.profile }
         }
+        recipes = recipes.map { MacPortableRecipePolicy.repaired($0, preserving: originalPortableRecipes[$0.id]) }
         isRestoring = false
         save()
     }
@@ -865,5 +1171,20 @@ final class MacKitchenStore {
 
         isRestoring = false
         save()
+    }
+}
+
+
+/// Lock-protected record of the last bytes written for each collection file.
+nonisolated final class MacWriteLedger: @unchecked Sendable {
+    private let lock = NSLock()
+    private var digests: [String: SHA256.Digest] = [:]
+    func matches(_ digest: SHA256.Digest, key: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return digests[key] == digest
+    }
+    func record(_ digest: SHA256.Digest, key: String) {
+        lock.lock(); defer { lock.unlock() }
+        digests[key] = digest
     }
 }

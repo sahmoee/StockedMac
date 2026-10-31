@@ -1,0 +1,9 @@
+// Safe defaults for local, CI, and Jarvis builds.
+// A machine-local Secrets.xcconfig may override these values without becoming
+// a required source file or entering the repository.
+
+STOCKED_WORKER_KEY =
+STOCKED_ENV = release
+NETWORK_TIMEOUT_REQUEST = 12
+
+#include? "Secrets.xcconfig"

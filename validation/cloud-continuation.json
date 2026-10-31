@@ -1,0 +1,7 @@
+{
+  "project": "StockedMac",
+  "implemented_improvements": 20,
+  "status": "work-in-progress; do not merge before outstanding validation",
+  "validation": "Catalog recovery harness and Swift parsing passed; native macOS build pending",
+  "remaining": "Review final diff, run native build and meaningful regressions, finish minimum 20 meaningful improvements, submit PR. No physical-device verification claimed."
+}

@@ -8,6 +8,7 @@ struct MacBrowseView: View {
     @Environment(\.macDesignVariant) private var themeVariant
     @Environment(HarvestModel.self) private var harvest
     @Environment(MacKitchenStore.self) private var store
+    @Environment(MacDesktopExperience.self) private var desktop
 
     private enum Pane: String, CaseIterable, Identifiable {
         case find, review
@@ -72,11 +73,8 @@ struct MacBrowseView: View {
         s.discoveryMode == .feedOnly || s.tags.contains("Community")
     }
 
-    private var americanSources: [SourceProfile] {
-        filteredSources.filter { $0.tags.contains("American") && !isCustom($0) && !isFeed($0) }
-    }
-    private var worldwideSources: [SourceProfile] {
-        filteredSources.filter { !$0.tags.contains("American") && !isCustom($0) && !isFeed($0) }
+    private var catalogSources: [SourceProfile] {
+        filteredSources.filter { !isCustom($0) && !isFeed($0) }
     }
     private var feedSources: [SourceProfile] {
         filteredSources.filter { isFeed($0) && !isCustom($0) }
@@ -98,7 +96,7 @@ struct MacBrowseView: View {
             Divider()
             content
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .macThemedSurface()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -115,6 +113,12 @@ struct MacBrowseView: View {
                           systemImage: harvest.isPaused ? "play.fill" : "pause.fill")
                 }
                 .help("Pause or resume downloads")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { desktop.isActivityLogPresented = true } label: {
+                    Label("Activity", systemImage: "list.bullet.rectangle.portrait")
+                }
+                .help("Import activity log, queue tools and failure diagnostics (⌥⌘L)")
             }
         }
         .onAppear {
@@ -208,6 +212,7 @@ struct MacBrowseView: View {
         HStack(alignment: .top, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    serverRecipeBridgeCard
                     quickStartCard
                     directImportCard
                     sourceCard
@@ -223,6 +228,67 @@ struct MacBrowseView: View {
 
             resultsPanel
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var serverRecipeBridgeCard: some View {
+        let bridge = harvest.serverRecipeBridgeStatus
+        let health = harvest.serverCacheHealth
+        let isFresh = health.map { Date().timeIntervalSince($0.updatedAt) < 30 * 60 } ?? false
+        let stateColor: Color = isFresh ? MacTheme.green : .orange
+        return MacCard(
+            title: "Stocked Server",
+            systemImage: "server.rack",
+            footnote: isFresh ? "Automatic" : "Needs refresh"
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 7) {
+                    Circle().fill(stateColor).frame(width: 8, height: 8)
+                    Text(isFresh
+                         ? "Browsing recipe sources automatically"
+                         : "Waiting for a recent Server Mac update")
+                        .font(.caption.bold())
+                    Spacer(minLength: 0)
+                }
+
+                if let health {
+                    bridgeMetric("Current source", health.currentSource ?? "Rotating sources")
+                    bridgeMetric("Candidates tracked", (health.totalCandidateCount ?? health.candidateCount).formatted())
+                    bridgeMetric("Server queue", (health.queuedCount ?? 0).formatted())
+                    bridgeMetric("Preverified by server", (health.verifiedCount ?? 0).formatted())
+                    bridgeMetric("Server review", (health.reviewCount ?? 0).formatted())
+                    if health.discoveryPausedForBacklog == true {
+                        Text("Discovery is pacing itself while the importer drains the durable queue.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                bridgeMetric("Verified batches waiting", bridge.pendingBatchCount.formatted())
+                bridgeMetric("Local review", reviewWaiting.formatted())
+
+                Text("Stocked Server browses and preverifies independently. This Mac receives immutable candidates, repeats every image, attribution, duplicate, and approval gate, then publishes complete recipes; only server exceptions are retained for review.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 7) {
+                    Button("Refresh now") { harvest.refreshServerRecipeBridge() }
+                    if reviewWaiting > 0 {
+                        Button("Review \(reviewWaiting)") { pane = .review }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .font(.caption)
+            }
+        }
+    }
+
+    private func bridgeMetric(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Text(value).font(.caption.monospacedDigit()).lineLimit(1)
         }
     }
 
@@ -446,8 +512,7 @@ struct MacBrowseView: View {
                     SourceMultiPicker(
                         search: $sourceSearch,
                         selected: $selectedSourceIDs,
-                        american: americanSources,
-                        worldwide: worldwideSources,
+                        sources: catalogSources,
                         feeds: feedSources,
                         custom: customSources,
                         recent: harvest.recentSources,
@@ -455,6 +520,7 @@ struct MacBrowseView: View {
                         favoriteIDs: $harvest.settings.favoriteSourceIDs,
                         onFavoritesChanged: harvest.scheduleSettingsSave
                     )
+                    .macThemedSurface()
                 }
 
                 if browsableSources.isEmpty {
@@ -487,6 +553,7 @@ struct MacBrowseView: View {
                             harvest.scheduleSettingsSave()
                         }
                     ))
+                    .macThemedSurface()
                 }
 
                 findButtonRow
@@ -494,13 +561,28 @@ struct MacBrowseView: View {
                 Stepper(value: Binding(
                     get: { harvest.settings.scanLimit },
                     set: { harvest.settings.scanLimit = $0; harvest.scheduleSettingsSave() }
-                ), in: 5...500, step: 5) {
+                ), in: 5...2_000, step: 25) {
                     Text("Scan up to \(harvest.settings.scanLimit) recipes")
                         .font(.caption)
                 }
 
+                Toggle("Randomize selected sources and recipe order", isOn: Binding(
+                    get: { harvest.settings.randomizeMultiSourceImports },
+                    set: {
+                        harvest.settings.randomizeMultiSourceImports = $0
+                        harvest.scheduleSettingsSave()
+                    }
+                ))
+                .font(.caption)
+                .help("Uses a fresh random source subset and recipe order each run while preserving rate limits and saved progress")
+
                 if selectedSources.count > 5 {
-                    Label("Only the first 5 selected sources will be checked in this pass.", systemImage: "info.circle")
+                    Label(
+                        harvest.settings.randomizeMultiSourceImports
+                            ? "A random 5 of the selected sources will be checked in this pass."
+                            : "Only the first 5 selected sources will be checked in this pass.",
+                        systemImage: "info.circle"
+                    )
                         .font(.caption2).foregroundStyle(.orange)
                 }
 
@@ -545,7 +627,10 @@ struct MacBrowseView: View {
 
     private func startFind(forceRefresh: Bool = false) {
         let preferred = selectedSources.isEmpty ? defaultDiscoverySources : selectedSources
-        let sources = Array(preferred.prefix(5))
+        let ordered = harvest.settings.randomizeMultiSourceImports && preferred.count > 1
+            ? preferred.shuffled()
+            : preferred
+        let sources = Array(ordered.prefix(5))
         guard !sources.isEmpty else { return }
         if forceRefresh, sources.count == 1, let source = sources.first {
             harvest.discover(source, forceRefresh: true, queueResults: false)
@@ -613,12 +698,19 @@ struct MacBrowseView: View {
                     }
                     .font(.callout)
                 } else {
-                    Stepper(value: Binding(
-                        get: { harvest.settings.importBatchSize },
-                        set: { harvest.settings.importBatchSize = $0; harvest.scheduleSettingsSave() }
-                    ), in: 1...200, step: 5) {
-                        Text("Import \(harvest.settings.importBatchSize) per batch")
+                    HStack(spacing: 7) {
+                        Text("Import per batch")
                             .font(.caption)
+                        TextField("Count", value: importBatchSizeBinding, format: .number.grouping(.never))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 76)
+                            .accessibilityLabel("Recipes to import per batch")
+                        Stepper("", value: importBatchSizeBinding, in: 1...2_000, step: 25)
+                            .labelsHidden()
+                        Text("1–2,000")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
                     }
                     HStack(spacing: 6) {
                         let count = min(harvest.queuedURLCount, harvest.settings.importBatchSize)
@@ -637,6 +729,18 @@ struct MacBrowseView: View {
                 }
             }
         }
+    }
+
+    private var importBatchSizeBinding: Binding<Int> {
+        Binding(
+            get: { min(2_000, max(1, harvest.settings.importBatchSize)) },
+            set: { value in
+                let clamped = min(2_000, max(1, value))
+                harvest.settings.importBatchSize = clamped
+                harvest.settings.queueCap = max(harvest.settings.queueCap, clamped)
+                harvest.scheduleSettingsSave()
+            }
+        )
     }
 
     // MARK: - Results panel
@@ -917,6 +1021,8 @@ struct MacBrowseView: View {
                 }
                 HStack(spacing: 8) {
                     Button("Retry all") { harvest.retryFailures() }
+                    Button("Copy diagnostics") { harvest.copyFailureDiagnostics() }
+                        .help("Copies failed links and parser reasons for support")
                     Button("Clear") { harvest.clearFailures() }.foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                 }
@@ -1244,8 +1350,7 @@ private struct SourceMultiPicker: View {
     @Environment(HarvestModel.self) private var harvest
     @Binding var search: String
     @Binding var selected: Set<String>
-    let american: [SourceProfile]
-    let worldwide: [SourceProfile]
+    let sources: [SourceProfile]
     let feeds: [SourceProfile]
     let custom: [SourceProfile]
     let recent: [SourceProfile]
@@ -1274,7 +1379,44 @@ private struct SourceMultiPicker: View {
 
     private var catalog: [SourceProfile] {
         var seen = Set<String>()
-        return (american + worldwide + feeds + custom).filter { seen.insert($0.id).inserted }
+        return (sources + feeds + custom).filter { seen.insert($0.id).inserted }
+    }
+
+    /// A source may carry several descriptive tags. Assign it to the first matching
+    /// user-facing cuisine/culture so the main list has useful sections without duplicates.
+    private var categorizedGroups: [(String, [SourceProfile])] {
+        let definitions: [(String, [String])] = [
+            ("Black Food Culture", ["Black Food Culture"]),
+            ("Soul Food & African American", ["African American & Soul Food", "Soul Food", "African American"]),
+            ("Southern", ["Southern"]),
+            ("African", ["African", "Nigerian", "West African", "Ghanaian", "Cameroonian"]),
+            ("Caribbean", ["Caribbean", "Jamaican", "Guyanese", "Trinidadian", "Dominican", "Puerto Rican"]),
+            ("Mexican & Latin American", ["Mexican", "Tex-Mex", "Latin American", "Colombian", "Ecuadorian", "Brazilian", "Peruvian", "South American"]),
+            ("Italian", ["Italian"]),
+            ("Asian", ["Asian", "Chinese", "Japanese", "Korean", "Thai", "Vietnamese", "Filipino", "Southeast Asian", "Cantonese", "Sichuan", "Indonesian", "Singaporean"]),
+            ("Indian & South Asian", ["Indian", "South Asian", "Pakistani"]),
+            ("Middle Eastern & Mediterranean", ["Middle Eastern", "Mediterranean", "Lebanese", "Palestinian", "Persian", "Iranian", "Turkish", "Egyptian", "Arab", "Assyrian"]),
+            ("European", ["French", "Spanish", "Greek", "German", "Polish", "British", "European"]),
+            ("Australian & New Zealand", ["Australian", "New Zealand"]),
+            ("Vegan & Plant-Based", ["Vegan", "Plant-based", "Vegetarian"]),
+            ("Baking & Desserts", ["Baking", "Desserts"]),
+            ("Healthy & Special Diets", ["Healthy", "Gluten-free", "Low-carb"]),
+            ("American & Everyday", ["American", "Everyday", "Family", "Quick & easy"]),
+        ]
+        var remaining = sources
+        var result: [(String, [SourceProfile])] = []
+        for (title, tags) in definitions {
+            let matches = remaining.filter { source in
+                tags.contains { tag in source.tags.contains { $0.caseInsensitiveCompare(tag) == .orderedSame } }
+            }
+            if !matches.isEmpty {
+                result.append((title, matches))
+                let matchedIDs = Set(matches.map(\.id))
+                remaining.removeAll { matchedIDs.contains($0.id) }
+            }
+        }
+        if !remaining.isEmpty { result.append(("Other Recipe Sites", remaining)) }
+        return result
     }
 
     private var favorites: [SourceProfile] {
@@ -1334,8 +1476,9 @@ private struct SourceMultiPicker: View {
                 VStack(alignment: .leading, spacing: 2) {
                     if !recent.isEmpty && search.isEmpty { group("Recent", recent) }
                     if !favorites.isEmpty { group("Favorites", favorites) }
-                    group("American — Top 50", american)
-                    group("Worldwide — Top 50", worldwide)
+                    ForEach(Array(categorizedGroups.enumerated()), id: \.offset) { _, section in
+                        group(section.0, section.1)
+                    }
                     if !feeds.isEmpty { group("Communities & feeds", feeds) }
                     if !custom.isEmpty { group("Custom & imported", custom) }
                 }
@@ -1374,6 +1517,7 @@ private struct SourceMultiPicker: View {
                 harvest.updateSource(updated)
                 editingSource = nil
             }
+            .macThemedSurface()
         }
         .alert("Delete recipes from sources?", isPresented: Binding(
             get: { !deletingSources.isEmpty },

@@ -482,6 +482,13 @@ struct MacWebView: NSViewRepresentable {
             nsView.load(URLRequest(url: url))
         }
     }
+
+
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Void) {
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.loadHTMLString("", baseURL: nil)
+    }
 }
 
 // MARK: - Row thumbnail (Build 91)
@@ -500,6 +507,7 @@ struct HarvestThumbnail: View {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                    .accessibilityLabel("Photo")
             } else {
                 RoundedRectangle(cornerRadius: 5)
                     .fill(Color.secondary.opacity(0.12))
