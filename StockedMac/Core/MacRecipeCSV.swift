@@ -315,8 +315,8 @@ enum MacRecipeCSV {
             byTitleSaved[normKey(r.title), default: []].append(
                 MacRecipeCSVCandidate(id: r.id, title: r.title, detail: detail(r), library: .saved))
         }
-        let mineByID  = Dictionary(uniqueKeysWithValues: store.recipes.map { ($0.id, $0) })
-        let savedByID = Dictionary(uniqueKeysWithValues: store.savedRecipes.map { ($0.id, $0) })
+        let mineByID  = Dictionary(store.recipes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let savedByID = Dictionary(store.savedRecipes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         var results: [MacRecipeCSVMatch] = []
         var seen: Set<UUID> = []      // two rows naming the same recipe collapse to one

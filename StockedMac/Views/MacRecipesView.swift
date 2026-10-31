@@ -109,9 +109,11 @@ struct MacRecipesView: View {
         }
         // Decorate once before sorting. Calculating a cleaned title from inside the sort
         // comparator multiplied regex work by O(n log n) every time SwiftUI evaluated body.
-        let titleKeys = Dictionary(uniqueKeysWithValues: items.map {
+        // Legacy restores can contain repeated IDs. Keep the first lookup value,
+        // matching the editor/inspector's first-recipe selection without trapping.
+        let titleKeys = Dictionary(items.map {
             ($0.id, RecipeTitlePolicy.sortKey($0.title))
-        })
+        }, uniquingKeysWith: { first, _ in first })
         func orderedByTitle(_ lhs: UserRecipe, _ rhs: UserRecipe) -> Bool {
             let a = titleKeys[lhs.id] ?? lhs.title
             let b = titleKeys[rhs.id] ?? rhs.title
@@ -137,7 +139,8 @@ struct MacRecipesView: View {
             }
         case .quickest:
             // Parse each recipe's times once, then sort; unknown times go last.
-            let minutes = Dictionary(uniqueKeysWithValues: items.map { ($0.id, MacRecipeTiming.totalMinutes($0) ?? Int.max) })
+            let minutes = Dictionary(items.map { ($0.id, MacRecipeTiming.totalMinutes($0) ?? Int.max) },
+                                     uniquingKeysWith: { first, _ in first })
             items.sort {
                 let a = minutes[$0.id] ?? Int.max, b = minutes[$1.id] ?? Int.max
                 return a == b ? orderedByTitle($0, $1) : a < b
