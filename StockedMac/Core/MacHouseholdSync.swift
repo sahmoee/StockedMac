@@ -336,19 +336,31 @@ final class MacHouseholdSync {
 
     // MARK: - Membership
 
+    /// Acknowledgments belong to one membership. Invalidate them before any transition
+    /// suspends so an old in-flight sync cannot repopulate a new household's cache.
+    @discardableResult
+    private func beginMembershipChange() -> UInt64 {
+        membershipEpoch &+= 1
+        defaults.removeObject(forKey: Key.recipeVersions)
+        defaults.removeObject(forKey: Key.localStateVersion)
+        return membershipEpoch
+    }
+
     /// Start a brand-new household from the Mac. Returns the code to share.
     @discardableResult
     func createHousehold(ownerName: String) async -> String? {
-        membershipEpoch &+= 1
+        let transitionEpoch = beginMembershipChange()
         status = .syncing
         let trimmed = ownerName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let response = await post("/household/create",
                                         ["ownerName": trimmed.isEmpty ? memberName : trimmed,
                                          "memberId": memberID]),
               let newCode = response["code"] as? String, !newCode.isEmpty else {
+            guard transitionEpoch == membershipEpoch, !Task.isCancelled else { return nil }
             if case .syncing = status { status = .failed("Couldn't create the household.") }
             return nil
         }
+        guard transitionEpoch == membershipEpoch, !Task.isCancelled else { return nil }
         code = newCode
         if !trimmed.isEmpty { memberName = trimmed }
         readMembers(from: response["household"] as? [String: Any])
@@ -360,7 +372,7 @@ final class MacHouseholdSync {
 
     /// Join the kitchen the phone already has. This is the normal path.
     func join(code newCode: String, as name: String) async -> Bool {
-        membershipEpoch &+= 1
+        let transitionEpoch = beginMembershipChange()
         let parsed = MacHouseholdInvite.parse(newCode)
         let cleanCode = parsed.code
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -374,9 +386,11 @@ final class MacHouseholdSync {
                                          "memberName": cleanName.isEmpty ? memberName : cleanName,
                                          "invite": parsed.invite ?? "", "memberId": memberID]),
               (response["ok"] as? Bool) == true else {
+            guard transitionEpoch == membershipEpoch, !Task.isCancelled else { return false }
             if case .syncing = status { status = .failed("That code didn't work. Check it and try again.") }
             return false
         }
+        guard transitionEpoch == membershipEpoch, !Task.isCancelled else { return false }
         code = cleanCode
         if !cleanName.isEmpty { memberName = cleanName }
         readMembers(from: response["household"] as? [String: Any])
@@ -390,11 +404,12 @@ final class MacHouseholdSync {
     /// and silently wiping the user's kitchen because they unlinked a device would be
     /// unforgivable. Settings offers a separate explicit "remove local data".
     func leave() async {
-        membershipEpoch &+= 1
+        let transitionEpoch = beginMembershipChange()
         guard isJoined else { return }
         status = .syncing
         _ = await post("/household/leave",
                        ["code": code, "memberName": memberName, "memberId": memberID])
+        guard transitionEpoch == membershipEpoch, !Task.isCancelled else { return }
         code = ""
         householdName = ""
         members = []
@@ -429,10 +444,11 @@ final class MacHouseholdSync {
     /// Issue a new join code, invalidating the old one.
     @discardableResult
     func regenerateCode() async -> String? {
-        membershipEpoch &+= 1
+        let transitionEpoch = beginMembershipChange()
         guard isJoined else { return nil }
         guard let response = await post("/household/regenerate", ["code": code]),
               let newCode = response["code"] as? String, !newCode.isEmpty else { return nil }
+        guard transitionEpoch == membershipEpoch, !Task.isCancelled else { return nil }
         code = newCode
         persistIdentity()
         return newCode
@@ -721,7 +737,23 @@ final class MacHouseholdSync {
     }
 
     private func persistRecipeVersions(_ recipes: [UserRecipe]) {
-        let versions = Dictionary(uniqueKeysWithValues: recipes.map { ($0.id.uuidString, recipeVersion($0)) })
+        // Restored/legacy stores can contain duplicate IDs. Match household LWW so the
+        // cache records the newest revision, independently of duplicate array order.
+        let winners = recipes.reduce(into: [UUID: UserRecipe]()) { result, recipe in
+            if let existing = result[recipe.id] {
+                if HouseholdMergePolicy.remoteWins(remoteUpdatedAt: recipe.updatedAt,
+                                                    remoteWriterID: recipe.lastWriterID,
+                                                    localUpdatedAt: existing.updatedAt,
+                                                    localWriterID: existing.lastWriterID)
+                    || (recipe.updatedAt == existing.updatedAt && recipe.lastWriterID == existing.lastWriterID
+                        && recipeVersion(recipe) > recipeVersion(existing)) {
+                    result[recipe.id] = recipe
+                }
+            } else { result[recipe.id] = recipe }
+        }
+        let versions = winners.reduce(into: [String: String]()) { result, entry in
+            result[entry.key.uuidString] = recipeVersion(entry.value)
+        }
         if let data = try? JSONEncoder().encode(versions) { defaults.set(data, forKey: Key.recipeVersions) }
     }
 
