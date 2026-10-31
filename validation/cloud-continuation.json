@@ -1,7 +1,10 @@
 {
   "project": "StockedMac",
   "implemented_improvements": 20,
-  "status": "work-in-progress; do not merge before outstanding validation",
-  "validation": "Catalog recovery harness and Swift parsing passed; native macOS build pending",
-  "remaining": "Review final diff, run native build and meaningful regressions, finish minimum 20 meaningful improvements, submit PR. No physical-device verification claimed."
+  "status": "native-integration-validated",
+  "validation": "Native macOS Presentation scheme build/test passed (1 hosted test, four light/dark reference comparisons, zero failures). Actual membership/cache/batching/sync transaction regression harness passed; catalog recovery, CSV parser/guards, design (99), desktop (11), image policy, portable models, recipe interchange, taxonomy (9), and backup compatibility checks passed.",
+  "remaining": "Independent follow-up review of membership/cache repairs. Live editor/VoiceOver and physical-device acceptance are not claimed.",
+  "validated_source_commit": "ad22ed55d0989534bcb842724df8bfc6218f114f",
+  "validation_date": "2026-10-31",
+  "native_test_command": "xcodebuild -project StockedMac.xcodeproj -scheme Presentation -configuration Debug -destination 'platform=macOS,arch=x86_64' -jobs 2 -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test"
 }
